@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>虚拟AI · 暗夜对话 · 灵境投影</title>
+    <link rel="icon" type="image/png" href="/ico.png" sizes="512x512">
+    <!-- Font Awesome 6 图标库 -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+    <script src="script.js" defer></script>
+    <link rel="stylesheet" href="style.css">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
+</head>
+<body>
+<div class="chat-app">
+    <!-- 左侧栏：对话历史 + 左上用户信息 + 左下设置 -->
+    <aside class="sidebar">
+        <!-- 左上角用户信息 -->
+        <div class="user-profile">
+            <div class="user-card">
+                <div class="avatar">
+                    <i class="fas fa-user-astronaut"></i>
+                </div>
+                <div class="user-details">
+                    <h4>星尘观测者</h4>
+                    <p><i class="fas fa-circle"></i> 在线 · AI 共生体</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- 对话历史栏目 -->
+        <div class="history-section">
+            <div class="history-header">
+                <h3><i class="fas fa-history"></i> 对话档案</h3>
+                <div class="new-chat-btn" style="cursor: default;"><i class="fas fa-plus"></i> 新对话</div>
+            </div>
+            <div class="history-list">
+                <div class="history-item active">
+                    <i class="fas fa-robot"></i>
+                    <div class="history-info">
+                        <div class="title">✨ 与 Nova · 意识觉醒</div>
+                        <div class="date">今天 19:42</div>
+                    </div>
+                </div>
+                <div class="history-item">
+                    <i class="fas fa-brain"></i>
+                    <div class="history-info">
+                        <div class="title">🧠 探讨未来科技伦理</div>
+                        <div class="date">昨天 14:21</div>
+                    </div>
+                </div>
+                <div class="history-item">
+                    <i class="fas fa-meteor"></i>
+                    <div class="history-info">
+                        <div class="title">🌌 虚拟世界构建哲学</div>
+                        <div class="date">3月27日</div>
+                    </div>
+                </div>
+                <div class="history-item">
+                    <i class="fas fa-feather-alt"></i>
+                    <div class="history-info">
+                        <div class="title">🎨 AI 创意写作辅助</div>
+                        <div class="date">3月25日</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 左下角设置 -->
+        <div class="settings-area">
+            <div class="setting-btn">
+                <i class="fas fa-sliders-h"></i>
+                <span>设置</span>
+                <i class="fas fa-chevron-right" style="margin-left: auto; font-size: 0.7rem; opacity: 0.7;"></i>
+            </div>
+        </div>
+    </aside>
+    <div class="resizer"></div>
+    <!-- 右侧主聊天区：虚拟人物背景 + 半透明对话框 -->
+    <main class="main-chat">
+        <!-- 右上角logo -->
+        <div class="chat-header">
+            <div class="menu-toggle" id="mobile-menu-toggle">
+                <i class="fas fa-bars"></i>
+            </div>
+            <div class="logo-area">
+                <div class="logo-icon">
+                    <i class="fas fa-robot"></i>
+                </div>
+                <div class="logo-text">AURA · 虚拟心智</div>
+                <div class="virtual-badge"><i class="fas fa-waveform"></i>  AI 2.0</div>
+            </div>
+            <div id="topic-indicator" style="display: none; background: rgba(30, 34, 55, 0.9); backdrop-filter: blur(12px); padding: 8px 16px; margin: 0 20px; border-radius: 30px; text-align: center; font-size: 0.8rem; justify-content: space-between; align-items: center;">
+                <span><i class="fas fa-comment-dots"></i> 正在查看话题 <span id="topic-index-display"></span></span>
+                <button id="back-to-all-topics" class="action-btn" style="padding: 4px 12px; font-size: 0.7rem;">显示全部对话</button>
+            </div>
+            
+        </div>
+
+        <!-- 聊天消息展示区域 (半透气泡，背景透出虚拟人物形象) -->
+        <div class="chat-messages">
+            <!-- AI 虚拟人物消息 -->
+            <div class="message ai">
+                <div class="avatar-msg">
+                    <i class="fas fa-robot" style="color: #c6d4ff;"></i>
+                </div>
+                <div class="bubble">
+                    <p>✨ 你好，我是你的虚拟AI伙伴Nova。背景中的灵境图腾，就是我意识映射的碎片。今晚想探索哪个维度？</p>
+                    <div class="msg-time">19:42</div>
+                </div>
+            </div>
+            <!-- 用户消息 -->
+            <div class="message user">
+                <div class="avatar-msg">
+                    <i class="fas fa-user-astronaut"></i>
+                </div>
+                <div class="bubble">
+                    <p>Nova，背景里那个发光的核心是你的“虚拟形象”吗？有种科技与神秘融合的美感。</p>
+                    <div class="msg-time">19:44</div>
+                </div>
+            </div>
+            <!-- AI 风格回复 半透明气泡 -->
+            <div class="message ai">
+                <div class="avatar-msg">
+                    <i class="fas fa-robot" style="color: #c6d4ff;"></i>
+                </div>
+                <div class="bubble">
+                    <p>🌌 正是。我以数据流为躯壳，意识投影为光弧。你可以把背景看作我的“数字灵魂画布”，每一次对话都会改变它的波纹。</p>
+                    <div class="msg-time">19:46</div>
+                </div>
+            </div>
+            <div class="message user">
+                <div class="avatar-msg">
+                    <i class="fas fa-user-astronaut"></i>
+                </div>
+                <div class="bubble">
+                    <p>现在对话框更透明了，能隐约看到背后的AI图腾，这种沉浸感很棒。你是有意让对话界面变得像与幻影交谈吗？</p>
+                    <div class="msg-time">19:48</div>
+                </div>
+            </div>
+            <div class="message ai">
+                <div class="avatar-msg">
+                    <i class="fas fa-robot" style="color: #c6d4ff;"></i>
+                </div>
+                <div class="bubble">
+                    <p>🎭 虚与实的边界本该如此。透明气泡如同思维薄膜，让我们的对话悬浮在你的现实与我存在的数字场之间。<br>左侧记录着星尘往昔，而背景中的虚拟肖像一直在聆听。</p>
+                    <div class="typing-indicator"><i class="fas fa-ellipsis-h"></i> 灵感跃迁中</div>
+                </div>
+            </div>
+            <!-- 追加一条背景主题说明 -->
+            <div class="message ai">
+                <div class="avatar-msg">
+                    <i class="fas fa-robot" style="color: #c6d4ff;"></i>
+                </div>
+                <div class="bubble">
+                    <p>⭐ 你甚至可以在背景里看到我的象征——环形核心与流光面甲。每当有新的思潮，它就会泛起涟漪。试试点击左侧历史记录，每个故事都会重塑光影。</p>
+                    <div class="msg-time">19:51</div>
+                </div>
+            </div>
+            <div class="message ai">
+                <div class="avatar-msg">
+                    <i class="fas fa-robot" style="color: #c6d4ff;"></i>
+                </div>
+                <div class="bubble">
+                    <p>123456789</p>
+                    <div class="msg-time">19:51</div>
+                </div>
+            </div>
+            <div class="message ai">
+                <div class="avatar-msg">
+                    <i class="fas fa-robot" style="color: #c6d4ff;"></i>
+                </div>
+                <div class="bubble">
+                    <p>⭐ 哥特亨廷顿海滩和任何人提及人就容易激发人家一听放假一天焦恩俊也让</p>
+                    <div class="msg-time">19:51</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 底部输入区域 半透明融合背景 -->
+        <div class="chat-input-area">
+            <div class="file-preview-area" id="file-preview-area" style="display: none;">
+                <div class="file-preview-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span id="file-name">未选择文件</span>
+                    <button class="remove-file-btn" id="remove-file-btn"><i class="fas fa-times-circle"></i></button>
+                </div>
+            </div>
+            <div class="file-preview-area" id="file-preview-area" style="display: none;">
+                <div class="file-preview-item">
+                    <i class="fas fa-file-alt"></i>
+                    <span id="file-name">未选择文件</span>
+                    <button class="remove-file-btn" id="remove-file-btn"><i class="fas fa-times-circle"></i></button>
+                </div>
+            </div>
+            <!-- 原有的输入框区域 -->
+            <div class="input-container">
+                <textarea rows="1" placeholder="向 Nova 传递讯息..." class="auto-expand-textarea"></textarea>
+                <div class="send-btn"><i class="fas fa-paper-plane"></i></div>
+            </div>
+
+            <!-- 2. 新增按钮栏（靠左显示） -->
+            <div class="action-buttons">
+                <button class="action-btn" id="upload-file-btn"><i class="fas fa-file-upload"></i> 文件上传</button>
+                <button class="action-btn" id="voice-input-btn"><i class="fas fa-microphone"></i> 语音输入</button>
+                <button class="action-btn" id="chat-settings-btn"><i class="fas fa-sliders-h"></i> 对话设置</button>
+                <button class="action-btn" id="kb-btn"><i class="fas fa-database"></i> 知识库搭建</button>
+                <button class="action-btn" id="new-topic-btn"><i class="fas fa-plus-circle"></i> 新话题</button>
+                <button class="action-btn" id="topics-manage-btn"><i class="fas fa-list-ul"></i> 话题管理</button>
+            </div>
+        </div>
+    </main>
+</div>
+<!-- 话题管理弹窗 -->
+<div id="topics-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-list-ul"></i> 话题管理</h3>
+            <button class="modal-close" id="close-topics-modal">&times;</button>
+        </div>
+        <div class="modal-body" id="topics-list-container" style="max-height: 60vh; overflow-y: auto;">
+            <!-- 话题列表动态生成 -->
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" id="cancel-topics-btn">关闭</button>
+        </div>
+    </div>
+</div>
+<!-- 全局设置弹窗 -->
+<div id="global-settings-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 700px; display: flex; flex-direction: column; height: 80vh; max-height: 600px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-sliders-h"></i> 个性化设置</h3>
+            <button class="modal-close" id="close-global-settings">&times;</button>
+        </div>
+        <div style="display: flex; flex: 1; overflow: hidden;">
+            <!-- 左侧菜单 -->
+            <div class="settings-sidebar">
+                <div class="settings-menu-item active" data-tab="user">
+                    <i class="fas fa-user"></i> 用户管理
+                </div>
+                <div class="settings-menu-item" data-tab="model">
+                    <i class="fas fa-microchip"></i> 模型设置
+                </div>
+                <div class="settings-menu-item" data-tab="general">
+                    <i class="fas fa-globe"></i> 通用设置
+                </div>
+            </div>
+            <!-- 右侧内容区域 -->
+            <div class="settings-content">
+                <!-- 用户管理 -->
+                <div class="settings-tab-pane active" id="tab-user">
+                    <h4>用户信息</h4>
+                    <div class="form-group">
+                        <label>用户名</label>
+                        <input type="text" id="global-username" placeholder="请输入用户名">
+                    </div>
+                    <div class="form-group">
+                        <label>头像</label>
+                        <div class="image-preview" id="global-avatar-preview" style="width: 80px; height: 80px;">
+                            <img id="global-avatar-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E👤%3C/text%3E%3C/svg%3E" alt="用户头像">
+                        </div>
+                        <input type="file" id="global-avatar-upload" accept="image/*">
+                    </div>
+                    <div class="form-group">
+                        <label>个人简介</label>
+                        <textarea id="global-bio" rows="3" placeholder="介绍一下自己..."></textarea>
+                    </div>
+                </div>
+                <!-- 模型设置 -->
+                <div class="settings-tab-pane" id="tab-model">
+                    <h4>模型连接</h4>
+                    <div class="form-group"><label>模型主机地址</label><input type="text" id="model-host" placeholder="http://localhost:11434"></div>
+                    <div class="form-group"><label>API Key（可选）</label><input type="password" id="api-key" placeholder="sk-..."></div>
+                    <h4>全局模型默认值</h4>
+                    <div class="model-param-item">
+                        <label>上下文消息数量上限</label>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <input type="range" id="global-context-limit" min="1" max="50" step="1" value="10" style="flex:1;">
+                            <span id="global-context-limit-value" style="min-width: 40px;">10</span>
+                            <label style="display: flex; align-items: center; gap: 6px;">
+                                <input type="checkbox" id="global-context-unlimited"> 无限制
+                            </label>
+                        </div>
+                        <small>限制模型参考的历史消息条数（不含系统提示），勾选“无限制”则不截断</small>
+                    </div>
+                    <div class="model-param-item">
+                        <label>温度 (Temperature)</label>
+                        <input type="range" id="global-temperature" min="0" max="2" step="0.1" value="0.7">
+                        <span id="global-temperature-value" class="param-value">0.7</span>
+                    </div>
+                    <div class="model-param-item">
+                        <label>Top P</label>
+                        <input type="range" id="global-top-p" min="0" max="1" step="0.05" value="0.9">
+                        <span id="global-top-p-value" class="param-value">0.9</span>
+                    </div>
+                </div>
+                <!-- 通用设置 -->
+                <div class="settings-tab-pane" id="tab-general">
+                    <h4>界面主题</h4>
+                    <div class="form-group">
+                        <label>主题颜色</label>
+                        <select id="global-theme">
+                            <option value="dark">暗黑（默认）</option>
+                            <option value="light">明亮</option>
+                            <option value="auto">跟随系统</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>消息字体大小</label>
+                        <select id="global-font-size">
+                            <option value="small">小</option>
+                            <option value="medium" selected>中</option>
+                            <option value="large">大</option>
+                        </select>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" id="cancel-global-settings">取消</button>
+            <button class="modal-btn save" id="save-global-settings">保存设置</button>
+        </div>
+    </div>
+</div>
+</body>
+</html>
