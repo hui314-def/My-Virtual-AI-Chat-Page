@@ -364,7 +364,7 @@ body {
 
 /* 气泡 ———— 高透明度 + 毛玻璃效果，让虚拟人物背景隐约透出 */
 .bubble {
-    background: rgba(8, 10, 20, 0.55);
+    background: rgba(8, 10, 20, 0.2);
     backdrop-filter: blur(16px);
     padding: 12px 18px;
     border-radius: 24px;
@@ -375,7 +375,7 @@ body {
 }
 
 .message.user .bubble {
-    background: rgba(20, 24, 48, 0.6);
+    background: rgba(20, 24, 48, 0.3);
     backdrop-filter: blur(16px);
     border-bottom-right-radius: 6px;
     border-bottom-left-radius: 24px;
@@ -1397,4 +1397,89 @@ body.dragging {
     color: #eef2ff;
     font-family: monospace;
     font-size: 0.85rem;
+}
+
+.topic-gen-intro-btn {
+    background: rgba(95, 126, 255, 0.2);
+}
+.topic-gen-intro-btn:hover {
+    background: rgba(95, 126, 255, 0.5);
+}
+
+/* 思考过程折叠区域样式 */
+.think-details {
+    background: rgba(50, 50, 80, 0.3);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 4px 8px;
+}
+.think-details summary {
+    cursor: pointer;
+    color: #9bb0ff;
+    font-size: 0.8rem;
+    font-weight: normal;
+    outline: none;
+}
+.think-details summary::-webkit-details-marker {
+    color: #5f7eff;
+}
+.think-content {
+    padding: 8px 0 4px 0;
+    font-size: 0.85rem;
+    color: #b7c4ff;
+    border-top: 1px solid rgba(100, 130, 255, 0.3);
+    margin-top: 6px;
+    white-space: pre-wrap;
+}
+
+/* 消息操作栏 - 绝对定位在气泡下方 */
+.message-actions {
+    position: absolute;
+    background: rgba(20, 24, 45, 0.95);
+    backdrop-filter: blur(12px);
+    border-radius: 40px;
+    padding: 8px 16px;
+    display: flex;
+    gap: 16px;
+    z-index: 1000;
+    box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+    border: 1px solid rgba(100, 130, 255, 0.5);
+    animation: fadeInUp 0.2s ease;
+    white-space: nowrap;
+}
+.message-actions button {
+    background: transparent;
+    border: none;
+    color: #ccd6ff;
+    font-size: 0.9rem;
+    cursor: pointer;
+    padding: 6px 12px;
+    border-radius: 30px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    transition: 0.2s;
+}
+.message-actions button:hover {
+    background: rgba(255, 80, 80, 0.3);
+    color: #ff8a7a;
+}
+.message-actions .delete-btn {
+    color: #ff8a7a;
+}
+/* 小箭头指向气泡 */
+.message-actions::before {
+    content: '';
+    position: absolute;
+    top: -8px;
+    left: 20px;
+    width: 0;
+    height: 0;
+    border-left: 8px solid transparent;
+    border-right: 8px solid transparent;
+    border-bottom: 8px solid rgba(20, 24, 45, 0.95);
+}
+@keyframes fadeInUp {
+    from { opacity: 0; transform: translateY(5px); }
+    to { opacity: 1; transform: translateY(0); }
 }

@@ -272,6 +272,11 @@
                     <h4>模型连接</h4>
                     <div class="form-group"><label>模型主机地址</label><input type="text" id="model-host" placeholder="http://localhost:11434"></div>
                     <div class="form-group"><label>API Key（可选）</label><input type="password" id="api-key" placeholder="sk-..."></div>
+                    <div class="form-group">
+                        <label>模型名称</label>
+                        <input type="text" id="global-model-name" placeholder="例如: gpt-3.5-turbo, gemma2, deepseek-r1:14b">
+                        <small>Ollama 模型直接填写名称（如 gemma2），OpenAI 兼容 API 填写部署的模型 ID</small>
+                    </div>
                     <h4>全局模型默认值</h4>
                     <div class="model-param-item">
                         <label>上下文消息数量上限</label>
