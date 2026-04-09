@@ -591,7 +591,7 @@
         // 添加点击气泡显示操作栏
         const bubble = messageDiv.querySelector('.bubble');
         if (bubble) {
-            bubble.addEventListener('click', (e) => {
+            bubble.addEventListener('dbclick', (e) => {
                 e.stopPropagation();
                 showMessageActions(messageDiv, type, text, displayTime, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment);
             });
@@ -716,7 +716,19 @@
 
             // 构建 API 消息列表
             const messages = [];
-            if (rolePersona) messages.push({ role: 'system', content: rolePersona });
+            const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+            const userName = globalSettings.username || '用户';
+            const userBio = globalSettings.bio || '';
+
+            let systemPrompt = rolePersona ? rolePersona : '';
+            if (systemPrompt) systemPrompt += '\n\n';
+            if (userBio) {
+                systemPrompt += `关于当前用户：${userName}，简介：${userBio}\n\n`;
+            } else {
+                systemPrompt += `当前用户：${userName}\n\n`;
+            }
+            systemPrompt += '重要：请严格根据上述角色设定进行角色扮演，不要打破角色，不要以助手或AI的身份回答。始终以角色的身份和语气回复。';
+            messages.push({ role: 'system', content: systemPrompt });
             for (const msg of messagesToUse) {
                 messages.push({ role: msg.type === 'user' ? 'user' : 'assistant', content: msg.text });
             }
@@ -833,7 +845,7 @@
             // 重新绑定气泡点击事件（因为 innerHTML 会清除原有监听）
             const newBubble = messageDiv.querySelector('.bubble');
             if (newBubble) {
-                newBubble.addEventListener('click', (e) => {
+                newBubble.addEventListener('dbclick', (e) => {
                     e.stopPropagation();
                     showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
                 });
@@ -888,8 +900,6 @@
                 name: currentFile.name,
                 content: currentFileContent
             };
-            // 显示的消息文本只包含文件名，不显示内容
-            text = text ? text + `\n\n📎 附件：${currentFile.name}` : `📎 附件：${currentFile.name}`;
             // 发送后清除文件预览
             currentFile = null;
             currentFileContent = null;
@@ -1735,7 +1745,6 @@
                         </div>
                         <div class="topic-preview" id="topic-preview-${idx}">${escapeHtml(topic.summary || preview)}</div>
                         <div class="topic-actions">
-                            <button class="topic-switch-btn" data-topic-index="${idx}"><i class="fas fa-eye"></i> 切换到此话题</button>
                             <button class="topic-gen-intro-btn" data-topic-index="${idx}"><i class="fas fa-magic"></i> 生成简介</button>
                             <button class="topic-export-btn" data-topic-index="${idx}"><i class="fas fa-download"></i> 导出</button>
                             <button class="topic-delete-btn" data-topic-index="${idx}"><i class="fas fa-trash-alt"></i> 删除</button>
@@ -1767,8 +1776,10 @@
                 });
             });
             // 绑定切换按钮的事件
-            container.querySelectorAll('.topic-switch-btn').forEach(btn => {
+            container.querySelectorAll('.topic-item').forEach(btn => {
                 btn.addEventListener('click', (e) => {
+                    // 如果点击的是按钮区域或其子元素，不触发切换
+                    if (e.target.closest('.topic-actions')) return;
                     const idx = parseInt(btn.getAttribute('data-topic-index'));
                     closeTopicsModal();                // 关闭话题管理弹窗
                     setCurrentTopic(idx);             // 切换到该话题视图
@@ -1839,6 +1850,10 @@
             renderMessages(currentChatId);
             renderHistoryList();
             saveToStorage();
+            if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
+                // 如果没有任何实际消息，自动开启一个新话题
+                startNewTopic();
+            }
             closeTopicsModal(); // 关闭弹窗
             openTopicsModal(); // 重新打开显示更新后的列表
         }
@@ -2481,10 +2496,6 @@
         // 重新渲染界面（移除原消息）
         renderMessages(currentChatId, currentTopicIndex);
         
-        // 模拟发送用户消息（但不需要再添加用户消息，直接调用 AI）
-        // 为了复用流式输出逻辑，我们可以直接调用 simulateAIResponse，但需要确保消息历史中已有该用户消息
-        // 注意：用户消息已经存在于消息历史中，无需重复添加
-        // 直接调用 AI 回复，但需要避免重复添加用户消息，所以使用 simulateAIResponse(userMsg) 即可
         await simulateAIResponse(userMsg);
     }
 
