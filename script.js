@@ -2002,7 +2002,7 @@
             }
 
             // 调用 TTS API
-            const response = await fetch('http://localhost:5000/tts', {
+            const response = await fetch('https://virtual-ai-chatter.vercel.app/tts', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: text, voice: voice })
