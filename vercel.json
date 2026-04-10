@@ -4,20 +4,12 @@
     {
       "src": "tts_server.py",
       "use": "@vercel/python"
-    },
-    {
-      "src": "public/**",
-      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
       "src": "/tts",
       "dest": "/tts_server.py"
-    },
-    {
-      "src": "/(.*)",
-      "dest": "/public/index.html"
     }
   ]
 }
