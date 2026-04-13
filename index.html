@@ -7,8 +7,8 @@
     <link rel="icon" type="image/png" href="/ico.png" sizes="512x512">
     <!-- Font Awesome 6 图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
-    <script src="/script.js" defer></script>
-    <link rel="stylesheet" href="/style.css">
+    <script src="script.js" defer></script>
+    <link rel="stylesheet" href="style.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
 </head>
 <body>
@@ -298,6 +298,40 @@
                         <label>Top P</label>
                         <input type="range" id="global-top-p" min="0" max="1" step="0.05" value="0.9">
                         <span id="global-top-p-value" class="param-value">0.9</span>
+                    </div>
+                    <!-- 语音合成设置 -->
+                    <h4 style="margin-top: 20px;">语音合成 (TTS)</h4>
+                    <div class="form-group">
+                        <label>TTS API 地址</label>
+                        <input type="text" id="tts-api-url" placeholder="http://localhost:5000">
+                        <small>语音合成后端服务地址，默认端口 5000</small>
+                    </div>
+                    <div class="form-group">
+                        <label>可用音色</label>
+                        <div style="display: flex; gap: 12px; align-items: center;">
+                            <button type="button" id="fetch-voices-btn" class="action-btn" style="background: rgba(45,55,85,0.6);"><i class="fas fa-list"></i> 获取音色列表</button>
+                            <span id="voice-list-display" style="color: #b7c4ff; font-size: 0.8rem;">未加载</span>
+                        </div>
+                        <small>点击按钮从后端获取已注册的音色名称</small>
+                    </div>
+                    <div class="form-group" style="margin-top: 20px; border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px;">
+                        <label><i class="fas fa-clone"></i> 音色克隆</label>
+                        <div style="background: rgba(30,34,55,0.5); border-radius: 16px; padding: 12px;">
+                            <div class="form-group">
+                                <label>音色名称</label>
+                                <input type="text" id="clone-voice-name" placeholder="例如：my_voice" style="width: 100%;">
+                            </div>
+                            <div class="form-group">
+                                <label>参考音频文件</label>
+                                <input type="file" id="clone-audio-file" accept=".mp3,.wav,.flac">
+                            </div>
+                            <div class="form-group">
+                                <label>音频文本内容</label>
+                                <textarea id="clone-audio-text" rows="2" placeholder="请填写音频中对应的文本内容，用于音色克隆"></textarea>
+                            </div>
+                            <button id="start-clone-btn" class="action-btn" style="background: #5f7eff;"><i class="fas fa-microphone-alt"></i> 生成音色</button>
+                            <div id="clone-status" style="margin-top: 8px; font-size: 0.75rem; color: #b7c4ff;"></div>
+                        </div>
                     </div>
                 </div>
                 <!-- 通用设置 -->

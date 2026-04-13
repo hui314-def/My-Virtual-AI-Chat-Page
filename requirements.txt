@@ -1,3 +1,5 @@
 Flask==3.0.3
 flask_cors==4.0.1
-dashscope==1.20.3
+torch==2.11.0
+qwen-tts==0.1.1
+soundfile==0.13.1

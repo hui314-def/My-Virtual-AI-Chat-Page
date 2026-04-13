@@ -312,23 +312,7 @@
                         <div class="form-group" id="tts-voice-group" style="display: none;">
                             <label>音色选择</label>
                             <select id="tts-voice-select">
-                                <option value="longxiaocheng">龙小诚（中文+英文）</option>
-                                <option value="longxiaobai">龙小白（中文）</option>
-                                <option value="longlaotie">龙老铁（中文·东北口音）</option>
-                                <option value="longshu">龙书（中文）</option>
-                                <option value="longshuo">龙硕（中文）</option>
-                                <option value="longjing">龙婧（中文）</option>
-                                <option value="longmiao">龙妙（中文）</option>
-                                <option value="longyue">龙悦（中文）</option>
-                                <option value="longyuan">龙媛（中文）</option>
-                                <option value="longfei">龙飞（中文）</option>
-                                <option value="longjielidou">龙杰力豆（中文+英文）</option>
-                                <option value="longtong">龙彤（中文）</option>
-                                <option value="longxiang">龙祥（中文）</option>
-                                <option value="loongstella">Stella（中文+英文）</option>
-                                <option value="longhua">龙华（中文）</option>
-                                <option value="longxiaochun">龙小淳（中文+英文）</option>
-                                <option value="longxiaoxia">龙小夏（中文）</option>
+                                <option value="">加载中...</option>
                             </select>
                         </div>
                         <div class="form-group" style="border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px; margin-top: 8px;">
@@ -591,7 +575,7 @@
         // 添加点击气泡显示操作栏
         const bubble = messageDiv.querySelector('.bubble');
         if (bubble) {
-            bubble.addEventListener('dbclick', (e) => {
+            bubble.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 showMessageActions(messageDiv, type, text, displayTime, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment);
             });
@@ -845,7 +829,7 @@
             // 重新绑定气泡点击事件（因为 innerHTML 会清除原有监听）
             const newBubble = messageDiv.querySelector('.bubble');
             if (newBubble) {
-                newBubble.addEventListener('dbclick', (e) => {
+                newBubble.addEventListener('dblclick', (e) => {
                     e.stopPropagation();
                     showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
                 });
@@ -864,7 +848,8 @@
             if (currentChat.settings?.ttsEnabled) {
                 const { replyContent } = parseThinkContent(fullReply);
                 if (replyContent) {
-                    const ttsVoice = currentChat.settings.ttsVoice;
+                    let ttsVoice = currentChat.settings.ttsVoice;
+                    if (!ttsVoice || ttsVoice === '') ttsVoice = 'default';
                     speakWithQwenTTS(replyContent, ttsVoice);
                 }
             }
@@ -1113,23 +1098,31 @@
         const ttsSwitch = document.getElementById('tts-switch');
         const ttsVoiceSelect = document.getElementById('tts-voice-select');
         const ttsVoiceGroup = document.getElementById('tts-voice-group');
-
+        
         if (ttsSwitch) {
             ttsSwitch.checked = settings.ttsEnabled || false;
+            // 定义加载音色列表的函数（仅当开关打开时）
+            const loadVoiceListIfNeeded = async () => {
+                if (ttsSwitch.checked && ttsVoiceSelect) {
+                    await loadVoiceList(ttsVoiceSelect);
+                }
+            };
             // 根据开关状态显示/隐藏音色选择
             if (ttsVoiceGroup) {
                 ttsVoiceGroup.style.display = ttsSwitch.checked ? 'block' : 'none';
             }
+            loadVoiceListIfNeeded();
             // 绑定开关变化事件
-            ttsSwitch.onchange = () => {
+            ttsSwitch.onchange = async () => {
                 if (ttsVoiceGroup) {
                     ttsVoiceGroup.style.display = ttsSwitch.checked ? 'block' : 'none';
                 }
+                if (ttsSwitch.checked) {
+                await loadVoiceListIfNeeded();
+            }
             };
         }
-        if (ttsVoiceSelect) {
-            ttsVoiceSelect.value = settings.ttsVoice || 'zh-CN-XiaoxiaoNeural';
-        }
+
         modal.style.display = 'flex';
         // 绑定自动扩展（每次打开时重新绑定，确保生效）
         bindAutoResize(rolePersona);
@@ -2000,9 +1993,10 @@
                 currentAudio.pause();
                 currentAudio.currentTime = 0;
             }
-
+            const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+            const ttsApiUrl = globalSettings.ttsApiUrl || 'http://localhost:5000';
             // 调用 TTS API
-            const response = await fetch('https://virtual-ai-chatter.vercel.app/tts', {
+            const response = await fetch(`${ttsApiUrl}/tts`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ text: text, voice: voice })
@@ -2027,7 +2021,6 @@
             audio.onerror = (err) => {
                 URL.revokeObjectURL(audioUrl);
                 console.error('音频播放失败', err);
-                // 降级：尝试 Web Speech API
                 fallbackSpeak(text);
             };
         } catch (err) {
@@ -2096,6 +2089,92 @@
         const ctxUnlimitedCheck = document.getElementById('global-context-unlimited');
         const tempSlider = document.getElementById('global-temperature');
         const topPSlider = document.getElementById('global-top-p');
+        const ttsApiUrlInput = document.getElementById('tts-api-url');
+        const fetchVoicesBtn = document.getElementById('fetch-voices-btn');
+        // 音色克隆按钮事件
+        const cloneBtn = document.getElementById('start-clone-btn');
+        const cloneStatus = document.getElementById('clone-status');
+
+        if (fetchVoicesBtn) {
+            fetchVoicesBtn.addEventListener('click', async () => {
+                const apiUrl = document.getElementById('tts-api-url').value;
+                if (!apiUrl) {
+                    alert('请先填写 TTS API 地址');
+                    return;
+                }
+                try {
+                    const response = await fetch(`${apiUrl}/voices`);
+                    if (!response.ok) throw new Error('获取失败');
+                    const data = await response.json();
+                    const voiceList = data.voices || [];
+                    const displaySpan = document.getElementById('voice-list-display');
+                    if (voiceList.length === 0) {
+                        displaySpan.innerText = '无可用音色';
+                    } else {
+                        displaySpan.innerHTML = voiceList.join(', ');
+                    }
+                } catch (err) {
+                    console.error(err);
+                    document.getElementById('voice-list-display').innerText = '获取失败，请检查服务地址';
+                }
+            });
+        }
+        if (cloneBtn) {
+            cloneBtn.addEventListener('click', async () => {
+                const voiceName = document.getElementById('clone-voice-name').value.trim();
+                const audioFile = document.getElementById('clone-audio-file').files[0];
+                const audioText = document.getElementById('clone-audio-text').value.trim();
+                
+                if (!voiceName) {
+                    alert('请输入音色名称');
+                    return;
+                }
+                if (!audioFile) {
+                    alert('请选择参考音频文件');
+                    return;
+                }
+                if (!audioText) {
+                    alert('请填写音频对应的文本内容');
+                    return;
+                }
+                
+                const formData = new FormData();
+                formData.append('voice_name', voiceName);
+                formData.append('audio', audioFile);
+                formData.append('ref_text', audioText);
+                
+                const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+                const ttsApiUrl = globalSettings.ttsApiUrl || 'http://localhost:5000';
+                
+                cloneStatus.innerText = '正在克隆音色，请稍候...';
+                cloneBtn.disabled = true;
+                
+                try {
+                    const response = await fetch(`${ttsApiUrl}/clone_voice`, {
+                        method: 'POST',
+                        body: formData
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        cloneStatus.innerText = '✅ 音色克隆成功！已保存到音色库。';
+                        // 刷新音色列表显示
+                        if (typeof fetchVoiceList === 'function') await fetchVoiceList();
+                        // 清空表单
+                        document.getElementById('clone-voice-name').value = '';
+                        document.getElementById('clone-audio-file').value = '';
+                        document.getElementById('clone-audio-text').value = '';
+                    } else {
+                        cloneStatus.innerText = `❌ 克隆失败：${result.error}`;
+                    }
+                } catch (err) {
+                    cloneStatus.innerText = `❌ 网络错误：${err.message}`;
+                } finally {
+                    cloneBtn.disabled = false;
+                }
+            });
+        }
+        
+        if (ttsApiUrlInput) ttsApiUrlInput.value = globalSettings.ttsApiUrl || 'http://localhost:5000';
         if (ctxSlider) {
             if (globalSettings.contextUnlimited) {
                 ctxUnlimitedCheck.checked = true;
@@ -2194,7 +2273,8 @@
             topP: parseFloat(document.getElementById('global-top-p').value),
             theme: document.getElementById('global-theme').value,
             fontSize: document.getElementById('global-font-size').value,
-            modelName: document.getElementById('global-model-name').value
+            modelName: document.getElementById('global-model-name').value,
+            ttsApiUrl: document.getElementById('tts-api-url').value,
         };
         try {
             localStorage.setItem('global_settings', JSON.stringify(globalSettings));
@@ -2364,13 +2444,15 @@
                             currentChat.messages[currentChat.messages.length - 1].time === time);
         
         let buttonsHtml = `<button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除消息</button>`;
+        if (type === 'ai') {
+            buttonsHtml += `<button class="play-msg-btn"><i class="fas fa-play"></i> 播放</button>`;
+        }
         if (isLatestAi) {
             buttonsHtml += `
                 <button class="regenerate-btn"><i class="fas fa-undo-alt"></i> 重新生成</button>
                 <button class="continue-btn"><i class="fas fa-forward"></i> 继续说</button>
             `;
         }
-        buttonsHtml += `<button class="cancel-actions"><i class="fas fa-times"></i> 取消</button>`;
         actionsDiv.innerHTML = buttonsHtml;
         document.body.appendChild(actionsDiv);
         currentActionMenu = actionsDiv;
@@ -2397,7 +2479,27 @@
                 }
             });
         }
-        
+
+        // 播放按钮
+        const playBtn = actionsDiv.querySelector('.play-msg-btn');
+        if (playBtn) {
+            playBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                closeActionMenu();
+                const currentChat = chats.find(c => c.id == currentChatId);
+                const ttsEnabled = currentChat?.settings?.ttsEnabled;
+                const ttsVoice = currentChat?.settings?.ttsVoice || 'default';
+                if (ttsEnabled) {
+                    const { replyContent } = parseThinkContent(text);
+                    const contentToSpeak = replyContent || text;
+                    if (contentToSpeak.trim()) {
+                        speakWithQwenTTS(contentToSpeak, ttsVoice);
+                    }
+                } else {
+                    alert('当前对话未开启语音合成，请在对话设置中开启 TTS 开关');
+                }
+            });
+        }
         // 重新生成按钮
         const regenBtn = actionsDiv.querySelector('.regenerate-btn');
         if (regenBtn) {
@@ -2415,15 +2517,6 @@
                 e.stopPropagation();
                 closeActionMenu();
                 await continueAIMessage();
-            });
-        }
-        
-        // 取消按钮
-        const cancelBtn = actionsDiv.querySelector('.cancel-actions');
-        if (cancelBtn) {
-            cancelBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                closeActionMenu();
             });
         }
         
@@ -2527,6 +2620,63 @@
         await simulateAIResponse(continuePrompt);
     }
 
+    // 封装获取音色列表的函数（供克隆后刷新和按钮调用）
+    async function fetchVoiceList() {
+        const apiUrl = document.getElementById('tts-api-url').value;
+        if (!apiUrl) return;
+        try {
+            const response = await fetch(`${apiUrl}/voices`);
+            if (!response.ok) throw new Error();
+            const data = await response.json();
+            const displaySpan = document.getElementById('voice-list-display');
+            if (data.voices && data.voices.length) {
+                displaySpan.innerHTML = data.voices.join(', ');
+            } else {
+                displaySpan.innerText = '无可用音色';
+            }
+        } catch (err) {
+            console.warn('获取音色列表失败', err);
+        }
+    }
+
+    async function loadVoiceList(selectElement) {
+        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+        const ttsApiUrl = globalSettings.ttsApiUrl || 'http://localhost:5000';
+        try {
+            const response = await fetch(`${ttsApiUrl}/voices`);
+            if (response.ok) {
+                const data = await response.json();
+                const voices = data.voices || [];
+                selectElement.innerHTML = '';
+                if (voices.length === 0) {
+                    const option = document.createElement('option');
+                    option.value = '';
+                    option.textContent = '无可用音色，请先克隆';
+                    selectElement.appendChild(option);
+                } else {
+                    voices.forEach(voice => {
+                        const option = document.createElement('option');
+                        option.value = voice;
+                        option.textContent = voice;
+                        selectElement.appendChild(option);
+                    });
+                }
+                // 恢复之前保存的音色值
+                const currentChat = chats.find(c => c.id == currentChatId);
+                const savedVoice = currentChat?.settings?.ttsVoice;
+                if (savedVoice && voices.includes(savedVoice)) {
+                    selectElement.value = savedVoice;
+                } else if (voices.length > 0) {
+                    selectElement.value = voices[0];
+                }
+            } else {
+                selectElement.innerHTML = '<option value="">获取音色列表失败</option>';
+            }
+        } catch (err) {
+            console.error('加载音色列表失败', err);
+            selectElement.innerHTML = '<option value="">加载失败，请检查服务地址</option>';
+        }
+    }
     async function init() {
         await initData();
         initResizer();
