@@ -2,9 +2,8 @@
 <html lang="zh-CN">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>虚拟AI · 暗夜对话 · 灵境投影</title>
-    <link rel="icon" type="image/png" href="/ico.png" sizes="512x512">
+    <link rel="icon" type="image/png" href="ico.png" sizes="425x340">
     <!-- Font Awesome 6 图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="script.js" defer></script>
@@ -31,8 +30,8 @@
         <!-- 对话历史栏目 -->
         <div class="history-section">
             <div class="history-header">
-                <h3><i class="fas fa-history"></i> 对话档案</h3>
-                <div class="new-chat-btn" style="cursor: default;"><i class="fas fa-plus"></i> 新对话</div>
+                <h3><i class="fas fa-history"></i> 智能体档案</h3>
+                <div class="import-chat-btn" title="导入对话 (JSON)"><i class="fas fa-file-import"></i> 导入</div>
             </div>
             <div class="history-list">
                 <div class="history-item active">
@@ -65,12 +64,14 @@
                 </div>
             </div>
         </div>
-
+        <div class="new-chat-fixed">
+            <div class="new-chat-btn"><i class="fas fa-plus"></i> 新对话</div>
+        </div>
         <!-- 左下角设置 -->
         <div class="settings-area">
             <div class="setting-btn">
                 <i class="fas fa-sliders-h"></i>
-                <span>设置</span>
+                <span>个性化·设置</span>
                 <i class="fas fa-chevron-right" style="margin-left: auto; font-size: 0.7rem; opacity: 0.7;"></i>
             </div>
         </div>
@@ -83,12 +84,15 @@
             <div class="menu-toggle" id="mobile-menu-toggle">
                 <i class="fas fa-bars"></i>
             </div>
-            <div class="logo-area">
-                <div class="logo-icon">
-                    <i class="fas fa-robot"></i>
-                </div>
-                <div class="logo-text">AURA · 虚拟心智</div>
-                <div class="virtual-badge"><i class="fas fa-waveform"></i>  AI 2.0</div>
+            <div class="search-container" style="position: relative; margin-left: 12px;">
+                <i class="fas fa-search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #a8aad3; font-size: 0.9rem;"></i>
+                <input type="text" id="global-search-input" placeholder="搜索对话..." autocomplete="off" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 30px; padding: 8px 12px 8px 36px; color: #f0f3ff; width: 200px; font-size: 0.85rem; outline: none; transition: 0.2s;">
+                <div id="search-results-dropdown" class="search-dropdown" style="display: none;"></div>
+            </div>
+            <div class="model-selector" style="margin-left: 20px;">
+                <select id="quick-model-select" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
+                    <option>加载中...</option>
+                </select>
             </div>
             <div id="topic-indicator" style="display: none; background: rgba(30, 34, 55, 0.9); backdrop-filter: blur(12px); padding: 8px 16px; margin: 0 20px; border-radius: 30px; text-align: center; font-size: 0.8rem; justify-content: space-between; align-items: center;">
                 <span><i class="fas fa-comment-dots"></i> 正在查看话题 <span id="topic-index-display"></span></span>
@@ -186,16 +190,9 @@
                     <button class="remove-file-btn" id="remove-file-btn"><i class="fas fa-times-circle"></i></button>
                 </div>
             </div>
-            <div class="file-preview-area" id="file-preview-area" style="display: none;">
-                <div class="file-preview-item">
-                    <i class="fas fa-file-alt"></i>
-                    <span id="file-name">未选择文件</span>
-                    <button class="remove-file-btn" id="remove-file-btn"><i class="fas fa-times-circle"></i></button>
-                </div>
-            </div>
             <!-- 原有的输入框区域 -->
             <div class="input-container">
-                <textarea rows="1" placeholder="向 Nova 传递讯息..." class="auto-expand-textarea"></textarea>
+                <textarea rows="1" placeholder="试着发送一句话吧..." class="auto-expand-textarea"></textarea>
                 <div class="send-btn"><i class="fas fa-paper-plane"></i></div>
             </div>
 
@@ -204,7 +201,6 @@
                 <button class="action-btn" id="upload-file-btn"><i class="fas fa-file-upload"></i> 文件上传</button>
                 <button class="action-btn" id="voice-input-btn"><i class="fas fa-microphone"></i> 语音输入</button>
                 <button class="action-btn" id="chat-settings-btn"><i class="fas fa-sliders-h"></i> 对话设置</button>
-                <button class="action-btn" id="kb-btn"><i class="fas fa-database"></i> 知识库搭建</button>
                 <button class="action-btn" id="new-topic-btn"><i class="fas fa-plus-circle"></i> 新话题</button>
                 <button class="action-btn" id="topics-manage-btn"><i class="fas fa-list-ul"></i> 话题管理</button>
             </div>
@@ -273,8 +269,14 @@
                     <div class="form-group"><label>模型主机地址</label><input type="text" id="model-host" placeholder="http://localhost:11434"></div>
                     <div class="form-group"><label>API Key（可选）</label><input type="password" id="api-key" placeholder="sk-..."></div>
                     <div class="form-group">
-                        <label>模型名称</label>
-                        <input type="text" id="global-model-name" placeholder="例如: gpt-3.5-turbo, gemma2, deepseek-r1:14b">
+                        <label>模型列表管理</label>
+                        <div style="display: flex; gap: 12px; align-items: flex-start;">
+                            <input type="text" id="new-model-name" placeholder="例如: gpt-4, gemma2:7b" style="flex:1;">
+                            <button type="button" id="add-model-btn" class="action-btn" style="padding: 6px 12px;">➕ 添加</button>
+                        </div>
+                        <div id="model-list-container" style="margin-top: 12px; max-height: 150px; overflow-y: auto; background: rgba(30,34,55,0.5); border-radius: 16px; padding: 8px;">
+                            <!-- 动态生成的模型列表 -->
+                        </div>
                         <small>Ollama 模型直接填写名称（如 gemma2），OpenAI 兼容 API 填写部署的模型 ID</small>
                     </div>
                     <h4>全局模型默认值</h4>

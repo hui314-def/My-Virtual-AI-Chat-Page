@@ -124,17 +124,6 @@ body {
     gap: 8px;
 }
 
-.new-chat-btn {
-    background: rgba(45, 55, 85, 0.6);
-    border: 1px solid rgba(100, 120, 200, 0.4);
-    border-radius: 30px;
-    padding: 5px 10px;
-    font-size: 0.7rem;
-    color: #ccd6ff;
-    cursor: default;
-    backdrop-filter: blur(4px);
-}
-
 .history-list {
     flex: 1;
     overflow-y: auto;
@@ -175,6 +164,7 @@ body {
     gap: 12px;
     position: relative;
     overflow: visible;
+    cursor: pointer;
 }
 
 .history-item.active {
@@ -218,7 +208,7 @@ body {
     padding: 10px 16px;
     border-radius: 40px;
     backdrop-filter: blur(5px);
-    cursor: default;
+    cursor: pointer;
     border: 1px solid rgba(100, 110, 150, 0.3);
 }
 
@@ -263,17 +253,6 @@ body {
     border-bottom: 1px solid rgba(100, 120, 200, 0.3);
     z-index: 2;
     position: relative;
-}
-
-.logo-area {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    background: rgba(12, 12, 25, 0.6);
-    padding: 6px 16px 6px 12px;
-    border-radius: 60px;
-    border: 1px solid rgba(100, 130, 255, 0.5);
-    backdrop-filter: blur(8px);
 }
 
 .logo-icon {
@@ -340,8 +319,8 @@ body {
 }
 
 .avatar-msg {
-    width: 38px;
-    height: 38px;
+    width: 50px;
+    height: 50px;
     border-radius: 50%;
     background: rgba(30, 32, 55, 0.7);
     backdrop-filter: blur(6px);
@@ -430,7 +409,7 @@ body {
     background: rgba(12, 16, 28, 0.65);
     backdrop-filter: blur(12px);
     border-radius: 60px;
-    padding: 5px 8px 5px 22px;
+    padding: 5px 8px 5px 20px;
     border: 1px solid rgba(110, 140, 230, 0.5);
     transition: 0.2s;
 }
@@ -465,6 +444,7 @@ body {
     color: #d0ddff;
     font-size: 1.2rem;
     box-shadow: 0 0 8px rgba(70, 100, 255, 0.3);
+    cursor: pointer;
 }
 
 /* 辅助文字透明感 */
@@ -516,7 +496,7 @@ body {
     flex: 1;
     background: transparent;
     border: none;
-    padding: 12px 0;
+    padding: 12px 10;
     font-size: 0.9rem;
     color: #f0f3ff;
     outline: none;
@@ -596,7 +576,7 @@ body {
     top: 0;
     left: 0;
     width: 100%;
-    height: 100%;
+    /* height: 100%; */
     background: rgba(0, 0, 0, 0.8);
     backdrop-filter: blur(8px);
     display: flex;
@@ -651,8 +631,8 @@ body {
 
 .modal-body {
     padding: 20px 24px;
-    max-height: 60vh;
-    overflow-y: auto;
+    overflow-y: hidden;
+    max-height: none;
 }
 
 .form-group {
@@ -854,17 +834,13 @@ input:focus, textarea:focus {
 
 /* 下拉菜单 */
 .history-menu {
-    position: absolute;
-    right: 12px;
-    top: 45px;
     background: rgba(20, 24, 40, 0.95);
     backdrop-filter: blur(12px);
     border-radius: 16px;
     border: 1px solid rgba(100, 130, 255, 0.4);
     box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
     min-width: 140px;
-    z-index: 10000;
-    overflow: visible;
+    overflow: hidden;
     animation: menuFadeIn 0.15s ease;
 }
 @keyframes menuFadeIn {
@@ -974,6 +950,7 @@ input:checked + .slider:before {
     padding: 12px 16px;
     margin-bottom: 12px;
     border: 1px solid rgba(100, 130, 255, 0.3);
+    cursor: pointer;
 }
 .topic-header {
     display: flex;
@@ -994,10 +971,12 @@ input:checked + .slider:before {
     color: #b7c4ff;
     margin-bottom: 12px;
     line-height: 1.4;
+    cursor: text;
 }
 .topic-actions {
     display: flex;
     gap: 12px;
+    width: 250px;
 }
 .topic-export-btn, .topic-delete-btn {
     background: rgba(20, 24, 45, 0.7);
@@ -1209,9 +1188,6 @@ body.dragging {
         color: #ccd6ff;
         font-size: 1.2rem;
     }
-    .logo-area {
-        margin-left: auto;
-    }
     /* 消息气泡宽度调整 */
     .message {
         max-width: 90%;
@@ -1256,6 +1232,16 @@ body.dragging {
         padding: 4px 8px;
         font-size: 0.7rem;
     }
+    .new-chat-fixed {
+        padding: 12px;
+    }
+    .new-chat-btn {
+        padding: 8px;
+        font-size: 0.9rem;
+    }
+    .auto-expand-textarea {
+        font-size: 16px; /* 防止 iOS 自动缩放 */
+    }
 }
 
 /* 桌面端隐藏菜单按钮 */
@@ -1264,11 +1250,6 @@ body.dragging {
         display: none;
     }
 }
-@media (max-width: 768px) {
-    .auto-expand-textarea {
-        font-size: 16px; /* 防止 iOS 自动缩放 */
-    }
-}
 
 /* 文件预览区域 */
 .file-preview-area {
@@ -1301,25 +1282,6 @@ body.dragging {
     color: #ff5c4a;
 }
 
-/* 文件预览区域 */
-.file-preview-area {
-    background: rgba(30, 34, 55, 0.7);
-    border-radius: 20px;
-    padding: 8px 12px;
-    margin-bottom: 12px;
-    border: 1px solid rgba(100, 130, 255, 0.4);
-}
-.file-preview-item {
-    display: flex;
-    align-items: center;
-    gap: 12px;
-    font-size: 0.85rem;
-    color: #ccd6ff;
-}
-.file-preview-item i {
-    font-size: 1rem;
-    color: #5f7eff;
-}
 .remove-file-btn {
     background: transparent;
     border: none;
@@ -1327,9 +1289,6 @@ body.dragging {
     cursor: pointer;
     margin-left: auto;
     font-size: 1.1rem;
-}
-.remove-file-btn:hover {
-    color: #ff5c4a;
 }
 
 /* 文件附件样式（聊天气泡内） */
@@ -1482,4 +1441,125 @@ body.dragging {
 @keyframes fadeInUp {
     from { opacity: 0; transform: translateY(5px); }
     to { opacity: 1; transform: translateY(0); }
+}
+
+/* 拖拽文件时的样式 */
+.chat-messages.drag-over {
+    background: rgba(100, 130, 255, 0.2);
+    transition: background 0.2s;
+}
+
+.search-container {
+    position: relative;
+}
+.search-dropdown {
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 320px;
+    max-height: 400px;
+    overflow-y: auto;
+    background: rgba(20, 24, 40, 0.95);
+    backdrop-filter: blur(16px);
+    border-radius: 20px;
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    margin-top: 8px;
+}
+.search-dropdown-item {
+    padding: 12px 16px;
+    border-bottom: 1px solid rgba(100, 130, 255, 0.2);
+    cursor: pointer;
+    transition: background 0.2s;
+}
+.search-dropdown-item:hover {
+    background: rgba(60, 80, 140, 0.5);
+}
+.search-dropdown-title {
+    font-weight: 600;
+    color: #ccd6ff;
+    font-size: 0.85rem;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+.search-dropdown-preview {
+    font-size: 0.75rem;
+    color: #b7c4ff;
+    margin-top: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.search-dropdown-badge {
+    font-size: 0.65rem;
+    background: rgba(95, 126, 255, 0.3);
+    padding: 2px 8px;
+    border-radius: 20px;
+    margin-left: 8px;
+}
+
+@media (max-width: 768px) {
+    .search-container input {
+        width: 140px !important;
+        font-size: 0.75rem !important;
+    }
+    .search-dropdown {
+        left: 0;
+        right: auto;
+        width: 280px;
+        max-width: calc(100vw - 20px);
+    }
+    #topic-indicator {
+        display: none !important;
+    }
+}
+.modal-body textarea {
+    overflow: hidden;
+    resize: none;
+}
+
+.new-chat-fixed {
+    padding: 16px;
+    border-top: 1px solid rgba(80, 80, 110, 0.35);
+    background: rgba(8, 8, 12, 0.88);
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
+}
+.new-chat-btn {
+    background: rgba(45, 55, 85, 0.6);
+    border: 1px solid rgba(100, 120, 200, 0.4);
+    border-radius: 30px;
+    padding: 10px;
+    text-align: center;
+    color: #ccd6ff;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    transition: 0.2s;
+}
+
+.new-chat-btn:hover {
+    background: rgba(60, 80, 140, 0.8);
+}
+
+.import-chat-btn {
+    background: rgba(45, 55, 85, 0.6);
+    border: 1px solid rgba(100, 120, 200, 0.4);
+    border-radius: 30px;
+    padding: 5px 12px;
+    font-size: 0.7rem;
+    color: #ccd6ff;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.import-chat-btn:hover {
+    background: rgba(60, 80, 140, 0.8);
 }
