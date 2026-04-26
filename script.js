@@ -13,6 +13,34 @@
     const SCROLL_THRESHOLD = 20;      // 距离底部阈值（px）
     let currentTTSController = null;
     let isTTSSpeaking = false;   // 是否正在语音合成/播放
+    let searchDebounceTimer = null;
+    const searchInput = document.getElementById('global-search-input');
+    const searchDropdown = document.getElementById('search-results-dropdown');
+    let globalModal = null;
+    let currentActionClickHandler = null;
+    let currentActionScrollHandler = null;
+    let currentStreamController = null;   // 用于取消当前流式请求
+    let isTopicTransition = false;   // 是否处于话题切换动画中
+    let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
+    let currentStatus = 'online';   // 记录当前指示器状态
+
+    // 禁用输入区域
+    function disableInput() {
+        const sendBtn = document.querySelector('.send-btn');
+        if (sendBtn) {
+            sendBtn.style.pointerEvents = 'none';
+            sendBtn.style.opacity = '0.5';
+        }
+    }
+
+    // 启用输入区域
+    function enableInput() {
+        const sendBtn = document.querySelector('.send-btn');
+        if (sendBtn) {
+            sendBtn.style.pointerEvents = 'auto';
+            sendBtn.style.opacity = '1';
+        }
+    }
 
     function updateAutoScrollFlag() {
         if (!chatMessages) return;
@@ -810,15 +838,29 @@
     let isStreaming = false; // 防止并发流式请求
 
     async function simulateAIResponse(userMsg) {
+        // 🔒 请求开始：设置处理中状态，禁用输入
+        if (isProcessing) {
+            console.warn('已有请求正在处理，丢弃本次调用');
+            return;
+        }
+        isProcessing = true;
+        disableInput();
+
+        if (currentStreamController) {
+            currentStreamController.abort();
+            currentStreamController = null;
+        }
         if (currentTTSController) {
             currentTTSController.abort();
             currentTTSController = null;
         }
         if (isStreaming) {
-            appendMessageToDOM('ai', '请等待上一个回复完成后再发送新消息。', getCurrentTime(), true);
-            return;
+            await new Promise(resolve => setTimeout(resolve, 50));
         }
-
+        // 创建新的 AbortController
+        const abortController = new AbortController();
+        currentStreamController = abortController;
+        isStreaming = true;
         const currentChat = chats.find(c => c.id == currentChatId);
         if (!currentChat) {
             appendMessageToDOM('ai', '系统错误：无法找到当前对话。', getCurrentTime(), true);
@@ -900,7 +942,8 @@
                             top_p: currentChat.settings?.topP ?? 0.9,
                             num_predict: 500
                         }
-                    })
+                    }),
+                    signal: abortController.signal
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -951,7 +994,8 @@
                         temperature: currentChat.settings?.temperature ?? 0.7,
                         top_p: currentChat.settings?.topP ?? 0.9,
                         max_tokens: 500
-                    })
+                    }),
+                    signal: abortController.signal
                 });
                 if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
@@ -1035,11 +1079,21 @@
                 }
             }
         } catch (error) {
-            console.error('模型调用失败:', error);
-            updateStatusIndicator('offline', '离线 · 模型调用失败');
-            if (typingDiv && typingDiv.parentNode) typingDiv.remove();
-            appendMessageToDOM('ai', `❌ 模型调用失败：${error.message}\n请检查模型地址和 API Key 是否正确。`, getCurrentTime(), true);
+            if (error.name === 'AbortError') {
+                console.log('流式请求已被取消');
+            } else {
+                console.error('模型调用失败:', error);
+                updateStatusIndicator('offline', '离线 · 模型调用失败');
+
+                appendMessageToDOM('ai', `❌ 模型调用失败：${error.message}\n请检查模型地址和 API Key 是否正确。`, getCurrentTime(), true);
+            }
+        } finally {
+            // 🔓 请求结束，恢复输入
+            isProcessing = false;
+            enableInput();
             isStreaming = false;
+            currentStreamController = null;
+            if (typingDiv && typingDiv.parentNode) typingDiv.remove();
         }
     }
 
@@ -1065,6 +1119,11 @@
     }
 
     async function sendUserMessage() {
+        // 如果正在处理请求，禁止再次发送
+        if (isProcessing) {
+            showBriefToast('请等待当前回复完成后再发送');
+            return;
+        }
         let text = messageInput.value.trim();
         let fileAttachment = null;
         
@@ -1081,7 +1140,16 @@
         }
         
         if (text === '' && !fileAttachment) return;
-        
+
+        const sendButton = document.querySelector('.send-btn');
+        if (sendButton) {
+            sendButton.classList.add('animate-send');
+            sendButton.addEventListener('animationend', function onAnimEnd() {
+                sendButton.classList.remove('animate-send');
+                sendButton.removeEventListener('animationend', onAnimEnd);
+            }, { once: true });
+        }
+            
         // 存储消息时附带文件信息
         const userTime = getCurrentTime();
         const targetChat = chats.find(c => c.id == currentChatId);
@@ -1151,12 +1219,18 @@
             currentAudio = null;
         }
         isTTSSpeaking = false;
-        updateStatusIndicator('online');
+        if (currentStatus === 'thinking' || currentStatus === 'speaking') {
+            updateStatusIndicator('online');
+        }
         // 检查是否有正在进行的流式回复
         if (isStreaming) {
             if (confirm('当前对话正在生成回复，切换对话会中断当前回复。是否继续？')) {
-                // 可选：取消当前请求（但 fetch 无法主动中断，只能忽略后续更新）
+                // 中断流式请求
                 isStreaming = false;
+                if (currentStreamController) {
+                    currentStreamController.abort();
+                    currentStreamController = null;
+                }
                 if (currentAudio) {
                     currentAudio.pause();
                     currentAudio.currentTime = 0;
@@ -1203,30 +1277,6 @@
     const roleGreeting = document.getElementById('role-greeting');
     const avatarImg = document.getElementById('avatar-img');
     const bgImg = document.getElementById('bg-img');
-    
-    // 点击头像图片触发文件选择
-    const avatarImgElement = document.getElementById('avatar-img');
-    if (avatarImgElement) {
-        avatarImgElement.addEventListener('click', () => {
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = 'image/*';
-            fileInput.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (file) {
-                    try {
-                    // 压缩图片，限制最大宽度 200px，质量 0.7
-                    const compressedUrl = await compressImage(file, 200, 0.7);
-                    avatarImgElement.src = compressedUrl;
-                    } catch (err) {
-                        console.error('图片压缩失败', err);
-                        alert('图片处理失败，请重试');
-                    }
-                }
-            };
-            fileInput.click();
-        });
-    }
 
     function openSettingsModal() {
         const currentChat = chats.find(c => c.id == currentChatId);
@@ -1325,6 +1375,8 @@
             };
         }
 
+        const content = modal.querySelector('.modal-content');
+        if (content) content.classList.remove('closing');
         modal.style.display = 'flex';
         // 绑定自动扩展（每次打开时重新绑定，确保生效）
         bindAutoResize(rolePersona);
@@ -1332,7 +1384,37 @@
     }
 
     function closeModal() {
-        modal.style.display = 'none';
+        const modal = document.getElementById('settings-modal');
+        closeModalWithAnimation(modal);
+    }
+
+    function closeModalWithAnimation(modal, afterClose) {
+        if (!modal) return;
+        const content = modal.querySelector('.modal-content');
+        if (!content) {
+            modal.style.display = 'none';
+            if (afterClose) afterClose();
+            return;
+        }
+        // 如果已经在关闭动画中，不再重复触发
+        if (content.classList.contains('closing')) return;
+        
+        content.classList.add('closing');
+        const onAnimationEnd = () => {
+            content.classList.remove('closing');
+            modal.style.display = 'none';
+            content.removeEventListener('animationend', onAnimationEnd);
+            if (afterClose) afterClose();
+        };
+        content.addEventListener('animationend', onAnimationEnd, { once: true });
+        // 安全后备：如果动画未触发，1秒后强制关闭
+        setTimeout(() => {
+            if (modal.style.display !== 'none') {
+                content.classList.remove('closing');
+                modal.style.display = 'none';
+                if (afterClose) afterClose();
+            }
+        }, 200);
     }
 
     async function saveSettings() {
@@ -1344,6 +1426,10 @@
             }
             // 中断流式生成
             isStreaming = false;
+            if (currentStreamController) {
+                currentStreamController.abort();
+                currentStreamController = null;
+            }
             if (currentAudio) {
                 currentAudio.pause();
                 currentAudio.currentTime = 0;
@@ -1414,11 +1500,6 @@
             reader.readAsDataURL(file);
         }
     });
-
-    if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
-    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-    if (saveBtn) saveBtn.addEventListener('click', saveSettings);
-    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeModal(); });
 
     // ==================== 初始化数据 ====================
     async function initData() {
@@ -1710,6 +1791,85 @@
         if (chatMessages) {
             chatMessages.addEventListener('scroll', updateAutoScrollFlag);
         }
+        // 绑定“返回全部对话”按钮
+        const backBtn = document.getElementById('back-to-all-topics');
+        if (backBtn) {
+            backBtn.addEventListener('click', async () => {
+                await setCurrentTopic(null, false);
+            });
+        }
+
+        // 获取元素
+        globalModal = document.getElementById('global-settings-modal');
+        const closeGlobalBtn = document.getElementById('close-global-settings');
+        const cancelGlobalBtn = document.getElementById('cancel-global-settings');
+        const saveGlobalBtn = document.getElementById('save-global-settings');
+
+        // 菜单切换
+        const menuItems = document.querySelectorAll('.settings-menu-item');
+        const panes = document.querySelectorAll('.settings-tab-pane');
+
+        menuItems.forEach(item => {
+            item.addEventListener('click', () => {
+                const tabId = item.getAttribute('data-tab');
+                // 更新菜单激活状态
+                menuItems.forEach(mi => mi.classList.remove('active'));
+                item.classList.add('active');
+                // 显示对应面板
+                panes.forEach(pane => pane.classList.remove('active'));
+                document.getElementById(`tab-${tabId}`).classList.add('active');
+            });
+        });
+
+        // 绑定按钮事件
+        closeGlobalBtn.addEventListener('click', closeGlobalModal);
+        cancelGlobalBtn.addEventListener('click', closeGlobalModal);
+        saveGlobalBtn.addEventListener('click', saveGlobalSettings);
+        globalModal.addEventListener('click', (e) => { if (e.target === globalModal) closeGlobalModal(); });
+
+        // 修改左下角设置按钮的点击事件
+        const originalSettingBtn = document.querySelector('.setting-btn');
+        if (originalSettingBtn) {
+            // 移除原有监听（避免重复）
+            const newBtn = originalSettingBtn.cloneNode(true);
+            originalSettingBtn.parentNode.replaceChild(newBtn, originalSettingBtn);
+            newBtn.addEventListener('click', openGlobalSettings);
+        } else if (settingBtn) {
+            settingBtn.addEventListener('click', openGlobalSettings);
+        }
+        // 关闭下拉框（点击外部）
+        document.addEventListener('click', (e) => {
+            if (!searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
+                searchDropdown.style.display = 'none';
+            }
+        });
+        // 点击头像图片触发文件选择
+        const avatarImgElement = document.getElementById('avatar-img');
+        if (avatarImgElement) {
+            avatarImgElement.addEventListener('click', () => {
+                const fileInput = document.createElement('input');
+                fileInput.type = 'file';
+                fileInput.accept = 'image/*';
+                fileInput.onchange = async (e) => {
+                    const file = e.target.files[0];
+                    if (file) {
+                        try {
+                        // 压缩图片，限制最大宽度 200px，质量 0.7
+                        const compressedUrl = await compressImage(file, 200, 0.7);
+                        avatarImgElement.src = compressedUrl;
+                        } catch (err) {
+                            console.error('图片压缩失败', err);
+                            alert('图片处理失败，请重试');
+                        }
+                    }
+                };
+                fileInput.click();
+            });
+        }
+        if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
+        if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
+        if (saveBtn) saveBtn.addEventListener('click', saveSettings);
+        if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeModalWithAnimation(modal); });
         loadModelList();
         updateModelSelector();
         bindQuickModelSwitch();
@@ -1740,7 +1900,7 @@
         // 自动切换到新话题视图（新话题的索引为话题总数-1）
         const topics = getTopicsFromMessages(currentChat.messages);
         const newTopicIndex = topics.length - 1;
-        setCurrentTopic(newTopicIndex);
+        setCurrentTopic(newTopicIndex, false);
         // 刷新左侧历史列表（更新最后消息时间）
         currentChat.date = new Date();
         renderHistoryList();
@@ -1787,8 +1947,11 @@
             const pinText = chat.pinned ? '取消置顶' : '收藏置顶';
             const pinIcon = chat.pinned ? 'fa-thumbtack' : 'fa-thumbtack';
             menu.innerHTML = `
-                <div class="history-menu-item" data-action="export">
-                    <i class="fas fa-download"></i> 导出会话
+                <div class="history-menu-item" data-action="export-json">
+                    <i class="fas fa-download"></i> 导出 JSON
+                </div>
+                <div class="history-menu-item" data-action="export-html">
+                    <i class="fas fa-file-code"></i> 导出 HTML
                 </div>
                 <div class="history-menu-item" data-action="pin">
                     <i class="fas ${pinIcon}"></i> ${pinText}
@@ -1819,7 +1982,8 @@
                 item.addEventListener('click', (e) => {
                     e.stopPropagation();
                     const action = item.getAttribute('data-action');
-                    if (action === 'export') exportChat(chat);
+                    if (action === 'export-json') exportChatAsJSON(chat);
+                    else if (action === 'export-html') exportChatAsHtml(chat);
                     else if (action === 'pin') togglePinChat(chat);
                     else if (action === 'delete') deleteChat(chat.id);
                     closeMenu();
@@ -1834,12 +1998,21 @@
     }
 
     // 导出会话（JSON 格式）
-    function exportChat(chat) {
+    function exportChatAsJSON(chat) {
         const data = {
             id: chat.id,
             title: chat.title,
             date: chat.date,
-            messages: chat.messages,
+            messages: chat.messages.map(msg => {
+                const newMsg = { ...msg };
+                if (newMsg.file === null || newMsg.file === undefined) {
+                    delete newMsg.file;
+                }
+                if (newMsg.modelInputText !== undefined && newMsg.modelInputText === newMsg.text) {
+                    delete newMsg.modelInputText;
+                }
+                return newMsg;
+            }),
             settings: chat.settings
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -1854,6 +2027,124 @@
         toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), 2000);
+    }
+
+    function exportChatAsHtml(chat) {
+        const settings = chat.settings || defaultSettings;
+        const roleName = escapeHtml(settings.roleName || 'Nova');
+        const title = `${roleName} · 对话记录`;
+        const dateStr = chat.date.toLocaleString('zh-CN');
+
+        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+        const userAvatar = globalSettings.avatar;
+        const bgUrl = chat.settings?.bgUrl;
+        let bodyBgStyle = '';
+        if (bgUrl) {
+            bodyBgStyle = `background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)),
+                        url(${bgUrl}) center/cover no-repeat fixed;`;
+        } else {
+            bodyBgStyle = `background: #030305;`;
+        }
+
+        // 逐条消息构建 HTML（复用 renderMessageWithThink 处理思考标签）
+        const messagesHtml = chat.messages.map(msg => {
+            if (msg.type === 'divider') {
+                return `<div class="topic-divider"><i class="fas fa-asterisk"></i> ${escapeHtml(msg.text)} <i class="fas fa-asterisk"></i></div>`;
+            }
+            const isAi = msg.type === 'ai';
+            // 复用现成的渲染函数（思考折叠 + 斜体括号）
+            const bubbleContent = isAi ? renderMessageWithThink(msg.text)
+                                    : `<p>${escapeHtml(msg.text).replace(/\n/g, '<br>')}</p>`;
+            const timeHtml = `<div class="msg-time">${escapeHtml(msg.time || '')}${isAi && msg.modelName ? `<span>🤖 ${escapeHtml(msg.modelName)}</span>` : ''}</div>`;
+            const avatarHtml = isAi
+                ? (settings.avatarUrl ? `<img src="${settings.avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
+                                    : '<i class="fas fa-robot"></i>')
+                : (userAvatar && userAvatar.startsWith('data:image')
+                    ? `<img src="${userAvatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
+                    : '<i class="fas fa-user-astronaut"></i>');
+
+            return `
+            <div class="message ${msg.type}">
+                <div class="avatar-msg">${avatarHtml}</div>
+                <div class="bubble">
+                    ${bubbleContent}
+                    ${timeHtml}
+                </div>
+            </div>`;
+        }).join('');
+
+        // 样式：优先内联缓存的完整 CSS，回退为外部链接
+        const cssBlock = cachedCSS
+            ? `<style>${cachedCSS}</style>`
+            : '<link rel="stylesheet" href="style.css">';
+
+        const html = `<!DOCTYPE html>
+    <html lang="zh-CN">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>${title}</title>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
+        ${cssBlock}
+        <style>
+            body {
+                ${bodyBgStyle}
+                margin: 0;
+                padding: 0;
+                height: auto !important;
+                overflow: visible !important;
+            }
+            .chat-app, .main-chat {
+                height: auto !important;
+                overflow: visible !important;
+            }
+            .main-chat {
+                background: transparent;
+            }
+            .chat-messages {
+                height: auto !important;
+                max-height: none !important;
+                overflow: visible !important;
+            }
+            .export-container {
+                max-width: 800px;
+                margin: 0 auto;
+                padding: 20px;
+                background: transparent !important;
+                min-height: 100vh;
+            }
+            h1 {
+                color: #5f7eff;
+                margin-bottom: 10px;
+            }
+            .export-date {
+                color: #8e8eb3;
+                margin-bottom: 30px;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="chat-app">
+            <main class="main-chat">
+                <div class="export-container">
+                    <h1>${title}</h1>
+                    <p style="color:#8e8eb3; margin-bottom:30px;">导出时间：${dateStr}</p>
+                    <div class="chat-messages">
+                        ${messagesHtml}
+                    </div>
+                </div>
+            </main>
+        </div>
+    </body>
+    </html>`;
+
+        const blob = new Blob([html], { type: 'text/html;charset=UTF-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `chat_${chat.id}.html`;
+        a.click();
+        URL.revokeObjectURL(url);
     }
 
     // 收藏置顶（将对话移到列表最上方）
@@ -1875,23 +2166,55 @@
             alert('至少保留一个对话，无法删除最后一个。');
             return;
         }
-        if (confirm('确定要删除这个会话吗？此操作不可撤销。')) {
-            const index = chats.findIndex(c => c.id === chatId);
+        if (!confirm('确定要删除这个会话吗？此操作不可撤销。')) return;
+
+        const item = document.querySelector(`.history-item[data-id="${chatId}"]`);
+        if (item) {
+            // 添加删除动画类
+            item.classList.add('removing');
+
+            // 监听过渡结束事件（取第一个完成的属性即可）
+            const onTransitionEnd = (e) => {
+                if (e.propertyName === 'transform') { // 以 transform 为准
+                    item.removeEventListener('transitionend', onTransitionEnd);
+                    performDelete(chatId);
+                }
+            };
+            item.addEventListener('transitionend', onTransitionEnd);
+
+            // 万一动画不触发，兜底在 400ms 后强制删除
+            setTimeout(() => {
+                if (item.classList.contains('removing')) {
+                    item.removeEventListener('transitionend', onTransitionEnd);
+                    performDelete(chatId);
+                }
+            }, 400);
+        } else {
+            // 找不到 DOM 元素时直接删除
+            performDelete(chatId);
+        }
+
+        // 实际的删除逻辑
+        async function performDelete(id) {
+            const index = chats.findIndex(c => c.id === id);
             if (index !== -1) {
                 chats.splice(index, 1);
-                if (currentChatId === chatId) {
+                if (currentChatId === id) {
                     currentChatId = chats[0].id;
+                    currentTopicIndex = null;
                     renderMessages(currentChatId);
                     applyCurrentChatSettings();
                 }
-                renderHistoryList();
-                await saveToStorage();
-                const toast = document.createElement('div');
-                toast.textContent = '🗑️ 会话已删除';
-                toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
-                document.body.appendChild(toast);
-                setTimeout(() => toast.remove(), 2000);
             }
+            renderHistoryList();       // 重新渲染列表（此时已无删除动画，会平滑出现）
+            await saveToStorage();
+
+            // 提示
+            const toast = document.createElement('div');
+            toast.textContent = '🗑️ 会话已删除';
+            toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
+            document.body.appendChild(toast);
+            setTimeout(() => toast.remove(), 2000);
         }
     }
 
@@ -2183,9 +2506,52 @@
                 });
             });
             container.querySelectorAll('.topic-delete-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
                     const idx = parseInt(btn.getAttribute('data-topic-index'));
-                    deleteTopic(idx, topics, currentChat);
+                    const topicItem = btn.closest('.topic-item');
+                    if (!topicItem || topicItem.classList.contains('removing')) return;
+
+                    if (!confirm(`确定要删除话题 ${idx + 1} 吗？此操作不可撤销。`)) return;
+
+                    // 播放退出动画
+                    topicItem.classList.add('removing');
+
+                    // 等待动画结束或超时
+                    await new Promise(resolve => {
+                        const onEnd = (e) => {
+                            if (e.propertyName === 'transform') {
+                                topicItem.removeEventListener('transitionend', onEnd);
+                                resolve();
+                            }
+                        };
+                        topicItem.addEventListener('transitionend', onEnd);
+                        setTimeout(resolve, 500);   // 兜底
+                    });
+
+                    // 执行实际删除逻辑
+                    const topic = topics[idx];
+                    if (!topic) return;
+                    let start = topic.startIndex;
+                    let end = topic.endIndex;
+                    if (start > 0 && currentChat.messages[start - 1].type === 'divider') {
+                        start = start - 1;
+                    }
+                    currentChat.messages.splice(start, end - start + 1);
+                    currentChat.date = new Date();
+
+                    // 更新聊天界面与历史列表
+                    renderMessages(currentChatId);
+                    renderHistoryList();
+                    saveToStorage();
+
+                    // 若消息清空，自动开启新话题
+                    if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
+                        startNewTopic();
+                    }
+
+                    // 刷新话题管理弹窗（不关闭，只重绘列表）
+                    openTopicsModal();
                 });
             });
         }
@@ -2196,7 +2562,7 @@
 
     function closeTopicsModal() {
         const modal = document.getElementById('topics-modal');
-        if (modal) modal.style.display = 'none';
+        closeModalWithAnimation(modal);
     }
 
     function exportTopic(topicIndex, topics, currentChat) {
@@ -2249,11 +2615,62 @@
         }
     }
 
-    function setCurrentTopic(topicIndex) {
+    async function setCurrentTopic(topicIndex) {
+        if (isStreaming) {
+            if (confirm('正在生成回复，切换话题会中断当前回复。是否继续？')) {
+                isStreaming = false;
+                if (currentStreamController) {
+                    currentStreamController.abort();
+                    currentStreamController = null;
+                }
+                if (currentAudio) {
+                    currentAudio.pause();
+                    currentAudio.currentTime = 0;
+                    currentAudio = null;
+                }
+            } else {
+                return;
+            }
+        }
+
+        const messagesContainer = chatMessages;
+        if (!messagesContainer) return;
+
+        // 1. 淡出旧消息（如果有）
+        const oldMessages = Array.from(messagesContainer.children).filter(
+            child => child.classList && (child.classList.contains('message') || child.classList.contains('topic-divider'))
+        );
+        if (oldMessages.length > 0) {
+            oldMessages.forEach(msg => msg.classList.add('fade-out'));
+            await new Promise(resolve => setTimeout(resolve, 300));
+        }
+
+        // 2. 临时禁用默认入场动画
+        messagesContainer.classList.add('no-entry-animation');
+
+        // 3. 更新话题索引并重新渲染
         currentTopicIndex = topicIndex;
         renderMessages(currentChatId, currentTopicIndex);
-        
-        // 可选：在聊天区域顶部显示当前话题提示
+
+        // 4. 为新消息添加跌落动画（错开延迟）
+        const newMessages = Array.from(messagesContainer.children).filter(
+            child => child.classList && (child.classList.contains('message') || child.classList.contains('topic-divider'))
+        );
+        newMessages.forEach((msg, idx) => {
+            msg.classList.add('topic-drop-in');
+            msg.style.animationDelay = `${idx * 0.05}s`;
+        });
+
+        // 6. 动画结束后清理样式
+        setTimeout(() => {
+            newMessages.forEach(msg => {
+                msg.classList.remove('topic-drop-in');
+                msg.style.animationDelay = '';
+            });
+            messagesContainer.classList.remove('no-entry-animation');
+        }, 500);
+
+        // 7. 更新话题指示器
         showTopicIndicator();
     }
 
@@ -2261,23 +2678,26 @@
         const indicator = document.getElementById('topic-indicator');
         if (!indicator) return;
         if (currentTopicIndex !== null) {
-            indicator.style.display = 'flex';
             const topicNum = currentTopicIndex + 1;
             document.getElementById('topic-index-display').innerText = topicNum;
+            indicator.style.display = 'flex';
+            // 强制重绘后添加平滑进入效果
+            requestAnimationFrame(() => {
+                indicator.style.opacity = '1';
+                indicator.style.transform = 'translateY(0)';
+            });
         } else {
-            indicator.style.display = 'none';
+            // 淡出隐藏
+            indicator.style.opacity = '0';
+            indicator.style.transform = 'translateY(-10px)';
+            setTimeout(() => {
+                if (currentTopicIndex === null) {
+                    indicator.style.display = 'none';
+                }
+            }, 200);
         }
     }
 
-    // 绑定“返回全部对话”按钮
-    const backBtn = document.getElementById('back-to-all-topics');
-    if (backBtn) {
-        backBtn.addEventListener('click', () => {
-            currentTopicIndex = null;
-            renderMessages(currentChatId);
-            showTopicIndicator();
-        });
-    }
     // 语音识别实例
     let recognition = null;
     let isListening = false;
@@ -2415,7 +2835,8 @@
             const response = await fetch(`${ttsApiUrl}/tts`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ text: text, voice: voice })
+                body: JSON.stringify({ text: text, voice: voice }),
+                signal: controller.signal
             });
 
             if (!response.ok) {
@@ -2467,29 +2888,6 @@
         utterance.lang = 'zh-CN';
         window.speechSynthesis.speak(utterance);
     }
-
-
-    // 获取元素
-    const globalModal = document.getElementById('global-settings-modal');
-    const closeGlobalBtn = document.getElementById('close-global-settings');
-    const cancelGlobalBtn = document.getElementById('cancel-global-settings');
-    const saveGlobalBtn = document.getElementById('save-global-settings');
-
-    // 菜单切换
-    const menuItems = document.querySelectorAll('.settings-menu-item');
-    const panes = document.querySelectorAll('.settings-tab-pane');
-
-    menuItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const tabId = item.getAttribute('data-tab');
-            // 更新菜单激活状态
-            menuItems.forEach(mi => mi.classList.remove('active'));
-            item.classList.add('active');
-            // 显示对应面板
-            panes.forEach(pane => pane.classList.remove('active'));
-            document.getElementById(`tab-${tabId}`).classList.add('active');
-        });
-    });
 
     // 打开全局设置弹窗
     function openGlobalSettings() {
@@ -2654,7 +3052,7 @@
         const fontSizeSelect = document.getElementById('global-font-size');
         if (themeSelect) themeSelect.value = globalSettings.theme || 'dark';
         if (fontSizeSelect) fontSizeSelect.value = globalSettings.fontSize || 'medium';
-        
+
         const modal = document.getElementById('global-settings-modal');
         if (modal) modal.style.display = 'flex';
     }
@@ -2740,7 +3138,8 @@
     }
 
     function closeGlobalModal() {
-        globalModal.style.display = 'none';
+        const modal = document.getElementById('global-settings-modal');
+        closeModalWithAnimation(modal);
     }
 
     // 头像上传预览
@@ -2757,23 +3156,6 @@
             }
         }
     });
-
-    // 绑定按钮事件
-    closeGlobalBtn.addEventListener('click', closeGlobalModal);
-    cancelGlobalBtn.addEventListener('click', closeGlobalModal);
-    saveGlobalBtn.addEventListener('click', saveGlobalSettings);
-    globalModal.addEventListener('click', (e) => { if (e.target === globalModal) closeGlobalModal(); });
-
-    // 修改左下角设置按钮的点击事件
-    const originalSettingBtn = document.querySelector('.setting-btn');
-    if (originalSettingBtn) {
-        // 移除原有监听（避免重复）
-        const newBtn = originalSettingBtn.cloneNode(true);
-        originalSettingBtn.parentNode.replaceChild(newBtn, originalSettingBtn);
-        newBtn.addEventListener('click', openGlobalSettings);
-    } else if (settingBtn) {
-        settingBtn.addEventListener('click', openGlobalSettings);
-    }
 
     function showFileContentModal(filename, content) {
         // 创建模态框
@@ -2867,6 +3249,14 @@
     function showMessageActions(msgElement, type, text, time, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment) {
         // 移除已存在的操作栏
         if (currentActionMenu) {
+            if (currentActionClickHandler) {
+                document.removeEventListener('click', currentActionClickHandler);
+                currentActionClickHandler = null;
+            }
+            if (currentActionScrollHandler) {
+                document.removeEventListener('scroll', currentActionScrollHandler);
+                currentActionScrollHandler = null;
+            }
             currentActionMenu.remove();
             currentActionMenu = null;
             currentActionMsgElement = null;
@@ -2989,6 +3379,10 @@
             continueBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 closeActionMenu();
+                if (isProcessing) {
+                    showBriefToast('请等待当前请求完成');
+                    return;
+                }
                 await continueAIMessage();
             });
         }
@@ -3006,9 +3400,20 @@
             document.addEventListener('click', closeHandler);
             document.addEventListener('scroll', scrollCloseHandler, { once: true });
         }, 0);
-        
+        currentActionClickHandler = closeHandler;
+        currentActionScrollHandler = scrollCloseHandler;
         function closeActionMenu() {
-            if (actionsDiv.parentNode) actionsDiv.remove();
+            // 移除事件监听器
+            if (currentActionClickHandler) {
+                document.removeEventListener('click', currentActionClickHandler);
+                currentActionClickHandler = null;
+            }
+            if (currentActionScrollHandler) {
+                document.removeEventListener('scroll', currentActionScrollHandler);
+                currentActionScrollHandler = null;
+            }
+            // 移除 DOM 元素
+            if (actionsDiv && actionsDiv.parentNode) actionsDiv.remove();
             currentActionMenu = null;
             currentActionMsgElement = null;
         }
@@ -3036,6 +3441,10 @@
     }
 
     async function regenerateAIMessage(oldText, oldTime) {
+        if (isProcessing) {
+            showBriefToast('请等待当前请求完成');
+            return;
+        }
         const currentChat = chats.find(c => c.id == currentChatId);
         if (!currentChat) return;
         
@@ -3173,10 +3582,6 @@
         return parts;
     }
 
-    let searchDebounceTimer = null;
-    const searchInput = document.getElementById('global-search-input');
-    const searchDropdown = document.getElementById('search-results-dropdown');
-
     function performSearch(keyword) {
         if (!keyword.trim()) {
             searchDropdown.style.display = 'none';
@@ -3296,13 +3701,6 @@
         }
     }
 
-    // 关闭下拉框（点击外部）
-    document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
-            searchDropdown.style.display = 'none';
-        }
-    });
-
     async function importChatFromJson(data) {
         // 校验结构：必须包含 id, messages, settings, date 等字段（与导出会话一致）
         if (!data || typeof data !== 'object') {
@@ -3348,6 +3746,7 @@
     function updateStatusIndicator(state, customText = null) {
         const statusTextElem = document.querySelector('.user-details p');
         if (!statusTextElem) return;
+        currentStatus = state; 
         
         const dotIcon = statusTextElem.querySelector('i');
         let dotHtml = '';
@@ -3379,7 +3778,19 @@
         isTTSSpeaking = (state === 'speaking');
     }
 
+    function showBriefToast(message) {
+        const toast = document.createElement('div');
+        toast.textContent = message;
+        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
+        document.body.appendChild(toast);
+        setTimeout(() => toast.remove(), 2000);
+    }
+    
     async function init() {
+        try {
+            const cssRes = await fetch('style.css');
+            if (cssRes.ok) cachedCSS = await cssRes.text();
+        } catch(e) {}
         await initData();
         initResizer();
         bindEvents();

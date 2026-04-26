@@ -298,15 +298,36 @@ body {
     animation: fadeSlideUp 0.25s ease;
 }
 
-@keyframes fadeSlideUp {
-    from {
-        opacity: 0;
-        transform: translateY(8px);
-    }
-    to {
-        opacity: 1;
-        transform: translateY(0);
-    }
+/* 新入场动画 - 替代原有 fadeSlideUp */
+@keyframes slideInLeft {
+    from { opacity: 0; transform: translateX(-20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+@keyframes slideInRight {
+    from { opacity: 0; transform: translateX(20px); }
+    to { opacity: 1; transform: translateX(0); }
+}
+@keyframes glowPulse {
+    0% { box-shadow: 0 0 0 0 rgba(95, 126, 255, 0.4); border-color: rgba(95, 126, 255, 0.5); }
+    50% { box-shadow: 0 0 0 6px rgba(95, 126, 255, 0.1); border-color: rgba(95, 126, 255, 0.8); }
+    100% { box-shadow: 0 0 0 0 rgba(95, 126, 255, 0); border-color: rgba(95, 126, 255, 0.5); }
+}
+.message {
+    animation-duration: 0.4s;
+    animation-fill-mode: both;
+    animation-timing-function: cubic-bezier(0.2, 0.9, 0.4, 1.1);
+}
+.message.ai { animation-name: slideInLeft; }
+.message.user { animation-name: slideInRight; }
+.message .bubble {
+    animation: glowPulse 0.4s ease-out 0.05s both;
+}
+/* 兼容无动画的情况（历史消息） */
+.message.no-animation {
+    animation: none !important;
+}
+.message.no-animation .bubble {
+    animation: none !important;
 }
 
 .message.ai {
@@ -596,9 +617,43 @@ body {
     animation: modalFadeIn 0.2s ease;
 }
 
-@keyframes modalFadeIn {
-    from { opacity: 0; transform: scale(0.95); }
-    to { opacity: 1; transform: scale(1); }
+@keyframes modalZoomIn {
+    0% {
+        opacity: 0;
+        transform: scale(0.9);
+    }
+    60% {
+        opacity: 1;
+        transform: scale(1.02);  /* 轻微过冲，增加弹性感 */
+    }
+    100% {
+        opacity: 1;
+        transform: scale(1);
+    }
+}
+
+/* 关闭动画：缩小并淡出 */
+@keyframes modalZoomOut {
+    0% {
+        opacity: 1;
+        transform: scale(1);
+    }
+    100% {
+        opacity: 0;
+        transform: scale(0.9);
+        visibility: hidden;   /* 保证隐藏后不可见 */
+    }
+}
+
+/* 模态框内容基类：添加动画时长与缓动曲线 */
+.modal-content {
+    /* 保留原有样式，仅修改动画部分 */
+    animation: modalZoomIn 0.2s cubic-bezier(0.34, 1.2, 0.64, 1); /* 弹性曲线 */
+}
+
+/* 关闭动画时的类 */
+.modal-content.closing {
+    animation: modalZoomOut 0.15s ease forwards;
 }
 
 .modal-header {
@@ -1002,6 +1057,8 @@ input:checked + .slider:before {
     align-items: center;
     justify-content: space-between;
     margin: 12px 20px 0 20px;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    transform-origin: top;
 }
 
 #voice-input-btn.listening {
@@ -1562,4 +1619,114 @@ body.dragging {
 }
 .import-chat-btn:hover {
     background: rgba(60, 80, 140, 0.8);
+}
+
+/* 淡出动画（用于旧消息） */
+@keyframes fadeOutUp {
+    from {
+        opacity: 1;
+        transform: translateY(0);
+    }
+    to {
+        opacity: 0;
+        transform: translateY(-15px);
+    }
+}
+
+/* 弹性跌落入场（新消息） */
+@keyframes dropIn {
+    0% {
+        opacity: 0;
+        transform: translateY(-40px);
+    }
+    60% {
+        opacity: 1;
+        transform: translateY(8px);
+    }
+    100% {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
+
+/* 为消息添加跌落动画的类 */
+.message.topic-drop-in,
+.topic-divider.topic-drop-in {
+    animation: dropIn 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1) forwards;
+    opacity: 0; /* 初始透明，动画结束后不保留 */
+}
+
+/* 旧消息的淡出类 */
+.message.fade-out,
+.topic-divider.fade-out {
+    animation: fadeOutUp 0.5s ease forwards;
+    pointer-events: none; /* 避免动画期间点击 */
+}
+/* 临时禁用消息入场动画（用于话题切换渲染） */
+.chat-messages.no-entry-animation .message,
+.chat-messages.no-entry-animation .topic-divider {
+    animation: none !important;
+}
+.chat-messages.no-entry-animation .message .bubble {
+    animation: none !important;
+}
+
+/* 删除动画 */
+.history-item.removing {
+    transition: transform 0.6s ease, opacity 0.6s ease, margin-bottom 0.6s ease, padding 0.6s ease;
+    transform: translateX(-120%);
+    opacity: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    max-height: 0;
+    overflow: hidden;
+    border-width: 0;
+    pointer-events: none; /* 防止动画中再次交互 */
+}
+
+.history-list {
+    transition: all 0.2s ease;
+}
+
+/* 发送按钮点击动画 */
+@keyframes sendPulse {
+    0% {
+        transform: scale(1);
+        box-shadow: 0 0 8px rgba(70, 100, 255, 0.3);
+    }
+    30% {
+        transform: scale(0.92);
+        box-shadow: 0 0 0 rgba(70, 100, 255, 0);
+    }
+    60% {
+        transform: scale(1.08);
+        box-shadow: 0 0 20px rgba(70, 100, 255, 0.6);
+    }
+    100% {
+        transform: scale(1);
+        box-shadow: 0 0 8px rgba(70, 100, 255, 0.3);
+    }
+}
+
+.send-btn.animate-send {
+    animation: sendPulse 0.35s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
+}
+
+.topic-item {
+    transition: transform 0.5s ease, opacity 0.5s ease, max-height 0.5s ease, margin 0.5s ease, padding 0.5s ease;
+    overflow: hidden;
+    max-height: 300px;  /* 足够大，避免初始坍塌 */
+}
+
+.topic-item.removing {
+    transform: translateX(-120%);
+    opacity: 0;
+    max-height: 0;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    border-width: 0;
+    pointer-events: none;
 }
