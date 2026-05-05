@@ -7,7 +7,9 @@
     <!-- Font Awesome 6 图标库 -->
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0-beta3/css/all.min.css">
     <script src="script.js" defer></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.js"></script>
     <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
 </head>
 <body>
@@ -361,6 +363,23 @@
         <div class="modal-footer">
             <button class="modal-btn cancel" id="cancel-global-settings">取消</button>
             <button class="modal-btn save" id="save-global-settings">保存设置</button>
+        </div>
+    </div>
+</div>
+<div id="crop-modal" class="settings-modal" style="display: none; z-index: 11000;">
+    <div class="modal-content" style="max-width: 600px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-crop-alt"></i> 裁剪图片</h3>
+            <button class="modal-close" id="close-crop-modal">&times;</button>
+        </div>
+        <div class="modal-body" style="max-height: 70vh; overflow-y: auto;">
+            <div style="max-height: 400px; margin-bottom: 16px;">
+                <img id="crop-image" style="max-width: 100%; display: block;">
+            </div>
+            <div style="display: flex; gap: 12px; justify-content: center;">
+                <button class="modal-btn cancel" id="cancel-crop-btn">取消</button>
+                <button class="modal-btn save" id="apply-crop-btn"><i class="fas fa-check"></i> 应用裁剪</button>
+            </div>
         </div>
     </div>
 </div>

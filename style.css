@@ -1339,15 +1339,6 @@ body.dragging {
     color: #ff5c4a;
 }
 
-.remove-file-btn {
-    background: transparent;
-    border: none;
-    color: #ff8a7a;
-    cursor: pointer;
-    margin-left: auto;
-    font-size: 1.1rem;
-}
-
 /* 文件附件样式（聊天气泡内） */
 .file-attachment {
     display: inline-block;
@@ -1729,4 +1720,322 @@ body.dragging {
     padding-bottom: 0;
     border-width: 0;
     pointer-events: none;
+}
+
+#crop-modal .modal-body {
+    background: transparent;
+    z-index: 11000 !important;
+}
+#crop-image {
+    max-height: 400px;
+    background: #0a0a0f;
+}
+
+/* ========== 明亮主题 - 透明气泡 + 明亮背景 ========== */
+body.light-theme {
+    background: #f5f7fc;
+}
+
+/* 侧边栏纯白 */
+body.light-theme .sidebar {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    border-right: 1px solid #e5e9f0;
+}
+
+/* 左上角用户区域 */
+body.light-theme .user-profile {
+    background: #ffffff !important;
+    border-bottom: 1px solid #e5e9f0 !important;
+}
+body.light-theme .user-card .avatar {
+    background: #eef2ff !important;
+    box-shadow: 0 0 0 2px #d0d9ff !important;
+}
+body.light-theme .user-card .avatar i {
+    color: #2563eb;
+}
+body.light-theme .user-details h4 {
+    color: #1e3a8a !important;
+    background: none !important;
+}
+body.light-theme .user-details p {
+    color: #3b4b8a !important;
+}
+
+/* 对话历史列表 */
+body.light-theme .history-item {
+    background: #f8faff;
+    border: 1px solid #e0e4f0;
+}
+body.light-theme .history-item.active {
+    background: #eef2ff;
+    border-left: 3px solid #3b82f6;
+}
+body.light-theme .history-info .title {
+    color: #1e3a8a;
+}
+body.light-theme .history-info .date {
+    color: #6c7b9e;
+}
+body.light-theme .history-header h3 {
+    color: #2563eb;
+}
+
+/* 新对话、设置按钮区域 */
+body.light-theme .new-chat-fixed,
+body.light-theme .settings-area {
+    background: #ffffff !important;
+    border-top: 1px solid #e5e9f0 !important;
+}
+body.light-theme .new-chat-btn,
+body.light-theme .import-chat-btn,
+body.light-theme .setting-btn {
+    background: #f0f4ff !important;
+    border: 1px solid #cdd9ff !important;
+    color: #2563eb !important;
+}
+/* 明亮主题下，只添加半透明白色叠加层，不覆盖用户自定义背景 */
+body.light-theme .main-chat {
+    background-blend-mode: overlay;  /* 可选，让背景图与白色混合变亮 */
+    position: relative;
+}
+body.light-theme .main-chat::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.3);  /* 半透明白色叠加，使图片变亮 */
+    pointer-events: none;
+    z-index: 0;
+}
+/* 聊天头部 */
+body.light-theme .chat-header {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid #e5e9f0;
+}
+body.light-theme .chat-header input,
+body.light-theme .chat-header select {
+    background: rgba(255, 255, 255, 0.9) !important;
+    color: #1e3a8a !important;
+    border-color: #cdd9ff !important;
+}
+
+/* ========= 气泡透明毛玻璃效果 ========= */
+body.light-theme .bubble {
+    background: rgba(255, 255, 255, 0.4) !important;
+    backdrop-filter: blur(16px) !important;
+    border: 1px solid rgba(100, 130, 255, 0.3) !important;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
+}
+body.light-theme .message.user .bubble {
+    background: rgba(255, 255, 255, 0.55) !important;
+    border-color: rgba(95, 126, 255, 0.4) !important;
+}
+body.light-theme .bubble p {
+    color: #1e3a8a !important;
+    text-shadow: none !important;
+}
+body.light-theme .msg-time {
+    color: #6c7b9e !important;
+}
+
+/* 头像区域 */
+body.light-theme .avatar-msg {
+    background: rgba(255, 255, 255, 0.6) !important;
+    border: 1px solid rgba(100, 130, 255, 0.3) !important;
+}
+body.light-theme .message.ai .avatar-msg {
+    background: #f0f4ff !important;
+}
+body.light-theme .message.user .avatar-msg {
+    background: #eef2ff !important;
+}
+
+/* 输入区域透明化 */
+body.light-theme .chat-input-area {
+    background: rgba(255, 255, 255, 0.75) !important;
+    backdrop-filter: blur(8px);
+    border-top: 1px solid #e5e9f0;
+}
+body.light-theme .input-container {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-color: #cdd9ff !important;
+}
+body.light-theme .auto-expand-textarea {
+    color: #1e3a8a !important;
+}
+body.light-theme .send-btn {
+    background: #2563eb !important;
+    color: white !important;
+}
+body.light-theme .action-btn {
+    background: rgba(255, 255, 255, 0.8) !important;
+    border-color: #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme .action-btn:hover {
+    background: #eef2ff !important;
+}
+
+/* 弹窗、菜单等其他组件保持白色背景，文字蓝色 */
+body.light-theme .modal-content,
+body.light-theme .settings-modal .modal-content,
+body.light-theme .history-menu,
+body.light-theme .message-actions,
+body.light-theme .search-dropdown {
+    background: #ffffff !important;
+    backdrop-filter: none !important;
+    border-color: #e0e4f0 !important;
+}
+body.light-theme .modal-header h3,
+body.light-theme .form-group label,
+body.light-theme .settings-menu-item,
+body.light-theme .topic-title,
+body.light-theme .search-dropdown-title {
+    color: #2563eb !important;
+}
+body.light-theme input,
+body.light-theme textarea,
+body.light-theme select {
+    background: #f8faff !important;
+    border-color: #cdd9ff !important;
+    color: #1e3a8a !important;
+}
+body.light-theme .modal-btn.save {
+    background: #2563eb !important;
+}
+/* ========== 话题管理弹窗明亮主题修复 ========== */
+body.light-theme #topics-modal .modal-content {
+    background: #ffffff !important;
+    border: 1px solid #e0e4f0 !important;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08) !important;
+}
+
+body.light-theme #topics-modal .modal-header {
+    border-bottom: 1px solid #e5e9f0 !important;
+}
+
+body.light-theme #topics-modal .modal-header h3 {
+    color: #1e3a8a !important;
+}
+
+body.light-theme #topics-modal .modal-close {
+    color: #8b9bbe !important;
+}
+body.light-theme #topics-modal .modal-close:hover {
+    color: #2563eb !important;
+}
+
+/* 话题列表容器 */
+body.light-theme #topics-list-container {
+    background: transparent !important;
+}
+
+/* 单个话题项 */
+body.light-theme .topic-item {
+    background: #f8faff !important;
+    border: 1px solid #e0e4f0 !important;
+    border-radius: 16px !important;
+    margin-bottom: 12px !important;
+}
+
+body.light-theme .topic-header .topic-title {
+    color: #1e3a8a !important;
+}
+body.light-theme .topic-header .topic-time {
+    color: #6c7b9e !important;
+}
+
+body.light-theme .topic-preview {
+    color: #2563eb !important;
+    background: transparent !important;
+}
+
+/* 话题操作按钮组 */
+body.light-theme .topic-actions {
+    background: transparent !important;
+}
+body.light-theme .topic-actions button {
+    background: #eef2ff !important;
+    border: 1px solid #cdd9ff !important;
+    color: #2563eb !important;
+    border-radius: 24px !important;
+    padding: 4px 12px !important;
+    font-size: 0.75rem !important;
+    transition: 0.2s !important;
+}
+body.light-theme .topic-actions button:hover {
+    background: #e6edff !important;
+}
+body.light-theme .topic-actions .topic-delete-btn {
+    color: #ef4444 !important;
+}
+body.light-theme .topic-actions .topic-delete-btn:hover {
+    background: #fee2e2 !important;
+}
+
+/* 模态框底部按钮 */
+body.light-theme #topics-modal .modal-footer {
+    border-top: 1px solid #e5e9f0 !important;
+}
+body.light-theme #topics-modal .modal-footer .modal-btn.cancel {
+    background: #f0f4ff !important;
+    color: #2563eb !important;
+    border: 1px solid #cdd9ff !important;
+}
+body.light-theme #topics-modal .modal-footer .modal-btn.cancel:hover {
+    background: #e6edff !important;
+}
+
+/* 统一明亮主题下所有小号文字、提示信息颜色为深灰色 */
+body.light-theme small,
+body.light-theme .form-group small,
+body.light-theme .modal-body small,
+body.light-theme .input-hint,
+body.light-theme .setting-btn span,
+body.light-theme .history-info .date,
+body.light-theme .msg-time,
+body.light-theme .file-preview-item,
+body.light-theme .model-param-item small,
+body.light-theme #clone-status,
+body.light-theme .image-preview + small {
+    color: #4b5563 !important;  /* 深灰色，接近黑色 */
+}
+/* 全局设置弹窗 - 模型设置区域的小字颜色修复 */
+body.light-theme #global-settings-modal .model-param-item small,
+body.light-theme #global-settings-modal .form-group small,
+body.light-theme #global-settings-modal .param-value,
+body.light-theme #global-settings-modal #model-list-container,
+body.light-theme #global-settings-modal #clone-status,
+body.light-theme #global-settings-modal .settings-content small {
+    color: #4b5563 !important;
+}
+
+/* 确保模型列表容器内文字也变为深色 */
+body.light-theme #global-settings-modal #model-list-container div {
+    color: #4b5563 !important;
+}
+
+body.light-theme #global-settings-modal .settings-sidebar {
+    background: #f8faff !important;
+    border-right: 1px solid #e0e4f0 !important;
+}
+
+body.light-theme #global-settings-modal .settings-menu-item {
+    color: #1e3a8a !important;
+    background: transparent !important;
+}
+
+body.light-theme #global-settings-modal .settings-menu-item:hover {
+    background: #eef2ff !important;
+}
+
+body.light-theme #global-settings-modal .settings-menu-item.active {
+    background: #e6edff !important;
+    border-left: 3px solid #3b82f6 !important;
+    color: #2563eb !important;
 }

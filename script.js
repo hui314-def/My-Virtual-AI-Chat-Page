@@ -23,6 +23,7 @@
     let isTopicTransition = false;   // 是否处于话题切换动画中
     let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
     let currentStatus = 'online';   // 记录当前指示器状态
+    let cropper = null;
 
     // 禁用输入区域
     function disableInput() {
@@ -255,20 +256,35 @@
             };
         });
     }
-
-    // 保存所有聊天数据
-    async function saveChatsToDB(chats) {
+    // 仅保存单个对话
+    async function saveChatToDB(chat) {
         const db = await openDB();
         const tx = db.transaction(STORE_NAME, 'readwrite');
         const store = tx.objectStore(STORE_NAME);
-        await store.clear(); // 清空旧数据，全量替换
-        for (const chat of chats) {
-            store.put(chat);
-        }
+        store.put(chat);
         return new Promise((resolve, reject) => {
             tx.oncomplete = resolve;
             tx.onerror = () => reject(tx.error);
         });
+    }
+    // 保存所有聊天数据
+    async function saveAllChatsToDB(chats) {
+        try {
+            const db = await openDB();
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            const store = tx.objectStore(STORE_NAME);
+            await store.clear(); // 清空旧数据，全量替换
+            for (const chat of chats) {
+                store.put(chat);
+            }
+            return new Promise((resolve, reject) => {
+                tx.oncomplete = resolve;
+                tx.onerror = () => reject(tx.error);
+            });
+        } catch (err) {
+            console.error('保存失败', err);
+            alert('保存失败，请检查浏览器存储权限或清理缓存后重试。');
+        }
     }
 
     // 加载所有聊天数据
@@ -557,14 +573,6 @@
 
     // ==================== 本地存储 ====================
     // 保存到 IndexedDB
-    async function saveToStorage() {
-        try {
-            await saveChatsToDB(chats);
-        } catch (err) {
-            console.error('保存失败', err);
-            alert('保存失败，请检查浏览器存储权限或清理缓存后重试。');
-        }
-    }
 
     // 从 IndexedDB 加载
     async function loadFromStorage() {
@@ -788,7 +796,7 @@
                 if (type === 'user') {
                     targetChat.date = new Date();
                     renderHistoryList();
-                    await saveChatsToDB(chats);
+                    await saveChatToDB(chats);
                 }
             }
         }
@@ -1062,7 +1070,7 @@
                 targetChat.messages.push({ type: 'ai', text: fullReply, time: getCurrentTime(), modelName: modelName });
                 targetChat.date = new Date();
                 renderHistoryList();
-                await saveChatsToDB(chats);
+                await saveChatToDB(targetChat);
             }
             isStreaming = false;
 
@@ -1164,7 +1172,7 @@
             });
             targetChat.date = new Date();
             renderHistoryList();
-            await saveChatsToDB(chats);
+            await saveChatToDB(targetChat);
         }
         forceScrollToBottom();
         // 渲染消息
@@ -1204,7 +1212,7 @@
         renderHistoryList();
         renderMessages(currentChatId);
         applyCurrentChatSettings();   // 应用新对话的设置（背景、名称等）
-        await saveToStorage();
+        await saveAllChatsToDB();
     }
 
     function switchChat(chatId) {
@@ -1478,8 +1486,7 @@
         renderMessages(currentChatId);
         // 更新左侧历史列表
         renderHistoryList();
-        await saveToStorage();
-
+        await saveChatToDB(currentChat);
         if (oldGreeting !== newGreeting) {
             startNewTopic();
         }
@@ -1488,17 +1495,13 @@
 
     bgUpload.addEventListener('change', (e) => {
         const file = e.target.files[0];
-        if (file) {
-            const reader = new FileReader();
-            reader.onload = function(ev) {
-                bgImg.src = ev.target.result;
-                // 实时预览背景（不保存到对话，仅预览）
-                const mainChat = document.querySelector('.main-chat');
-                mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${ev.target.result})`;
-                mainChat.style.backgroundSize = 'cover';
-            };
-            reader.readAsDataURL(file);
-        }
+        if (!file) return;
+        showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
+            bgImg.src = croppedDataUrl;
+            const mainChat = document.querySelector('.main-chat');
+            mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
+            mainChat.style.backgroundSize = 'cover';
+        });
     });
 
     // ==================== 初始化数据 ====================
@@ -1850,18 +1853,12 @@
                 const fileInput = document.createElement('input');
                 fileInput.type = 'file';
                 fileInput.accept = 'image/*';
-                fileInput.onchange = async (e) => {
+                fileInput.onchange = (e) => {
                     const file = e.target.files[0];
-                    if (file) {
-                        try {
-                        // 压缩图片，限制最大宽度 200px，质量 0.7
-                        const compressedUrl = await compressImage(file, 200, 0.7);
-                        avatarImgElement.src = compressedUrl;
-                        } catch (err) {
-                            console.error('图片压缩失败', err);
-                            alert('图片处理失败，请重试');
-                        }
-                    }
+                    if (!file) return;
+                    showCropModal(file, 1, { maxWidth: 1024, mimeType: 'image/jpeg', quality: 0.9 }, (croppedDataUrl) => {
+                        avatarImgElement.src = croppedDataUrl;
+                    });
                 };
                 fileInput.click();
             });
@@ -1904,7 +1901,7 @@
         // 刷新左侧历史列表（更新最后消息时间）
         currentChat.date = new Date();
         renderHistoryList();
-        saveToStorage();
+        saveChatToDB(currentChat);
 
         // 如果当前对话开启语音合成，则朗读开场白
         if (settings.ttsEnabled) {
@@ -2152,7 +2149,7 @@
         chat.pinned = !chat.pinned;
         // 重新排序并渲染列表
         renderHistoryList();
-        await saveToStorage();
+        await saveChatToDB(chat);
         const toast = document.createElement('div');
         toast.textContent = chat.pinned ? '📌 已置顶该会话' : '📍 已取消置顶';
         toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
@@ -2207,7 +2204,7 @@
                 }
             }
             renderHistoryList();       // 重新渲染列表（此时已无删除动画，会平滑出现）
-            await saveToStorage();
+            await saveAllChatsToDB();
 
             // 提示
             const toast = document.createElement('div');
@@ -2434,7 +2431,7 @@
                             // 更新存储
                             if (!currentChat.settings.topicSummaries) currentChat.settings.topicSummaries = {};
                             currentChat.settings.topicSummaries[topicIdx] = newText;
-                            saveToStorage();
+                            saveAllChatsToDB();
                             // 更新显示
                             elem.innerText = newText;
                             elem.setAttribute('data-original', newText);
@@ -2479,7 +2476,7 @@
                         // 保存到存储
                         if (!currentChat.settings.topicSummaries) currentChat.settings.topicSummaries = {};
                         currentChat.settings.topicSummaries[idx] = summary;
-                        await saveToStorage();
+                        await saveAllChatsToDB();
                         // 更新显示
                         summaryElem.innerHTML = escapeHtml(summary);
                         summaryElem.setAttribute('data-original', summary);  // 同步自定义属性
@@ -2543,7 +2540,7 @@
                     // 更新聊天界面与历史列表
                     renderMessages(currentChatId);
                     renderHistoryList();
-                    saveToStorage();
+                    saveAllChatsToDB();
 
                     // 若消息清空，自动开启新话题
                     if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
@@ -2605,7 +2602,7 @@
             // 重新渲染
             renderMessages(currentChatId);
             renderHistoryList();
-            saveToStorage();
+            saveChatToDB(currentChat);
             if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
                 // 如果没有任何实际消息，自动开启一个新话题
                 startNewTopic();
@@ -3057,6 +3054,20 @@
         if (modal) modal.style.display = 'flex';
     }
 
+    // 应用主题（明亮/暗黑）
+    function applyTheme(theme) {
+        if (theme === 'light') {
+            document.body.classList.add('light-theme');
+        } else {
+            document.body.classList.remove('light-theme');
+        }
+        // 同步下拉框值（如果存在）
+        const themeSelect = document.getElementById('global-theme');
+        if (themeSelect && themeSelect.value !== theme) {
+            themeSelect.value = theme;
+        }
+    }
+
     // 保存全局设置
     function saveGlobalSettings() {
         const avatarImg = document.getElementById('global-avatar-img');
@@ -3122,12 +3133,8 @@
             }
         }
         
-        // 应用主题（示例简单修改 body 背景色，可根据需要扩展）
-        if (globalSettings.theme === 'light') {
-            document.body.style.background = '#f0f2f5';
-        } else {
-            document.body.style.background = '';
-        }
+        // 应用主题
+        applyTheme(globalSettings.theme);
         
         // 应用字体大小
         applyFontSize(fontSize);
@@ -3279,7 +3286,7 @@
         const isLatestAi = (type === 'ai' && currentChat && currentChat.messages.length > 0 && 
                             currentChat.messages[currentChat.messages.length - 1].text === text);
         
-        let buttonsHtml = `<button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除消息</button>`;
+        let buttonsHtml = `<button class="quote-btn"><i class="fas fa-quote-right"></i> 引用</button><button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除消息</button>`;
         if (type === 'ai') {
             buttonsHtml += `<button class="play-msg-btn"><i class="fas fa-play"></i> 播放</button>`;
         }
@@ -3386,7 +3393,29 @@
                 await continueAIMessage();
             });
         }
-        
+
+        // 引用按钮
+        const quoteBtn = actionsDiv.querySelector('.quote-btn');
+        if (quoteBtn) {
+            quoteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // 构建引用文本（标记原消息角色）
+                const chat = chats.find(c => c.id == currentChatId);
+                if (!chat) return;
+                const settings = chat.settings || defaultSettings;
+                const role = type === 'ai' ? settings.roleName : '用户';
+                const quoteText = `引用消息> **${role}**：${text}\n\n`;
+                // 插入到输入框
+                const textarea = document.querySelector('.auto-expand-textarea');
+                if (textarea) {
+                    // 若输入框已有内容，则在后面追加；否则直接设置
+                    textarea.value = textarea.value ? textarea.value + '\n' + quoteText : quoteText;
+                    textarea.dispatchEvent(new Event('input')); // 触发自动高度
+                    textarea.focus();
+                }
+                closeActionMenu();
+            });
+        }
         // 点击外部关闭
         const closeHandler = (e) => {
             if (!actionsDiv.contains(e.target) && e.target !== msgElement && !msgElement.contains(e.target)) {
@@ -3429,7 +3458,7 @@
             currentChat.messages.splice(index, 1);
             // 重新渲染当前对话
             renderMessages(currentChatId, currentTopicIndex);
-            await saveChatsToDB(chats);
+            await saveChatToDB(currentChat);
             // 更新历史列表时间（可选）
             if (currentChat.messages.length > 0) {
                 currentChat.date = new Date();
@@ -3467,7 +3496,7 @@
         
         // 删除原 AI 消息
         currentChat.messages.splice(lastIndex, 1);
-        await saveChatsToDB(chats);
+        await saveChatToDB(currentChat);
         // 重新渲染界面（移除原消息）
         renderMessages(currentChatId, currentTopicIndex);
         
@@ -3492,7 +3521,7 @@
             text: continuePrompt,
             time: userTime
         });
-        await saveChatsToDB(chats);
+        await saveChatToDB(currentChat);
         await appendMessageToDOM('user', continuePrompt, userTime, false);
         
         // 调用模型回复
@@ -3739,7 +3768,7 @@
         renderHistoryList();
         renderMessages(currentChatId);
         applyCurrentChatSettings();
-        await saveToStorage();
+        await saveAllChatsToDB();
     }
 
     // 状态指示器控制
@@ -3786,12 +3815,88 @@
         setTimeout(() => toast.remove(), 2000);
     }
     
+    function showCropModal(file, aspectRatio, options = {}, callback) {
+        const modal = document.getElementById('crop-modal');
+        const img = document.getElementById('crop-image');
+        const closeBtn = document.getElementById('close-crop-modal');
+        const cancelBtn = document.getElementById('cancel-crop-btn');
+        const applyBtn = document.getElementById('apply-crop-btn');
+        const content = modal.querySelector('.modal-content');
+
+        if (cropper) {
+            cropper.destroy();
+            cropper = null;
+        }
+
+        let objectUrl = null;   // 用于后续释放
+
+        const closeCropModal = () => {
+            if (cropper) {
+                cropper.destroy();
+                cropper = null;
+            }
+            if (objectUrl) {
+                URL.revokeObjectURL(objectUrl);
+                objectUrl = null;
+            }
+            content.classList.add('closing');
+            content.addEventListener('animationend', function onAnimEnd() {
+                content.classList.remove('closing');
+                modal.style.display = 'none';
+                content.removeEventListener('animationend', onAnimEnd);
+            }, { once: true });
+        };
+
+        // 关键：使用 Object URL 代替 Data URL
+        objectUrl = URL.createObjectURL(file);
+        img.src = objectUrl;
+        img.onload = () => {
+            cropper = new Cropper(img, {
+                aspectRatio: isNaN(aspectRatio) ? NaN : aspectRatio,
+                viewMode: 1,
+                autoCropArea: 1,
+                responsive: true,
+                background: false,
+            });
+            content.classList.remove('closing');
+            modal.style.display = 'flex';
+        };
+
+        applyBtn.onclick = () => {
+            if (!cropper) return;
+
+            const { maxWidth, mimeType = 'image/jpeg', quality = 0.9 } = options;
+            const canvasOptions = {};
+            // 设置最大宽度限制，防止输出巨大 canvas
+            if (maxWidth && maxWidth > 0) {
+                canvasOptions.maxWidth = maxWidth;
+            } else {
+                canvasOptions.maxWidth = 1920;   // 默认上限，避免卡死
+            }
+            const canvas = cropper.getCroppedCanvas(canvasOptions);
+            const dataUrl = canvas.toDataURL(mimeType, quality);
+
+            cropper.destroy();
+            cropper = null;
+            closeCropModal();
+            callback(dataUrl);
+        };
+
+        cancelBtn.onclick = closeCropModal;
+        closeBtn.onclick = closeCropModal;
+        modal.onclick = (e) => {
+            if (e.target === modal) closeCropModal();
+        };
+    }
+
     async function init() {
         try {
             const cssRes = await fetch('style.css');
             if (cssRes.ok) cachedCSS = await cssRes.text();
         } catch(e) {}
         await initData();
+        const savedGlobal = JSON.parse(localStorage.getItem('global_settings')) || {};
+        applyTheme(savedGlobal.theme || 'dark');
         initResizer();
         bindEvents();
     }
