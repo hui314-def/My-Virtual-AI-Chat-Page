@@ -81,7 +81,6 @@
     <div class="resizer"></div>
     <!-- 右侧主聊天区：虚拟人物背景 + 半透明对话框 -->
     <main class="main-chat">
-        <!-- 右上角logo -->
         <div class="chat-header">
             <div class="menu-toggle" id="mobile-menu-toggle">
                 <i class="fas fa-bars"></i>
@@ -192,19 +191,19 @@
                     <button class="remove-file-btn" id="remove-file-btn"><i class="fas fa-times-circle"></i></button>
                 </div>
             </div>
-            <!-- 原有的输入框区域 -->
+            <!-- 输入框区域 -->
             <div class="input-container">
                 <textarea rows="1" placeholder="试着发送一句话吧..." class="auto-expand-textarea"></textarea>
                 <div class="send-btn"><i class="fas fa-paper-plane"></i></div>
             </div>
 
-            <!-- 2. 新增按钮栏（靠左显示） -->
+            <!-- 2. 按钮栏（靠左显示） -->
             <div class="action-buttons">
                 <button class="action-btn" id="upload-file-btn"><i class="fas fa-file-upload"></i> 文件上传</button>
                 <button class="action-btn" id="voice-input-btn"><i class="fas fa-microphone"></i> 语音输入</button>
                 <button class="action-btn" id="chat-settings-btn"><i class="fas fa-sliders-h"></i> 对话设置</button>
-                <button class="action-btn" id="new-topic-btn"><i class="fas fa-plus-circle"></i> 新话题</button>
                 <button class="action-btn" id="topics-manage-btn"><i class="fas fa-list-ul"></i> 话题管理</button>
+                <button class="action-btn" id="generate-image-btn"><i class="fas fa-image"></i> 生成图片</button>
             </div>
         </div>
     </main>
@@ -219,7 +218,8 @@
         <div class="modal-body" id="topics-list-container" style="max-height: 60vh; overflow-y: auto;">
             <!-- 话题列表动态生成 -->
         </div>
-        <div class="modal-footer">
+        <div class="modal-footer" style="justify-content: space-between;">
+            <button class="modal-btn save" id="new-topic-modal-btn"><i class="fas fa-plus-circle"></i> 新话题</button>
             <button class="modal-btn cancel" id="cancel-topics-btn">关闭</button>
         </div>
     </div>
@@ -242,6 +242,9 @@
                 </div>
                 <div class="settings-menu-item" data-tab="general">
                     <i class="fas fa-globe"></i> 通用设置
+                </div>
+                <div class="settings-menu-item" data-tab="shortcuts">
+                    <i class="fas fa-keyboard"></i> 快捷键
                 </div>
             </div>
             <!-- 右侧内容区域 -->
@@ -358,6 +361,12 @@
                         </select>
                     </div>
                 </div>
+                <!-- 快捷键设置 -->
+                <div class="settings-tab-pane" id="tab-shortcuts">
+                    <h4>自定义快捷键</h4>
+                    <div id="shortcuts-list"></div>
+                    <button class="modal-btn cancel" id="reset-shortcuts-btn" style="margin-top: 20px;">恢复默认</button>
+                </div>
             </div>
         </div>
         <div class="modal-footer">
@@ -380,6 +389,55 @@
                 <button class="modal-btn cancel" id="cancel-crop-btn">取消</button>
                 <button class="modal-btn save" id="apply-crop-btn"><i class="fas fa-check"></i> 应用裁剪</button>
             </div>
+        </div>
+    </div>
+</div>
+<!-- 图片生成弹窗 -->
+<div id="image-gen-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 500px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-magic"></i> AI 生成图片（使用comfyui接口）</h3>
+            <button class="modal-close" id="close-image-gen-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="form-group">
+                <label>模型选择</label>
+                <select id="image-gen-model" style="width:100%;">
+                    <option value="flux">Flux (推荐)</option>
+                    <option value="sd3">Stable Diffusion 3</option>
+                    <option value="dalle">DALL·E 3</option>
+                </select>
+            </div>
+            <div class="form-group">
+                <label>图片描述</label>
+                <textarea id="image-gen-prompt" rows="3" placeholder="例如：一只穿着宇航服的柴犬，站在月球表面，数字艺术风格"></textarea>
+            </div>
+            <div class="form-group">
+                <label>负面提示词 (可选)</label>
+                <input type="text" id="image-gen-negative" placeholder="描述图片中不想要出现的元素">
+            </div>
+            <div class="form-group" style="display: flex; gap: 12px;">
+                <div style="flex:1;">
+                    <label>图片比例</label>
+                    <select id="image-gen-ratio">
+                        <option value="1024x1024">1:1 (1024x1024)</option>
+                        <option value="832x1248">2:3 (832x1248)</option>
+                        <option value="960x1280">3:4 (960x1280)</option>
+                        <option value="720x1280">9:16 (720x1280)</option>
+                        <option value="1248x832">3:2 (1248x832)</option>
+                        <option value="1280x960">4:3 (1280x960)</option>
+                        <option value="1280x720">16:9 (1280x720)</option>
+                    </select>
+                </div>
+                <div style="flex:1;">
+                    <label>生成数量</label>
+                    <input type="number" id="image-gen-count" value="1" min="1" max="4" style="width:100%;">
+                </div>
+            </div>
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" id="cancel-image-gen-btn">取消</button>
+            <button class="modal-btn save" id="start-image-gen-btn"><i class="fas fa-play"></i> 开始生成</button>
         </div>
     </div>
 </div>

@@ -135,18 +135,21 @@ body {
 }
 
 .history-list::-webkit-scrollbar,
-.chat-messages::-webkit-scrollbar {
+.chat-messages::-webkit-scrollbar,
+.auto-expand-textarea::-webkit-scrollbar {
     width: 4px;
 }
 
 .history-list::-webkit-scrollbar-track,
-.chat-messages::-webkit-scrollbar-track {
+.chat-messages::-webkit-scrollbar-track,
+.auto-expand-textarea::-webkit-scrollbar-track {
     background: #16161f;
     border-radius: 10px;
 }
 
 .history-list::-webkit-scrollbar-thumb,
-.chat-messages::-webkit-scrollbar-thumb {
+.chat-messages::-webkit-scrollbar-thumb,
+.auto-expand-textarea::-webkit-scrollbar-thumb {
     background: #4a4a6e;
     border-radius: 10px;
 }
@@ -526,11 +529,13 @@ body {
     font-family: inherit;
     line-height: 1.4;
     transition: height 0.1s ease;
+    overflow-y: auto;
+    max-height: calc(1.4em * 5 + 24px);
 }
 
 /* 确保输入容器适配多行文本 */
 .input-container {
-    align-items: center;  /* 让文本域顶部对齐，而非居中 */
+    align-items: center;
 }
 
 /* 按钮栏样式（靠左 flex 排列） */
@@ -751,8 +756,15 @@ input:focus, textarea:focus {
     justify-content: flex-end;
     gap: 12px;
     border-top: 1px solid rgba(100, 120, 200, 0.3);
+    justify-content: space-between;
 }
 
+#new-topic-modal-btn {
+    /* 可选：调整颜色与保存按钮一致 */
+    background: linear-gradient(125deg, #2d3370, #1b1f48);
+    border: 1px solid #6c7eff;
+    color: white;
+}
 .modal-btn {
     padding: 8px 20px;
     border-radius: 40px;
@@ -1731,6 +1743,51 @@ body.dragging {
     background: #0a0a0f;
 }
 
+#image-gen-size, #image-gen-model, #image-gen-count {
+    width: 100%;
+    background: rgba(30, 34, 55, 0.7);
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    border-radius: 20px;
+    padding: 10px 16px;
+    color: #f0f3ff;
+    font-size: 0.9rem;
+    outline: none;
+}
+/* 气泡内图片显示限制 */
+.bubble img.message-image {
+    max-width: 100%;
+    max-height: 400px;
+    width: auto;
+    height: auto;
+    object-fit: contain;
+    border-radius: 12px;
+    display: block;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+.bubble img.message-image:hover {
+    transform: scale(1.02);
+}
+
+/* 全屏图片预览 */
+.fullscreen-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 20000;
+    cursor: pointer;
+}
+.fullscreen-overlay img {
+    max-width: 95%;
+    max-height: 95%;
+    object-fit: contain;
+    border-radius: 8px;
+}
+
 /* ========== 明亮主题 - 透明气泡 + 明亮背景 ========== */
 body.light-theme {
     background: #f5f7fc;
@@ -2038,4 +2095,13 @@ body.light-theme #global-settings-modal .settings-menu-item.active {
     background: #e6edff !important;
     border-left: 3px solid #3b82f6 !important;
     color: #2563eb !important;
+}
+
+.shortcut-row kbd {
+    font-family: inherit;
+    color: #ccd6ff;
+    transition: 0.2s;
+}
+.shortcut-row kbd:hover {
+    background: #2a2f55;
 }

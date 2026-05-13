@@ -11,7 +11,7 @@
 ## 使用方法
 
 - 直接用浏览器打开index.html文件就行，手机和电脑端都支持访问
-- 网页端默认支持调用ollama模型提供商的模型，以及其他openai兼容的格式。若使用ollama模型，请注意需要添加环境变量然后重启ollama服务，否则无法调用模型
+- 网页端默认支持调用ollama模型提供商的模型，以及其他openai兼容的格式。若使用ollama模型，请注意需要添加环境变量然后重启ollama服务，否则无法调用模型，环境变量添加的命令如下：
 
 ```bash
 set OLLAMA_ORIGINS=*
@@ -19,7 +19,8 @@ set OLLAMA_ORIGINS=*
 
 - 如果需要用语音合成功能，则安装requirements.txt依赖项运行app.py。本人使用的是qwen-tts语音合成接口，配置教程请参考链接：[https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)
 - 以防不知道，双击消息可以打开操作栏进行删除消息等操作
-- 对话导入功能只支持从左侧智能体列表导出的会话文件，不支持话题管理的对话导出文件
+- 对话导入功能支持从左侧智能体列表导出的会话文件，不支持话题管理的对话导出文件
+- 图片生成使用的是comfyui，如果需要图片生成功能，则需要确保安装comfyui，然后安装requirements.txt依赖项运行image_gen_api.py。
 
 ## 注意事项
 

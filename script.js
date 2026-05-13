@@ -24,6 +24,15 @@
     let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
     let currentStatus = 'online';   // 记录当前指示器状态
     let cropper = null;
+    const DEFAULT_SHORTCUTS = {
+        'new-chat':   { keys: 'shift+n', description: '新建对话' },
+        'new-topic':  { keys: 'ctrl+/', description: '开启新话题' },
+        'prev-chat':  { keys: 'shift+w', description: '上一个对话' },
+        'next-chat':  { keys: 'shift+s', description: '下一个对话' },
+        'export-json':{ keys: 'ctrl+s',        description: '导出当前对话为 JSON 文件' },
+    };
+
+    let currentShortcuts = {};  // 当前生效的快捷键映射
 
     // 禁用输入区域
     function disableInput() {
@@ -268,7 +277,7 @@
         });
     }
     // 保存所有聊天数据
-    async function saveAllChatsToDB(chats) {
+    async function saveAllChatsToDB() {
         try {
             const db = await openDB();
             const tx = db.transaction(STORE_NAME, 'readwrite');
@@ -802,6 +811,163 @@
         }
     }
 
+    // 向聊天区追加一张图片（支持 base64 或 URL）
+    async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
+        const messageDiv = document.createElement('div');
+        messageDiv.className = `message ${type}`;
+
+        // 头像
+        let avatarHtml = '<i class="fas fa-robot"></i>';
+        if (type === 'ai') {
+            const currentChat = chats.find(c => c.id == currentChatId);
+            const avatarUrl = currentChat?.settings?.avatarUrl;
+            avatarHtml = avatarUrl ? `<img src="${avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` 
+                                : '<i class="fas fa-robot"></i>';
+        } else {
+            const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+            const userAvatar = globalSettings.avatar;
+            avatarHtml = (userAvatar && userAvatar.startsWith('data:image'))
+                ? `<img src="${userAvatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
+                : '<i class="fas fa-user-astronaut"></i>';
+        }
+
+        // 气泡：图片 + 时间
+        const imgTag = `<img src="${imgSrc}" class="message-image" alt="生成图片">`;
+        const timeHtml = `<div class="msg-time">${escapeHtml(time || getCurrentTime())}</div>`;
+        messageDiv.innerHTML = `
+            <div class="avatar-msg">${avatarHtml}</div>
+            <div class="bubble">
+                ${imgTag}
+                ${timeHtml}
+            </div>
+        `;
+
+        const imgElement = messageDiv.querySelector('.message-image');
+        const bubble = messageDiv.querySelector('.bubble');
+
+        // 单击放大
+        if (imgElement) {
+            imgElement.addEventListener('click', (e) => {
+                e.stopPropagation();
+                showFullscreenImage(imgSrc);
+            });
+        }
+
+        // 双击操作栏（保存、删除）
+        if (bubble) {
+            bubble.addEventListener('dblclick', (e) => {
+                e.stopPropagation();
+                const msgData = {
+                    type,
+                    isImage: true,
+                    src: imgSrc,
+                    time: time || getCurrentTime(),
+                };
+                showPictureActions(messageDiv, msgData);
+            });
+        }
+
+        chatMessages.appendChild(messageDiv);
+        conditionalScrollToBottom();
+
+        // 持久化（消息对象里附带 isImage 和生成参数）
+        if (saveToStorageFlag) {
+            const targetChat = chats.find(c => c.id == currentChatId);
+            if (targetChat) {
+                targetChat.messages.push({
+                    type,
+                    text: imgSrc,
+                    isImage: true,
+                    time: time || getCurrentTime(),
+                });
+                targetChat.date = new Date();
+                renderHistoryList();
+                await saveChatToDB(targetChat);
+            }
+        }
+    }
+
+    let currentPictureMenu = null;
+    let currentPictureMsgElement = null;
+
+    function showPictureActions(msgElement, msgData) {
+        // 关闭已有菜单
+        if (currentPictureMenu) {
+            currentPictureMenu.remove();
+            currentPictureMenu = null;
+        }
+        const bubble = msgElement.querySelector('.bubble');
+        if (!bubble) return;
+
+        const rect = bubble.getBoundingClientRect();
+        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
+        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
+
+        const actionsDiv = document.createElement('div');
+        actionsDiv.className = 'message-actions';
+        // 仅保留保存和删除
+        actionsDiv.innerHTML = `
+            <button class="save-pic-btn"><i class="fas fa-download"></i> 保存</button>
+            <button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除</button>
+        `;
+        document.body.appendChild(actionsDiv);
+        currentPictureMenu = actionsDiv;
+        currentPictureMsgElement = msgElement;
+
+        // 定位
+        actionsDiv.style.top = `${rect.bottom + scrollTop + 8}px`;
+        actionsDiv.style.left = `${rect.left + scrollLeft}px`;
+        const actionsRect = actionsDiv.getBoundingClientRect();
+        if (actionsRect.right > window.innerWidth) {
+            actionsDiv.style.left = `${window.innerWidth - actionsRect.width - 10 + scrollLeft}px`;
+        }
+
+        // 保存图片
+        const saveBtn = actionsDiv.querySelector('.save-pic-btn');
+        if (saveBtn) {
+            saveBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                const a = document.createElement('a');
+                a.href = msgData.src;
+                a.download = `generated_image_${Date.now()}.png`;
+                a.click();
+                closePictureMenu();
+            });
+        }
+
+        // 删除图片
+        const deleteBtn = actionsDiv.querySelector('.delete-btn');
+        if (deleteBtn) {
+            deleteBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (confirm('确定要删除这张图片吗？')) {
+                    await deletePictureMessage(msgElement, msgData);
+                    closePictureMenu();
+                }
+            });
+        }
+
+        // 关闭逻辑
+        const closeHandler = (e) => {
+            if (!actionsDiv.contains(e.target) && e.target !== msgElement && !msgElement.contains(e.target)) {
+                closePictureMenu();
+                document.removeEventListener('click', closeHandler);
+            }
+        };
+        const scrollCloseHandler = () => closePictureMenu();
+        setTimeout(() => {
+            document.addEventListener('click', closeHandler);
+            chatMessages.addEventListener('scroll', scrollCloseHandler, { once: true });
+        }, 0);
+
+        function closePictureMenu() {
+            if (actionsDiv.parentNode) actionsDiv.remove();
+            currentPictureMenu = null;
+            currentPictureMsgElement = null;
+            document.removeEventListener('click', closeHandler);
+            chatMessages.removeEventListener('scroll', scrollCloseHandler);
+        }
+    }
     function renderMessages(chatId, topicIndex = null) {
         const chat = chats.find(c => c.id == chatId);
         if (!chat || !chatMessages) return;
@@ -821,7 +987,9 @@
         
         // 渲染消息
         messagesToRender.forEach((msg, idx) => {
-            if (msg.type === 'divider') {
+            if (msg.isImage) {
+                appendImageToDOM(msg.type, msg.text, msg.time, false, null);
+            } else if (msg.type === 'divider') {
                 const divider = document.createElement('div');
                 divider.className = 'topic-divider';
                 divider.innerHTML = `<i class="fas fa-asterisk"></i> ${escapeHtml(msg.text)} <i class="fas fa-asterisk"></i>`;
@@ -1669,14 +1837,17 @@
         const chatSettingsBtn = document.getElementById('chat-settings-btn');
         if (chatSettingsBtn) chatSettingsBtn.addEventListener('click', openSettingsModal);
 
-        // 新话题按钮
-        const newTopicBtn = document.getElementById('new-topic-btn');
-        if (newTopicBtn) {
-            newTopicBtn.addEventListener('click', startNewTopic);
-        }
         const topicsBtn = document.getElementById('topics-manage-btn');
         if (topicsBtn) {
             topicsBtn.addEventListener('click', openTopicsModal);
+        }
+
+        const newTopicModalBtn = document.getElementById('new-topic-modal-btn');
+        if (newTopicModalBtn) {
+            newTopicModalBtn.addEventListener('click', () => {
+                startNewTopic();
+                closeTopicsModal();
+            });
         }
 
         // 话题管理弹窗关闭按钮
@@ -1870,6 +2041,106 @@
         loadModelList();
         updateModelSelector();
         bindQuickModelSwitch();
+        document.addEventListener('keydown', function(e) {
+            if (e.key === 'Escape') {
+                // 查找所有当前可见的模态框（display: flex）
+                const openModals = document.querySelectorAll('.settings-modal[style*="display: flex"]');
+                if (openModals.length > 0) {
+                    // 取最后一个（最后打开的，通常在最上层）
+                    const topModal = openModals[openModals.length - 1];
+                    const closeBtn = topModal.querySelector('.modal-close');
+                    if (closeBtn) {
+                        closeBtn.click();   // 触发原有关闭逻辑（含裁剪清理等）
+                        e.preventDefault();
+                        e.stopPropagation();
+                    }
+                    return;
+                }
+                
+                // 处理文件内容预览弹窗（没有 settings-modal 类）
+                const fileModal = document.querySelector('.file-content-modal');
+                if (fileModal && fileModal.style.display === 'flex') {
+                    fileModal.remove();
+                    e.preventDefault();
+                    e.stopPropagation();
+                }
+            }
+        }, true);
+        document.getElementById('reset-shortcuts-btn').addEventListener('click', () => {
+            currentShortcuts = {};
+            for (const [action, obj] of Object.entries(DEFAULT_SHORTCUTS)) {
+                currentShortcuts[action] = obj.keys;
+            }
+            renderShortcutsPanel();
+        });
+        // 打开生成图片弹窗
+        const genImgBtn = document.getElementById('generate-image-btn');
+        if (genImgBtn) {
+            genImgBtn.addEventListener('click', () => {
+                const modal = document.getElementById('image-gen-modal');
+                if (modal) modal.style.display = 'flex';
+            });
+        }
+
+        // 关闭按钮
+        const closeImageGenBtn = document.getElementById('close-image-gen-modal');
+        const cancelImageGenBtn = document.getElementById('cancel-image-gen-btn');
+        if (closeImageGenBtn) closeImageGenBtn.addEventListener('click', () => {
+            document.getElementById('image-gen-modal').style.display = 'none';
+        });
+        if (cancelImageGenBtn) cancelImageGenBtn.addEventListener('click', () => {
+            document.getElementById('image-gen-modal').style.display = 'none';
+        });
+
+        // 点击遮罩关闭
+        const imageGenModal = document.getElementById('image-gen-modal');
+        if (imageGenModal) {
+            imageGenModal.addEventListener('click', (e) => {
+                if (e.target === imageGenModal) imageGenModal.style.display = 'none';
+            });
+        }
+
+        // 开始生成按钮（当前仅关闭弹窗，可在此实现）
+        const startImageGenBtn = document.getElementById('start-image-gen-btn');
+        if (startImageGenBtn) {
+            startImageGenBtn.addEventListener('click', async () => {
+                const prompt = document.getElementById('image-gen-prompt').value;
+                if (!prompt) {
+                    alert('请输入图片描述');
+                    return;
+                }
+                const negative = document.getElementById('image-gen-negative').value;
+                const size = document.getElementById('image-gen-ratio').value;
+                const count = parseInt(document.getElementById('image-gen-count').value);
+                const model = document.getElementById('image-gen-model').value;
+
+                // 关闭弹窗
+                document.getElementById('image-gen-modal').style.display = 'none';
+
+                // 发送提示消息
+                await appendMessageToDOM('ai', `🎨 正在生成 ${count} 张图片...`, getCurrentTime(), false);
+                forceScrollToBottom();
+                try {
+                    const response = await fetch('http://localhost:5050/generate_image', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ prompt, negative, size, count, model })
+                    });
+                    const data = await response.json();
+                    if (!response.ok) {
+                        throw new Error(data.error || '生成失败');
+                    }
+                    const genParams = { prompt, negative, size, count, model };
+                    // 显示生成的图片
+                    for (const imgB64 of data.images) {
+                        const imgSrc = imgB64.startsWith('data:') ? imgB64 : `data:image/png;base64,${imgB64}`;
+                        await appendImageToDOM('ai', imgSrc, getCurrentTime(), true, genParams);  // 持久化
+                    }
+                } catch (error) {
+                    appendMessageToDOM('ai', `❌ 图片生成失败: ${error.message}`, getCurrentTime(), true);
+                }
+            });
+        }
     }
     // 开启新话题（插入分隔线 + 开场白）
     function startNewTopic() {
@@ -1915,11 +2186,16 @@
         const trigger = historyItem.querySelector('.history-menu-trigger');
         if (!trigger) return;
         let currentMenu = null;
+        let scrollCloseHandler = null;
         
         const closeMenu = () => {
             if (currentMenu && currentMenu.parentNode) currentMenu.remove();
             currentMenu = null;
             document.removeEventListener('click', outsideClickListener);
+            if (scrollCloseHandler && historyList) {
+                historyList.removeEventListener('scroll', scrollCloseHandler);
+                scrollCloseHandler = null;
+            }
         };
         
         const outsideClickListener = (e) => {
@@ -1987,6 +2263,9 @@
                 });
             });
             
+            // 绑定滚动关闭：滚动历史列表时关闭菜单
+            scrollCloseHandler = () => closeMenu();
+            historyList.addEventListener('scroll', scrollCloseHandler);
             // 点击外部关闭
             setTimeout(() => {
                 document.addEventListener('click', outsideClickListener);
@@ -3052,6 +3331,8 @@
 
         const modal = document.getElementById('global-settings-modal');
         if (modal) modal.style.display = 'flex';
+
+        renderShortcutsPanel();
     }
 
     // 应用主题（明亮/暗黑）
@@ -3121,6 +3402,7 @@
             fontSize: document.getElementById('global-font-size').value,
             modelName: currentModel,
             ttsApiUrl: document.getElementById('tts-api-url').value,
+            shortcuts: currentShortcuts,
         };
         try {
             localStorage.setItem('global_settings', JSON.stringify(globalSettings));
@@ -3425,9 +3707,9 @@
             }
         };
         const scrollCloseHandler = () => closeActionMenu();
+        chatMessages.addEventListener('scroll', scrollCloseHandler);
         setTimeout(() => {
             document.addEventListener('click', closeHandler);
-            document.addEventListener('scroll', scrollCloseHandler, { once: true });
         }, 0);
         currentActionClickHandler = closeHandler;
         currentActionScrollHandler = scrollCloseHandler;
@@ -3889,6 +4171,213 @@
         };
     }
 
+    // 将快捷键字符串转为规范化的小写形式 (ctrl+n)
+    function normalizeShortcut(keys) {
+        return keys.toLowerCase().replace(/\s/g, '');
+    }
+
+    // 根据快捷键字符串构建keydown事件匹配的条件
+    function parseShortcut(shortcutStr) {
+        const parts = shortcutStr.toLowerCase().split('+');
+        const key = parts.pop(); // 最后一个为实际按键
+        return {
+            ctrlKey: parts.includes('ctrl'),
+            shiftKey: parts.includes('shift'),
+            altKey: parts.includes('alt'),
+            metaKey: parts.includes('meta') || parts.includes('cmd'),
+            key: key
+        };
+    }
+
+    // 从event对象生成快捷键字符串（用于捕获）
+    function eventToShortcutString(e) {
+        const parts = [];
+        if (e.ctrlKey) parts.push('ctrl');
+        if (e.shiftKey) parts.push('shift');
+        if (e.altKey) parts.push('alt');
+        if (e.metaKey) parts.push('meta');
+        let key = e.key.toLowerCase();
+        if (key === 'control' || key === 'shift' || key === 'alt' || key === 'meta') return null;
+        if (key === ' ') key = 'space';
+        if (key === '/') key = '/';  // 特殊键保留
+        // 处理功能键
+        if (key.length === 1) key = key;
+        else if (key === 'arrowup') key = 'up';
+        else if (key === 'arrowdown') key = 'down';
+        else if (key === 'arrowleft') key = 'left';
+        else if (key === 'arrowright') key = 'right';
+        parts.push(key);
+        return parts.join('+');
+    }
+
+    // 全局快捷键处理
+    function handleKeyDown(e) {
+        // 如果焦点在输入框或可编辑元素，忽略快捷键（除非快捷键不含修饰键且用户特别设置？统一忽略）
+        const active = document.activeElement;
+        if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
+            return;
+        }
+        
+        const pressed = eventToShortcutString(e);
+        if (!pressed) return;
+        
+        for (const [action, keys] of Object.entries(currentShortcuts)) {
+            if (normalizeShortcut(keys) === pressed) {
+                e.preventDefault();
+                e.stopPropagation();
+                executeAction(action);
+                break;
+            }
+        }
+    }
+
+    function executeAction(action) {
+        switch (action) {
+            case 'new-chat':
+                createNewChat();
+                break;
+            case 'new-topic':
+                startNewTopic();
+                break;
+            case 'prev-chat':
+                switchToPreviousChat();
+                break;
+            case 'next-chat':
+                switchToNextChat();
+                break;
+            case 'export-json':
+                const currentChat = chats.find(c => c.id == currentChatId);
+                if (currentChat) exportChatAsJSON(currentChat);
+                else showBriefToast('无当前对话可导出');
+                break;
+        }
+    }
+
+    // 切换到上一个/下一个对话（在chats数组中按排序顺序）
+    function switchToPreviousChat() {
+        // 按置顶 + 时间倒序排列（与 renderHistoryList 相同）
+        const sorted = [...chats].sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            return b.date - a.date;
+        });
+        const idx = sorted.findIndex(c => c.id == currentChatId);
+        if (idx > 0) switchChat(sorted[idx - 1].id);
+    }
+
+    function switchToNextChat() {
+        const sorted = [...chats].sort((a, b) => {
+            if (a.pinned && !b.pinned) return -1;
+            if (!a.pinned && b.pinned) return 1;
+            return b.date - a.date;
+        });
+        const idx = sorted.findIndex(c => c.id == currentChatId);
+        if (idx < sorted.length - 1) switchChat(sorted[idx + 1].id);
+    }
+    function loadShortcutsFromStorage() {
+        const global = JSON.parse(localStorage.getItem('global_settings')) || {};
+        if (global.shortcuts) {
+            currentShortcuts = global.shortcuts;
+        } else {
+            currentShortcuts = {};
+            for (const [action, obj] of Object.entries(DEFAULT_SHORTCUTS)) {
+                currentShortcuts[action] = obj.keys;
+            }
+        }
+        // 移除旧的监听器（如果存在）
+        document.removeEventListener('keydown', handleKeyDown, true);
+        document.addEventListener('keydown', handleKeyDown, true);
+    }
+    function renderShortcutsPanel() {
+        const container = document.getElementById('shortcuts-list');
+        if (!container) return;
+        loadShortcutsFromStorage(); // 确保 currentShortcuts 是最新的
+        let html = '';
+        for (const [action, keys] of Object.entries(currentShortcuts)) {
+            const desc = DEFAULT_SHORTCUTS[action]?.description || action;
+            html += `
+                <div class="shortcut-row" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; background: rgba(30,34,55,0.5); border-radius:12px; padding:10px 16px;">
+                    <span>${desc}</span>
+                    <div style="display:flex; align-items:center; gap:8px;">
+                        <kbd style="background: #1a1c2a; padding: 4px 10px; border-radius:6px; border:1px solid #5f7eff; min-width:80px; text-align:center; cursor:pointer;" class="shortcut-key" data-action="${action}">${keys.toUpperCase()}</kbd>
+                    </div>
+                </div>`;
+        }
+        container.innerHTML = html;
+
+        // 绑定记录按钮和点击kbd也可以触发记录
+        document.querySelectorAll('.record-shortcut-btn, .shortcut-key').forEach(el => {
+            el.addEventListener('click', (e) => {
+                const action = el.getAttribute('data-action');
+                const kbd = container.querySelector(`.shortcut-key[data-action="${action}"]`);
+                if (kbd) kbd.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> 按下组合键...';
+                startRecordShortcut(action, kbd);
+            });
+        });
+    }
+
+    function startRecordShortcut(action, displayElement) {
+        const handler = (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+            const shortcut = eventToShortcutString(e);
+            if (!shortcut) return;
+            
+            // 检查常见不可覆盖组合
+            const conflict = isBrowserReserved(shortcut);
+            if (conflict) {
+                alert(`组合键 ${shortcut.toUpperCase()} 可能被浏览器保留，仍可设置但可能无法完全拦截默认行为。`);
+            }
+            currentShortcuts[action] = shortcut;
+            if (displayElement) displayElement.textContent = shortcut.toUpperCase();
+            document.removeEventListener('keydown', handler, true);
+        };
+        document.addEventListener('keydown', handler, true);
+        // ... 超时回调 ...
+    }
+
+    // 判断是否为浏览器通常保护的组合（基于常识）
+    function isBrowserReserved(shortcut) {
+        const reserved = [
+            'ctrl+n', 'ctrl+t', 'ctrl+w', 'ctrl+s', 'ctrl+p', 'ctrl+o',
+            'ctrl+shift+n', 'ctrl+shift+t', 'ctrl+shift+w', // 部分浏览器也保护这些
+            'ctrl+q', 'alt+f4', 'ctrl+shift+q'
+        ];
+        return reserved.includes(normalizeShortcut(shortcut));
+    }
+
+    function showFullscreenImage(src) {
+        // 移除已有的全屏层
+        const existing = document.querySelector('.fullscreen-overlay');
+        if (existing) existing.remove();
+
+        const overlay = document.createElement('div');
+        overlay.className = 'fullscreen-overlay';
+        overlay.innerHTML = `<img src="${src}" alt="预览">`;
+        // 点击关闭
+        overlay.addEventListener('click', () => overlay.remove());
+        // Esc 关闭（全局 Esc 监听中需追加处理，见后文）
+        document.addEventListener('keydown', function onEsc(e) {
+            if (e.key === 'Escape') {
+                overlay.remove();
+                document.removeEventListener('keydown', onEsc);
+            }
+        });
+        document.body.appendChild(overlay);
+    }
+
+    async function deletePictureMessage(msgElement, msgData) {
+        const currentChat = chats.find(c => c.id == currentChatId);
+        if (!currentChat) return;
+
+        const index = currentChat.messages.findIndex(m => m.isImage && m.time === msgData.time && m.text === msgData.src);
+        if (index !== -1) {
+            currentChat.messages.splice(index, 1);
+            await saveChatToDB(currentChat);
+            msgElement.remove();
+            renderHistoryList();
+        }
+    }
     async function init() {
         try {
             const cssRes = await fetch('style.css');
@@ -3898,6 +4387,7 @@
         const savedGlobal = JSON.parse(localStorage.getItem('global_settings')) || {};
         applyTheme(savedGlobal.theme || 'dark');
         initResizer();
+        loadShortcutsFromStorage();
         bindEvents();
     }
     init();
