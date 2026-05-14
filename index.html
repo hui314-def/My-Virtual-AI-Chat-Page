@@ -13,6 +13,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
 </head>
 <body>
+<!-- 加载遮罩 -->
+<div id="loading-overlay">
+    <div class="loader-spinner"></div>
+    <p>正在连接灵境…</p>
+</div>
 <div class="chat-app">
     <!-- 左侧栏：对话历史 + 左上用户信息 + 左下设置 -->
     <aside class="sidebar">
@@ -346,7 +351,7 @@
                     <h4>界面主题</h4>
                     <div class="form-group">
                         <label>主题颜色</label>
-                        <select id="global-theme">
+                        <select id="global-theme" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
                             <option value="dark">暗黑（默认）</option>
                             <option value="light">明亮</option>
                             <option value="auto">跟随系统</option>
@@ -354,7 +359,7 @@
                     </div>
                     <div class="form-group">
                         <label>消息字体大小</label>
-                        <select id="global-font-size">
+                        <select id="global-font-size" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
                             <option value="small">小</option>
                             <option value="medium" selected>中</option>
                             <option value="large">大</option>
@@ -419,7 +424,7 @@
             <div class="form-group" style="display: flex; gap: 12px;">
                 <div style="flex:1;">
                     <label>图片比例</label>
-                    <select id="image-gen-ratio">
+                    <select id="image-gen-ratio" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 180px; height: 40px; cursor: pointer;">
                         <option value="1024x1024">1:1 (1024x1024)</option>
                         <option value="832x1248">2:3 (832x1248)</option>
                         <option value="960x1280">3:4 (960x1280)</option>
@@ -438,6 +443,21 @@
         <div class="modal-footer">
             <button class="modal-btn cancel" id="cancel-image-gen-btn">取消</button>
             <button class="modal-btn save" id="start-image-gen-btn"><i class="fas fa-play"></i> 开始生成</button>
+        </div>
+    </div>
+</div>
+<!-- 通用自定义弹窗 -->
+<div id="custom-dialog" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 400px;">
+        <div class="modal-header">
+            <h3 id="custom-dialog-title">提示</h3>
+            <button class="modal-close" id="custom-dialog-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p id="custom-dialog-message">消息内容</p>
+        </div>
+        <div class="modal-footer" id="custom-dialog-footer">
+            <!-- 动态生成按钮 -->
         </div>
     </div>
 </div>

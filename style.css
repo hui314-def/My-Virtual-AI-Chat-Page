@@ -1,3 +1,48 @@
+/* 加载遮罩 */
+#loading-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(circle at 20% 30%, #0b0b0f, #030305);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+#loading-overlay.fade-out {
+    opacity: 0;
+    visibility: hidden;
+}
+#loading-overlay p {
+    margin-top: 20px;
+    color: #a5b9ff;
+    font-size: 1rem;
+    letter-spacing: 2px;
+}
+
+/* 旋转动画 */
+.loader-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(95, 126, 255, 0.3);
+    border-top-color: #5f7eff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* 初始隐藏主界面，等初始化后显示 */
+.chat-app {
+    opacity: 0;
+    transition: opacity 0.8s ease;
+}
+.chat-app.visible {
+    opacity: 1;
+}
 
 * {
     margin: 0;
@@ -970,6 +1015,22 @@ input:focus, textarea:focus {
     scrollbar-color: #4a4a6e rgba(20, 24, 45, 0.6);
 }
 
+/* 个性化设置区域滚动条样式 */
+.settings-content::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+}
+.settings-content::-webkit-scrollbar-track {
+    background: rgba(20, 24, 45, 0.6);
+    border-radius: 10px;
+}
+.settings-content::-webkit-scrollbar-thumb {
+    background: #4a4a6e;
+    border-radius: 10px;
+}
+.settings-content::-webkit-scrollbar-thumb:hover {
+    background: #6c7eff;
+}
 /* 开关样式 */
 .switch {
     position: relative;
@@ -1787,6 +1848,30 @@ body.dragging {
     object-fit: contain;
     border-radius: 8px;
 }
+
+#custom-dialog .modal-body p {
+    color: #eef2ff;
+    font-size: 0.95rem;
+    line-height: 1.5;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 /* ========== 明亮主题 - 透明气泡 + 明亮背景 ========== */
 body.light-theme {

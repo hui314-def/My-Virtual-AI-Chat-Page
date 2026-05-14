@@ -121,14 +121,14 @@
                 if (modelNameInput) modelNameInput.value = modelName;
                 // 刷新快速切换下拉菜单
                 updateModelSelector();
-                alert(`已切换到模型：${modelName}`);
+                customAlert(`已切换到模型：${modelName}`, 'success');
             });
         });
         document.querySelectorAll('.delete-model-btn').forEach(btn => {
             btn.addEventListener('click', () => {
                 const modelName = btn.getAttribute('data-model');
                 if (modelList.length === 1) {
-                    alert('至少保留一个模型');
+                    customAlert('至少保留一个模型');
                     return;
                 }
                 modelList = modelList.filter(m => m !== modelName);
@@ -188,7 +188,7 @@
         modelName = modelName.trim();
         if (!modelName) return false;
         if (modelList.includes(modelName)) {
-            alert('模型已存在');
+            customAlert('模型已存在');
             return false;
         }
         modelList.push(modelName);
@@ -292,7 +292,7 @@
             });
         } catch (err) {
             console.error('保存失败', err);
-            alert('保存失败，请检查浏览器存储权限或清理缓存后重试。');
+            customAlert('保存失败，请检查浏览器存储权限或清理缓存后重试。', 'error');
         }
     }
 
@@ -1795,7 +1795,7 @@
                     
                     // 检查文件大小（限制 5MB）
                     if (file.size > 5 * 1024 * 1024) {
-                        alert('文件过大，请选择小于 5MB 的文件');
+                        customAlert('文件过大，请选择小于 5MB 的文件', 'error');
                         return;
                     }
                     
@@ -1813,7 +1813,7 @@
                         }
                     };
                     reader.onerror = () => {
-                        alert('文件读取失败，请重试');
+                        customAlert('文件读取失败，请重试', 'error');
                     };
                     reader.readAsText(file, 'UTF-8');
                 };
@@ -1900,14 +1900,14 @@
                     const file = files[0];
                     // 复用原有文件上传逻辑（与 upload-file-btn 相同）
                     if (file.size > 5 * 1024 * 1024) {
-                        alert('文件过大，请选择小于 5MB 的文件');
+                        customAlert('文件过大，请选择小于 5MB 的文件', 'error');
                         return;
                     }
                     // 检查文件类型
                     const allowedExtensions = ['.txt', '.md', '.csv', '.json', '.log', '.js', '.py', '.html', '.css', '.xml'];
                     const ext = '.' + file.name.split('.').pop().toLowerCase();
                     if (!allowedExtensions.includes(ext)) {
-                        alert('不支持的文件类型，请上传文本类文件');
+                        customAlert('不支持的文件类型，请上传文本类文件', 'error');
                         return;
                     }
                     // 读取文件
@@ -1923,7 +1923,7 @@
                         }
                     };
                     reader.onerror = () => {
-                        alert('文件读取失败，请重试');
+                        customAlert('文件读取失败，请重试', 'error');
                     };
                     reader.readAsText(file, 'UTF-8');
                 }
@@ -1954,7 +1954,7 @@
                             const importedData = JSON.parse(ev.target.result);
                             await importChatFromJson(importedData);
                         } catch (err) {
-                            alert('JSON 解析失败：' + err.message);
+                            customAlert('JSON 解析失败：' + err.message, 'error');
                         }
                     };
                     reader.readAsText(file, 'UTF-8');
@@ -2106,7 +2106,7 @@
             startImageGenBtn.addEventListener('click', async () => {
                 const prompt = document.getElementById('image-gen-prompt').value;
                 if (!prompt) {
-                    alert('请输入图片描述');
+                    customAlert('请输入图片描述');
                     return;
                 }
                 const negative = document.getElementById('image-gen-negative').value;
@@ -2439,7 +2439,7 @@
     // 删除会话
     async function deleteChat(chatId) {
         if (chats.length === 1) {
-            alert('至少保留一个对话，无法删除最后一个。');
+            customAlert('至少保留一个对话，无法删除最后一个。', 'warn');
             return;
         }
         if (!confirm('确定要删除这个会话吗？此操作不可撤销。')) return;
@@ -2981,12 +2981,12 @@
     function startVoiceInput() {
         // 检查安全上下文
         if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-            alert('语音输入需要 HTTPS 环境，请在本地或部署到 HTTPS 站点后使用。\n当前页面协议：' + location.protocol);
+            customAlert('语音输入需要 HTTPS 环境，请在本地或部署到 HTTPS 站点后使用。\n当前页面协议：' + location.protocol, 'warn');
             return;
         }
 
         if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-            alert('您的浏览器不支持语音识别，请使用 Chrome、Edge 或 Safari 等现代浏览器。');
+            customAlert('您的浏览器不支持语音识别，请使用 Chrome、Edge 或 Safari 等现代浏览器。', 'warn');
             return;
         }
 
@@ -3062,7 +3062,7 @@
                 default:
                     errorMsg = `语音识别失败：${event.error}`;
             }
-            alert(errorMsg);
+            customAlert(errorMsg, 'error');
             recognition.stop();
             isListening = false;
             if (voiceBtn) {
@@ -3203,7 +3203,7 @@
             fetchVoicesBtn.addEventListener('click', async () => {
                 const apiUrl = document.getElementById('tts-api-url').value;
                 if (!apiUrl) {
-                    alert('请先填写 TTS API 地址');
+                    customAlert('请先填写 TTS API 地址');
                     return;
                 }
                 try {
@@ -3228,22 +3228,22 @@
             cloneBtn.parentNode.replaceChild(newCloneBtn, cloneBtn);
             newCloneBtn.addEventListener('click', async () => {
                 if (isCloning) {
-                    alert('正在克隆中，请稍候...');
+                    customAlert('正在克隆中，请稍候...');
                     return;
                 }
                 const voiceName = document.getElementById('clone-voice-name').value.trim();
                 if (!voiceName) {
-                    alert('请输入音色名称');
+                    customAlert('请输入音色名称');
                     return;
                 }
                 const audioFile = document.getElementById('clone-audio-file').files[0];
                 if (!audioFile) {
-                    alert('请选择参考音频文件');
+                    customAlert('请选择参考音频文件');
                     return;
                 }
                 const audioText = document.getElementById('clone-audio-text').value.trim();
                 if (!audioText) {
-                    alert('请填写音频对应的文本内容');
+                    customAlert('请填写音频对应的文本内容');
                     return;
                 }
                 isCloning = true;
@@ -3409,9 +3409,9 @@
             closeGlobalModal();
         } catch (e) {
             if (e.name === 'QuotaExceededError') {
-                alert('存储空间不足！请尝试：\n1. 删除一些旧对话\n2. 使用更小的头像图片\n3. 清理浏览器缓存');
+                customAlert('存储空间不足！请尝试：\n1. 删除一些旧对话\n2. 使用更小的头像图片\n3. 清理浏览器缓存', 'error');
             } else {
-                alert('保存失败：' + e.message);
+                customAlert('保存失败：' + e.message, 'error');
             }
         }
         
@@ -3441,7 +3441,7 @@
                 document.getElementById('global-avatar-img').src = compressedUrl;
             } catch (err) {
                 console.error('头像压缩失败', err);
-                alert('头像处理失败，请重试');
+                customAlert('头像处理失败，请重试', 'error');
             }
         }
     });
@@ -3621,7 +3621,7 @@
                 closeActionMenu();
                 // 检查是否正在语音合成/播放
                 if (isTTSSpeaking) {
-                    alert('正在合成和播放语音，请稍后再试');
+                    customAlert('正在合成和播放语音，请稍后再试');
                     return;
                 }
                 const currentChat = chats.find(c => c.id == currentChatId);
@@ -3635,10 +3635,10 @@
                     if (speechText.trim()) {
                         speakWithQwenTTS(speechText, ttsVoice, playBtn);
                     } else {
-                        alert('当前消息没有可朗读的语言内容');
+                        customAlert('当前消息没有可朗读的语言内容');
                     }
                 } else {
-                    alert('当前对话未开启语音合成，请在对话设置中开启 TTS 开关');
+                    customAlert('当前对话未开启语音合成，请在对话设置中开启 TTS 开关');
                 }
             });
         }
@@ -3747,7 +3747,7 @@
                 renderHistoryList();
             }
         } else {
-            alert('无法找到该消息，删除失败');
+            customAlert('无法找到该消息，删除失败', 'error');
         }
     }
 
@@ -4015,12 +4015,12 @@
     async function importChatFromJson(data) {
         // 校验结构：必须包含 id, messages, settings, date 等字段（与导出会话一致）
         if (!data || typeof data !== 'object') {
-            alert('无效的 JSON 数据');
+            customAlert('无效的 JSON 数据', 'error');
             return;
         }
         // 检查必要字段（导出会话时包含 id, messages, settings, date, title 等）
         if (!data.messages || !Array.isArray(data.messages) || !data.settings) {
-            alert('无效的对话格式：缺少 messages 或 settings 字段');
+            customAlert('无效的对话格式：缺少 messages 或 settings 字段', 'error');
             return;
         }
 
@@ -4326,7 +4326,7 @@
             // 检查常见不可覆盖组合
             const conflict = isBrowserReserved(shortcut);
             if (conflict) {
-                alert(`组合键 ${shortcut.toUpperCase()} 可能被浏览器保留，仍可设置但可能无法完全拦截默认行为。`);
+                customAlert(`组合键 ${shortcut.toUpperCase()} 可能被浏览器保留，仍可设置但可能无法完全拦截默认行为。`);
             }
             currentShortcuts[action] = shortcut;
             if (displayElement) displayElement.textContent = shortcut.toUpperCase();
@@ -4378,6 +4378,110 @@
             renderHistoryList();
         }
     }
+
+    // ========== 自定义弹窗 ==========
+    function showCustomDialog(options) {
+        const {
+            title = '提示',
+            message = '',
+            buttons = [{ text: '确定', value: true, className: 'save' }],
+            closable = true
+        } = options;
+
+        const modal = document.getElementById('custom-dialog');
+        const titleEl = document.getElementById('custom-dialog-title');
+        const messageEl = document.getElementById('custom-dialog-message');
+        const footerEl = document.getElementById('custom-dialog-footer');
+        const closeBtn = document.getElementById('custom-dialog-close');
+
+        return new Promise((resolve) => {
+            // 清理旧事件（通过克隆节点移除监听器）
+            footerEl.innerHTML = '';
+
+            // 设置标题和消息
+            titleEl.innerHTML = title;
+            messageEl.innerHTML = message.replace(/\n/g, '<br>'); // 支持换行
+
+            // 创建按钮
+            buttons.forEach(btn => {
+                const button = document.createElement('button');
+                button.className = `modal-btn ${btn.className || ''}`;
+                button.textContent = btn.text;
+                button.addEventListener('click', () => {
+                    closeModal();
+                    resolve(btn.value);
+                });
+                footerEl.appendChild(button);
+            });
+
+            // 关闭行为
+            const closeModal = () => {
+                modal.style.display = 'none';
+                cleanup();
+            };
+
+            // 清理事件监听
+            const cleanup = () => {
+                closeBtn.removeEventListener('click', onClose);
+                modal.removeEventListener('click', onOverlayClick);
+                document.removeEventListener('keydown', onEsc);
+            };
+
+            const onClose = () => {
+                if (closable) {
+                    resolve(buttons.length > 0 ? buttons[0].value : null); // 默认返回第一个按钮的值或null
+                    closeModal();
+                }
+            };
+
+            const onOverlayClick = (e) => {
+                if (e.target === modal && closable) {
+                    onClose();
+                }
+            };
+
+            const onEsc = (e) => {
+                if (e.key === 'Escape' && closable) {
+                    onClose();
+                }
+            };
+
+            closeBtn.addEventListener('click', onClose);
+            modal.addEventListener('click', onOverlayClick);
+            document.addEventListener('keydown', onEsc);
+
+            modal.style.display = 'flex';
+        });
+    }
+
+    async function customAlert(message, type = 'info') {
+        const typeMap = {
+            info:    { title: '提示', icon: 'fa-info-circle' },
+            warning: { title: '警告', icon: 'fa-exclamation-triangle' },
+            error:   { title: '错误', icon: 'fa-times-circle' },
+            success: { title: '成功', icon: 'fa-check-circle' }
+        };
+        const { title, icon } = typeMap[type] || typeMap.info;
+        await showCustomDialog({
+            title: `<i class="fas ${icon}"></i> ${title}`,
+            message: message,
+            buttons: [{ text: '确定', value: undefined, className: 'save' }]
+        });
+    }
+
+    async function customConfirm(message) {
+        const result = await showCustomDialog({
+            title: '确认操作',
+            message: message,
+            buttons: [
+                { text: '取消', value: false, className: 'cancel' },
+                { text: '确定', value: true, className: 'save' }
+            ],
+            closable: true  // 点击关闭或遮罩也视为取消
+        });
+        return result === true;
+    }    
+
     async function init() {
         try {
             const cssRes = await fetch('style.css');
@@ -4389,6 +4493,17 @@
         initResizer();
         loadShortcutsFromStorage();
         bindEvents();
+        // 初始化完成，移除遮罩并显示主界面
+        const overlay = document.getElementById('loading-overlay');
+        const chatApp = document.querySelector('.chat-app');
+        if (overlay) {
+            overlay.classList.add('fade-out');
+            // 等过渡结束后移除元素
+            overlay.addEventListener('transitionend', () => overlay.remove(), { once: true });
+        }
+        if (chatApp) {
+            chatApp.classList.add('visible');
+        }
     }
     init();
 })();
