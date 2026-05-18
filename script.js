@@ -14,8 +14,6 @@
     let currentTTSController = null;
     let isTTSSpeaking = false;   // 是否正在语音合成/播放
     let searchDebounceTimer = null;
-    const searchInput = document.getElementById('global-search-input');
-    const searchDropdown = document.getElementById('search-results-dropdown');
     let globalModal = null;
     let currentActionClickHandler = null;
     let currentActionScrollHandler = null;
@@ -25,11 +23,14 @@
     let currentStatus = 'online';   // 记录当前指示器状态
     let cropper = null;
     const DEFAULT_SHORTCUTS = {
-        'new-chat':   { keys: 'shift+n', description: '新建对话' },
-        'new-topic':  { keys: 'ctrl+/', description: '开启新话题' },
-        'prev-chat':  { keys: 'shift+w', description: '上一个对话' },
-        'next-chat':  { keys: 'shift+s', description: '下一个对话' },
-        'export-json':{ keys: 'ctrl+s',        description: '导出当前对话为 JSON 文件' },
+        'new-chat':    { keys: 'shift+n', description: '新建对话' },
+        'new-topic':   { keys: 'ctrl+/', description: '开启新话题' },
+        'prev-chat':   { keys: 'shift+w', description: '上一个对话' },
+        'next-chat':   { keys: 'shift+s', description: '下一个对话' },
+        'export-json': { keys: 'ctrl+s',        description: '导出当前对话为 JSON 文件' },
+        'focus-input': { keys: 'ctrl+i',        description: '聚焦输入框' },
+        'send-no-ai':  { keys: 'ctrl+enter',    description: '发送消息但不生成回复' },
+        'focus-search':{ keys: 'ctrl+k',        description: '聚焦搜索框' }
     };
 
     let currentShortcuts = {};  // 当前生效的快捷键映射
@@ -1092,10 +1093,16 @@
             }
             systemPrompt += '\n\n重要：请严格根据上述角色设定进行角色扮演，不要打破角色，不要以助手或AI的身份回答。必须始终以角色的身份和语气回复。\n\n回复格式规则：当你的回复中包含人物动作、环境描写、情绪描述等非语言表达的内容时，请使用括号（）将这些内容包裹起来。例如：（轻轻叹气）我相信你能做到。或（窗外的雨声淅沥）今天的任务完成得不错。';
             messages.push({ role: 'system', content: systemPrompt });
+            let lastUserMsgContent = '';
             for (const msg of messagesToUse) {
-                messages.push({ role: msg.type === 'user' ? 'user' : 'assistant', content: msg.text });
+                const role = msg.type === 'user' ? 'user' : 'assistant';
+                const content = (role === 'user' && msg.modelInputText) ? msg.modelInputText : msg.text;
+                messages.push({ role, content });
+                if (role === 'user') lastUserMsgContent = content;
             }
-            messages.push({ role: 'user', content: userMsg });
+            if (lastUserMsgContent !== userMsg) {
+                messages.push({ role: 'user', content: userMsg });
+            }
 
             let response;
             let fullReply = '';
@@ -1330,6 +1337,10 @@
         const userTime = getCurrentTime();
         const targetChat = chats.find(c => c.id == currentChatId);
         let modelUserMsg = text;
+        // 构建发送给模型的内容（包含文件内容）
+        if (fileAttachment) {
+            modelUserMsg = text + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
+        }
         if (targetChat) {
             targetChat.messages.push({
                 type: 'user',
@@ -1347,11 +1358,6 @@
         await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment);
         messageInput.value = '';
         if (messageInput) messageInput.style.height = 'auto';
-        
-        // 构建发送给模型的内容（包含文件内容）
-        if (fileAttachment) {
-            modelUserMsg = text + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
-        }
         simulateAIResponse(modelUserMsg);
     }
 
@@ -1376,7 +1382,7 @@
             pinned: false
         };
         chats.unshift(newChat);
-        currentChatId = newId;
+        setCurrentChatId(newId);
         renderHistoryList();
         renderMessages(currentChatId);
         applyCurrentChatSettings();   // 应用新对话的设置（背景、名称等）
@@ -1418,7 +1424,7 @@
         }
         closeSidebarOnMobile();
         if (currentChatId == chatId) return;
-        currentChatId = chatId;
+        setCurrentChatId(chatId);
         currentTopicIndex = null; // 切换对话时重置话题视图
         renderHistoryList();
         renderMessages(currentChatId);
@@ -1680,7 +1686,13 @@
         const stored = await loadFromStorage();
         if (stored && stored.length > 0) {
             chats = stored;
-            currentChatId = chats[0].id;
+            // 读取上次对话 ID
+            const lastId = localStorage.getItem('last_chat_id');
+            if (lastId && chats.some(c => c.id == lastId)) {
+                currentChatId = lastId;
+            } else {
+                currentChatId = chats[0].id;
+            }
         } else {
             // 创建默认聊天，使用默认设置
             const defaultChat = {
@@ -1699,7 +1711,7 @@
                 pinned: false
             };
             chats = [defaultChat];
-            currentChatId = defaultChat.id;
+            setCurrentChatId(defaultChat.id);
         }
         renderHistoryList();
         renderMessages(currentChatId);
@@ -1755,12 +1767,21 @@
                 setTimeout(() => { textarea.style.height = 'auto'; }, 0);
             };
             sendBtn.onclick = newSend;
-            textarea.addEventListener('keypress', (e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
+            textarea.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                if (e.ctrlKey) {
+                    // Ctrl+Enter：发送但不生成回复
                     e.preventDefault();
-                    newSend();
+                    sendMessageWithoutAI();
+                } else if (!e.shiftKey) {
+                    // 普通 Enter：发送并生成 AI 回复
+                    e.preventDefault();
+                    sendUserMessage();
+                    setTimeout(() => { textarea.style.height = 'auto'; }, 0);
                 }
-            });
+                // Shift+Enter 不处理，默认换行
+            }
+        });
         }
         if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
         if (settingBtn) {
@@ -1930,6 +1951,43 @@
             });
         }
 
+        // 搜索框展开/收回动画
+        const searchInput = document.getElementById('global-search-input');
+        const searchToggleBtn = document.getElementById('search-toggle-btn');
+        const searchDropdown = document.getElementById('search-results-dropdown');
+        if (searchToggleBtn && searchInput) {
+            // 点击圆形按钮 → 展开输入框并聚焦
+            searchToggleBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (searchInput.classList.contains('search-input-hidden')) {
+                    // 展开
+                    searchInput.classList.remove('search-input-hidden');
+                    searchToggleBtn.classList.add('hidden');
+                    setTimeout(() => searchInput.focus(), 50); // 等待过渡开始
+                } else collapseSearch(); // 如果已展开，则关闭并清除内容
+            });
+
+            // 全局点击：点击搜索容器外部时收起
+            document.addEventListener('click', (e) => {
+                if (!document.getElementById('search-container').contains(e.target)) {
+                    collapseSearch();
+                }
+            });
+
+            // ESC 键收起
+            searchInput.addEventListener('keydown', (e) => {
+                if (e.key === 'Escape') collapseSearch();
+            });
+
+            function collapseSearch() {
+                searchInput.classList.add('search-input-hidden');
+                searchInput.value = '';
+                searchToggleBtn.classList.remove('hidden');
+                searchDropdown.style.display = 'none';
+            }
+        }
+
+        // 保留原有的搜索输入监听（不变）
         if (searchInput) {
             searchInput.addEventListener('input', (e) => {
                 if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
@@ -2113,6 +2171,8 @@
                 const size = document.getElementById('image-gen-ratio').value;
                 const count = parseInt(document.getElementById('image-gen-count').value);
                 const model = document.getElementById('image-gen-model').value;
+                const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+                const imgApiUrl = globalSettings.imgApiUrl || 'http://127.0.0.1:5050';
 
                 // 关闭弹窗
                 document.getElementById('image-gen-modal').style.display = 'none';
@@ -2121,7 +2181,7 @@
                 await appendMessageToDOM('ai', `🎨 正在生成 ${count} 张图片...`, getCurrentTime(), false);
                 forceScrollToBottom();
                 try {
-                    const response = await fetch('http://localhost:5050/generate_image', {
+                    const response = await fetch(`${imgApiUrl}/generate_image`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({ prompt, negative, size, count, model })
@@ -2476,7 +2536,7 @@
             if (index !== -1) {
                 chats.splice(index, 1);
                 if (currentChatId === id) {
-                    currentChatId = chats[0].id;
+                    setCurrentChatId(chats[0].id);
                     currentTopicIndex = null;
                     renderMessages(currentChatId);
                     applyCurrentChatSettings();
@@ -3199,6 +3259,10 @@
         const cloneBtn = document.getElementById('start-clone-btn');
         const cloneStatus = document.getElementById('clone-status');
 
+        // 图片生成后端接口
+        const imgApiUrlInput = document.getElementById('img-api-url');
+        if (imgApiUrlInput) imgApiUrlInput.value = globalSettings.imgApiUrl || 'http://127.0.0.1:5050';
+
         if (fetchVoicesBtn) {
             fetchVoicesBtn.addEventListener('click', async () => {
                 const apiUrl = document.getElementById('tts-api-url').value;
@@ -3403,6 +3467,7 @@
             modelName: currentModel,
             ttsApiUrl: document.getElementById('tts-api-url').value,
             shortcuts: currentShortcuts,
+            imgApiUrl: document.getElementById('img-api-url').value,
         };
         try {
             localStorage.setItem('global_settings', JSON.stringify(globalSettings));
@@ -3895,6 +3960,7 @@
 
     function performSearch(keyword) {
         if (!keyword.trim()) {
+            const searchDropdown = document.getElementById('search-results-dropdown');
             searchDropdown.style.display = 'none';
             return;
         }
@@ -3932,6 +3998,7 @@
     }
 
     function renderSearchResults(results) {
+        const searchDropdown = document.getElementById('search-results-dropdown');
         if (results.length === 0) {
             searchDropdown.innerHTML = '<div class="search-dropdown-item" style="color:#8e8eb3;">未找到相关结果</div>';
             searchDropdown.style.display = 'block';
@@ -3987,6 +4054,7 @@
                     }
                 }
                 searchDropdown.style.display = 'none';
+                const searchInput = document.getElementById('global-search-input');
                 searchInput.value = ''; // 清空搜索框
             });
         });
@@ -4045,7 +4113,7 @@
 
         // 可选：检查是否已经存在相同内容的对话（基于消息内容 hash），这里简单直接添加
         chats.unshift(newChat);
-        currentChatId = newId;
+        setCurrentChatId(newId);
         currentTopicIndex = null;
         renderHistoryList();
         renderMessages(currentChatId);
@@ -4212,44 +4280,49 @@
 
     // 全局快捷键处理
     function handleKeyDown(e) {
-        // 如果焦点在输入框或可编辑元素，忽略快捷键（除非快捷键不含修饰键且用户特别设置？统一忽略）
+        const pressed = eventToShortcutString(e);
+        if (!pressed) return;
+
+        // 先解析出动作
+        let targetAction = null;
+        for (const [action, keys] of Object.entries(currentShortcuts)) {
+            if (normalizeShortcut(keys) === pressed) {
+                targetAction = action;
+                break;
+            }
+        }
+        if (!targetAction) return;
+
+        // 如果是聚焦类操作，不管焦点在哪里都执行
+        if (targetAction === 'focus-input' || targetAction === 'focus-search') {
+            e.preventDefault();
+            e.stopPropagation();
+            executeAction(targetAction);
+            return;
+        }
+
+        // 其他快捷键：焦点在输入框或编辑区则忽略
         const active = document.activeElement;
         if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
             return;
         }
-        
-        const pressed = eventToShortcutString(e);
-        if (!pressed) return;
-        
-        for (const [action, keys] of Object.entries(currentShortcuts)) {
-            if (normalizeShortcut(keys) === pressed) {
-                e.preventDefault();
-                e.stopPropagation();
-                executeAction(action);
-                break;
-            }
-        }
+
+        // 执行
+        e.preventDefault();
+        e.stopPropagation();
+        executeAction(targetAction);
     }
 
     function executeAction(action) {
         switch (action) {
-            case 'new-chat':
-                createNewChat();
-                break;
-            case 'new-topic':
-                startNewTopic();
-                break;
-            case 'prev-chat':
-                switchToPreviousChat();
-                break;
-            case 'next-chat':
-                switchToNextChat();
-                break;
-            case 'export-json':
-                const currentChat = chats.find(c => c.id == currentChatId);
-                if (currentChat) exportChatAsJSON(currentChat);
-                else showBriefToast('无当前对话可导出');
-                break;
+            case 'new-chat':          createNewChat(); break;
+            case 'new-topic':         startNewTopic(); break;
+            case 'prev-chat':         switchToPreviousChat(); break;
+            case 'next-chat':         switchToNextChat(); break;
+            case 'export-json':       exportChatAsJSON(); break;
+            case 'focus-input':       focusChatInput(); break;
+            case 'send-no-ai':        sendMessageWithoutAI(); break;
+            case 'focus-search':      focusSearchInput(); break;
         }
     }
 
@@ -4274,20 +4347,88 @@
         const idx = sorted.findIndex(c => c.id == currentChatId);
         if (idx < sorted.length - 1) switchChat(sorted[idx + 1].id);
     }
+
+    // 聚焦聊天输入框
+    function focusChatInput() {
+        const textarea = document.querySelector('.auto-expand-textarea');
+        if (textarea) {
+            textarea.focus();
+        }
+    }
+
+    // 聚焦搜索框
+    function focusSearchInput() {
+        const searchInput = document.getElementById('global-search-input');
+        const searchToggleBtn = document.getElementById('search-toggle-btn');
+        if (searchInput) {
+            // 如果输入框处于隐藏状态，先展开
+            searchInput.classList.remove('search-input-hidden');
+            searchToggleBtn.classList.add('hidden');
+            // 等待一帧确保过渡开始后再聚焦
+            requestAnimationFrame(() => searchInput.focus());
+        }
+    }
+    // 发送消息但不触发 AI 回复
+    async function sendMessageWithoutAI() {
+        if (isProcessing) {
+            customAlert('AI 正在回复中，请稍候...', 'warning');
+            return;
+        }
+        let text = messageInput.value.trim();
+        let fileAttachment = null;
+        if (currentFileContent) {
+            fileAttachment = {
+                name: currentFile.name,
+                content: currentFileContent
+            };
+            currentFile = null;
+            currentFileContent = null;
+            const previewArea = document.getElementById('file-preview-area');
+            if (previewArea) previewArea.style.display = 'none';
+        }
+        if (text === '' && !fileAttachment) return;
+
+        const userTime = getCurrentTime();
+        let modelUserMsg = text;
+        if (fileAttachment) {
+            modelUserMsg = text + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
+        }
+        const targetChat = chats.find(c => c.id == currentChatId);
+        if (targetChat) {
+            targetChat.messages.push({
+                type: 'user',
+                text: text,
+                time: userTime,
+                file: fileAttachment,
+                modelInputText: modelUserMsg,
+            });
+            targetChat.date = new Date();
+            renderHistoryList();
+            await saveChatToDB(targetChat);
+        }
+        await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment);
+        messageInput.value = '';
+        messageInput.style.height = 'auto';
+        forceScrollToBottom();
+    }
+
     function loadShortcutsFromStorage() {
         const global = JSON.parse(localStorage.getItem('global_settings')) || {};
-        if (global.shortcuts) {
-            currentShortcuts = global.shortcuts;
-        } else {
-            currentShortcuts = {};
-            for (const [action, obj] of Object.entries(DEFAULT_SHORTCUTS)) {
-                currentShortcuts[action] = obj.keys;
-            }
+        const storedShortcuts = global.shortcuts || {};
+
+        // 构建默认快捷键映射（从 DEFAULT_SHORTCUTS 提取 keys 字符串）
+        const defaultsMap = {};
+        for (const [action, obj] of Object.entries(DEFAULT_SHORTCUTS)) {
+            defaultsMap[action] = obj.keys;
         }
+
+        // 用户存储的优先级更高，但默认值补齐未定义的项
+        currentShortcuts = { ...defaultsMap, ...storedShortcuts };
         // 移除旧的监听器（如果存在）
         document.removeEventListener('keydown', handleKeyDown, true);
         document.addEventListener('keydown', handleKeyDown, true);
     }
+
     function renderShortcutsPanel() {
         const container = document.getElementById('shortcuts-list');
         if (!container) return;
@@ -4480,7 +4621,12 @@
             closable: true  // 点击关闭或遮罩也视为取消
         });
         return result === true;
-    }    
+    }
+
+    function setCurrentChatId(chatId) {
+        currentChatId = chatId;
+        localStorage.setItem('last_chat_id', chatId);
+    }
 
     async function init() {
         try {

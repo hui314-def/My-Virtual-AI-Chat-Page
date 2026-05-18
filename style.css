@@ -295,9 +295,9 @@ body {
     display: flex;
     justify-content: flex-end;
     align-items: center;
-    padding: 20px 32px;
-    background: rgba(5, 5, 12, 0.45);
-    backdrop-filter: blur(12px);
+    padding: 15px 32px;
+    background: rgba(5, 5, 12, 0.3);
+    backdrop-filter: blur(6px);
     border-bottom: 1px solid rgba(100, 120, 200, 0.3);
     z-index: 2;
     position: relative;
@@ -463,10 +463,9 @@ body {
 
 /* 底部输入区域 — 半透明，与背景融合 */
 .chat-input-area {
-    padding: 20px 32px 28px 32px;
-    background: rgba(3, 3, 10, 0.5);
-    backdrop-filter: blur(18px);
-    border-top: 1px solid rgba(80, 100, 160, 0.35);
+    padding: 0px 32px 28px 32px;
+    background: transparent;
+    backdrop-filter: none;
     z-index: 2;
     position: relative;
 }
@@ -1302,9 +1301,12 @@ body.dragging {
     }
     /* 顶部添加菜单按钮 */
     .chat-header {
-        position: relative;
+        display: flex;
         justify-content: space-between;
-        padding: 12px 16px;
+        align-items: center;
+    }
+    .search-container {
+        margin-left: auto;
     }
     .menu-toggle {
         display: flex;
@@ -1345,7 +1347,7 @@ body.dragging {
         max-height: 90vh;
     }
     .settings-sidebar {
-        width: 120px;
+        width: 100px;
     }
     .settings-content {
         padding: 12px;
@@ -1635,6 +1637,9 @@ body.dragging {
     #topic-indicator {
         display: none !important;
     }
+    #global-search-input.search-input-hidden{
+        display: none;
+    }
 }
 .modal-body textarea {
     overflow: hidden;
@@ -1855,6 +1860,110 @@ body.dragging {
     line-height: 1.5;
 }
 
+/* 搜索容器 */
+.search-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: 36px;
+}
+
+/* 圆形切换按钮 */
+.search-toggle-btn {
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    background: rgba(30, 34, 55, 0.7);
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    color: #a8aad3;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    transition: background 0.2s, transform 0.2s;
+    flex-shrink: 0;
+    z-index: 2;
+}
+.search-toggle-btn.hidden {
+    display: none;
+}
+.search-toggle-btn:hover {
+    background: rgba(60, 80, 140, 0.8);
+    color: #fff;
+}
+
+/* 输入框动画状态 */
+#global-search-input {
+    width: 200px;                     /* 展开宽度 */
+    transition: width 0.3s ease, opacity 0.3s ease, padding 0.3s ease, margin 0.3s ease;
+}
+#global-search-input.search-input-hidden {
+    width: 0;
+    opacity: 0;
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    border-width: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+
+select {
+    /* 基础样式不变 */
+    width: 100%;
+    background: rgba(30, 34, 55, 0.7);
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    border-radius: 20px;
+    padding: 10px 16px;
+    color: #f0f3ff;
+    font-size: 0.9rem;
+    outline: none;
+    cursor: pointer;
+    /* ----- 新增动画过渡 ----- */
+    transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+    transform: scale(1);
+
+    /* 自定义箭头（已有） */
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,...");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    background-size: 12px;
+    padding-right: 36px;
+}
+
+/* 悬停状态 */
+select:hover {
+    border-color: #7f9eff;
+    background: rgba(40, 45, 70, 0.8);
+    transform: scale(1.02);
+    box-shadow: 0 0 12px rgba(95, 126, 255, 0.25);
+}
+
+/* 聚焦/激活状态 */
+select:focus {
+    border-color: #7f9eff;
+    background: rgba(40, 45, 70, 0.9);
+    box-shadow: 0 0 16px rgba(95, 126, 255, 0.4);
+    transform: scale(1.02);
+    animation: focusGlow 0.6s ease-out;
+}
+
+/* 选项样式（基本兼容） */
+select option {
+    background: #1a1c2a;
+    color: #f0f3ff;
+}
+
+/* 聚焦光晕动画 */
+@keyframes focusGlow {
+    0% { box-shadow: 0 0 0 0 rgba(95, 126, 255, 0.6); }
+    50% { box-shadow: 0 0 20px 4px rgba(95, 126, 255, 0.3); }
+    100% { box-shadow: 0 0 16px rgba(95, 126, 255, 0.4); }
+}
 
 
 
@@ -1999,9 +2108,8 @@ body.light-theme .message.user .avatar-msg {
 
 /* 输入区域透明化 */
 body.light-theme .chat-input-area {
-    background: rgba(255, 255, 255, 0.75) !important;
-    backdrop-filter: blur(8px);
-    border-top: 1px solid #e5e9f0;
+    background: transparent;
+    backdrop-filter: none;
 }
 body.light-theme .input-container {
     background: rgba(255, 255, 255, 0.85) !important;
@@ -2189,4 +2297,101 @@ body.light-theme #global-settings-modal .settings-menu-item.active {
 }
 .shortcut-row kbd:hover {
     background: #2a2f55;
+}
+
+/* ========== 明亮主题 - 快捷键栏目 ========== */
+body.light-theme .shortcut-row {
+    background: rgba(240, 244, 255, 0.8) !important;
+    border: 1px solid #e0e7ff !important;
+    backdrop-filter: none !important;
+    color: #1e3a8a !important;
+}
+body.light-theme .shortcut-row span {
+    color: #1e3a8a !important;
+}
+body.light-theme .shortcut-row kbd,
+body.light-theme .shortcut-row .shortcut-key {
+    background: #ffffff !important;
+    border: 1px solid #b9c8ff !important;
+    color: #2563eb !important;
+    font-weight: 500;
+    padding: 4px 10px;
+    border-radius: 8px;
+    font-family: monospace;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+body.light-theme .shortcut-row kbd:hover,
+body.light-theme .shortcut-row .shortcut-key:hover {
+    background: #eef2ff !important;
+    border-color: #8aaeff !important;
+}
+/* 快捷键面板按钮 */
+body.light-theme #reset-shortcuts-btn {
+    background: #f0f4ff !important;
+    border: 1px solid #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme #reset-shortcuts-btn:hover {
+    background: #e6edff !important;
+    color: #1e40af !important;
+}
+
+/* 搜索按钮（圆形切换按钮） */
+body.light-theme .search-toggle-btn {
+    background: #f0f4ff !important;
+    border-color: #cdd9ff !important;
+    color: #2563eb !important;
+}
+
+body.light-theme .search-toggle-btn:hover {
+    background: #e6edff !important;
+    color: #1e3a8a !important;
+}
+
+/* 所有自定义滚动条（历史列表、聊天区域、文本框、弹窗等） */
+body.light-theme .history-list::-webkit-scrollbar-track,
+body.light-theme .chat-messages::-webkit-scrollbar-track,
+body.light-theme .auto-expand-textarea::-webkit-scrollbar-track,
+body.light-theme .modal-body::-webkit-scrollbar-track,
+body.light-theme .settings-content::-webkit-scrollbar-track,
+body.light-theme .search-dropdown::-webkit-scrollbar-track {
+    background: #eef2ff !important;
+}
+
+body.light-theme .history-list::-webkit-scrollbar-thumb,
+body.light-theme .chat-messages::-webkit-scrollbar-thumb,
+body.light-theme .auto-expand-textarea::-webkit-scrollbar-thumb,
+body.light-theme .modal-body::-webkit-scrollbar-thumb,
+body.light-theme .settings-content::-webkit-scrollbar-thumb,
+body.light-theme .search-dropdown::-webkit-scrollbar-thumb {
+    background: #b9c8ff !important;
+}
+
+body.light-theme .history-list::-webkit-scrollbar-thumb:hover,
+body.light-theme .chat-messages::-webkit-scrollbar-thumb:hover,
+body.light-theme .auto-expand-textarea::-webkit-scrollbar-thumb:hover,
+body.light-theme .modal-body::-webkit-scrollbar-thumb:hover,
+body.light-theme .settings-content::-webkit-scrollbar-thumb:hover,
+body.light-theme .search-dropdown::-webkit-scrollbar-thumb:hover {
+    background: #8aa9ff !important;
+}
+
+body.light-theme select,
+body.light-theme select:focus {
+    background-color: #ffffff !important;
+    background-repeat: no-repeat;
+    background-position: right 12px center;
+    background-size: 16px;
+    color: #1e3a8a !important;
+    border-color: #cdd9ff !important;
+}
+body.light-theme select option {
+    background-color: #ffffff !important;
+    color: #1e3a8a !important;
+    padding: 8px 12px;
+}
+body.light-theme select option:hover,
+body.light-theme select option:checked {
+    background: #eef2ff !important;
+    color: #2563eb !important;
 }

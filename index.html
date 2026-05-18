@@ -90,9 +90,14 @@
             <div class="menu-toggle" id="mobile-menu-toggle">
                 <i class="fas fa-bars"></i>
             </div>
-            <div class="search-container" style="position: relative; margin-left: 12px;">
-                <i class="fas fa-search" style="position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #a8aad3; font-size: 0.9rem;"></i>
-                <input type="text" id="global-search-input" placeholder="搜索对话..." autocomplete="off" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 30px; padding: 8px 12px 8px 36px; color: #f0f3ff; width: 200px; font-size: 0.85rem; outline: none; transition: 0.2s;">
+            <div class="search-container" id="search-container">
+                <!-- 圆形搜索按钮 -->
+                <button class="search-toggle-btn" id="search-toggle-btn" title="搜索对话">
+                    <i class="fas fa-search"></i>
+                </button>
+                <!-- 搜索输入框（默认隐藏） -->
+                <input type="text" id="global-search-input" class="search-input-hidden" placeholder="搜索对话..." autocomplete="off">
+                <!-- 搜索结果下拉 -->
                 <div id="search-results-dropdown" class="search-dropdown" style="display: none;"></div>
             </div>
             <div class="model-selector" style="margin-left: 20px;">
@@ -344,6 +349,11 @@
                             <button id="start-clone-btn" class="action-btn" style="background: #5f7eff;"><i class="fas fa-microphone-alt"></i> 生成音色</button>
                             <div id="clone-status" style="margin-top: 8px; font-size: 0.75rem; color: #b7c4ff;"></div>
                         </div>
+                    </div>
+                    <div class="form-group">
+                        <label>图片生成 API 地址</label>
+                        <input type="text" id="img-api-url" placeholder="http://127.0.0.1:5050">
+                        <small>图片生成服务地址，默认端口 5050</small>
                     </div>
                 </div>
                 <!-- 通用设置 -->
