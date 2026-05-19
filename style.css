@@ -773,6 +773,7 @@ body {
 }
 
 input[type="text"],
+input[type="password"],
 textarea,
 input[type="file"] {
     width: 100%;
@@ -784,12 +785,15 @@ input[type="file"] {
     font-size: 0.9rem;
     outline: none;
     transition: 0.2s;
+    box-sizing: border-box;
 }
 textarea {
     resize: vertical;
     font-family: inherit;
 }
-input:focus, textarea:focus {
+input[type="text"]:focus,
+input[type="password"]:focus,
+textarea:focus {
     border-color: #7f9eff;
     background: rgba(40, 45, 70, 0.8);
 }
@@ -1965,6 +1969,31 @@ select option {
     100% { box-shadow: 0 0 16px rgba(95, 126, 255, 0.4); }
 }
 
+/* 沉浸模式：隐藏侧边栏、拖动条和顶部导航栏 */
+body.immersive-mode .sidebar,
+body.immersive-mode .resizer,
+body.immersive-mode .chat-header {
+    display: none !important;
+}
+
+/* 沉浸模式下主聊天区自动撑满全宽 */
+body.immersive-mode .main-chat {
+    flex: 1;
+    width: 100%;
+}
+
+/* 可选：移除聊天区域的圆角/边距让背景完全贴合（保留原有风格，无需额外调整） */
+body.immersive-mode .chat-messages {
+    padding-top: 20px;  /* 保持适当留白 */
+}
+
+/* 移动端沉浸模式时，确保侧边栏彻底不可见（防止fixed定位残留） */
+@media (max-width: 768px) {
+    body.immersive-mode .sidebar {
+        display: none !important;
+        transform: none !important;  /* 覆盖任何transform */
+    }
+}
 
 
 
@@ -2394,4 +2423,12 @@ body.light-theme select option:hover,
 body.light-theme select option:checked {
     background: #eef2ff !important;
     color: #2563eb !important;
+}
+body.light-theme input[type="text"],
+body.light-theme input[type="password"],
+body.light-theme textarea,
+body.light-theme select {
+    background: #f8faff !important;
+    border-color: #cdd9ff !important;
+    color: #1e3a8a !important;
 }

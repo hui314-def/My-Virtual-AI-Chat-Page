@@ -22,6 +22,7 @@
     let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
     let currentStatus = 'online';   // 记录当前指示器状态
     let cropper = null;
+    let cachedCSS = '';
     const DEFAULT_SHORTCUTS = {
         'new-chat':    { keys: 'shift+n', description: '新建对话' },
         'new-topic':   { keys: 'ctrl+/', description: '开启新话题' },
@@ -30,7 +31,8 @@
         'export-json': { keys: 'ctrl+s',        description: '导出当前对话为 JSON 文件' },
         'focus-input': { keys: 'ctrl+i',        description: '聚焦输入框' },
         'send-no-ai':  { keys: 'ctrl+enter',    description: '发送消息但不生成回复' },
-        'focus-search':{ keys: 'ctrl+k',        description: '聚焦搜索框' }
+        'focus-search':{ keys: 'ctrl+k',        description: '聚焦搜索框' },
+        'toggle-immersive': { keys: 'ctrl+shift+f', description: '沉浸模式（隐藏侧边栏/顶部）' },
     };
 
     let currentShortcuts = {};  // 当前生效的快捷键映射
@@ -51,6 +53,36 @@
             sendBtn.style.pointerEvents = 'auto';
             sendBtn.style.opacity = '1';
         }
+    }
+
+    // ==================== 请求生命周期管理（避免并发与竞态） ====================
+    // acquireRequestLock: 返回 true 表示取得锁并开始请求，false 表示已有请求在进行
+    function acquireRequestLock() {
+        if (isProcessing) return false;
+        isProcessing = true;
+        disableInput();
+        // 主动中止之前的控制器以保证干净的启动
+        try { if (currentStreamController) { currentStreamController.abort(); currentStreamController = null; } } catch (e) { console.warn('abort stream controller failed', e); }
+        try { if (currentTTSController) { currentTTSController.abort(); currentTTSController = null; } } catch (e) { console.warn('abort tts controller failed', e); }
+        return true;
+    }
+
+    function setStreamController(controller) { currentStreamController = controller; }
+    function setTTSController(controller) { currentTTSController = controller; }
+
+    // releaseRequestLock: 结束请求，并根据传入的 controller 清理匹配的控制器
+    function releaseRequestLock(controller) {
+        isProcessing = false;
+        enableInput();
+        try {
+            if (controller) {
+                if (controller === currentStreamController) currentStreamController = null;
+                if (controller === currentTTSController) currentTTSController = null;
+            } else {
+                currentStreamController = null;
+                currentTTSController = null;
+            }
+        } catch (e) { console.warn('release lock error', e); }
     }
 
     function updateAutoScrollFlag() {
@@ -711,7 +743,7 @@
         attachHistoryClickEvents();
     }
 
-    // 追加消息到DOM（支持自定义AI头像）
+    // 追加消息到DOM
     async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null) {
         const messageDiv = document.createElement('div');
         messageDiv.className = `message ${type}`;
@@ -1015,32 +1047,24 @@
     let isStreaming = false; // 防止并发流式请求
 
     async function simulateAIResponse(userMsg) {
-        // 🔒 请求开始：设置处理中状态，禁用输入
-        if (isProcessing) {
+        // 🔒 请求开始：集中管理请求生命周期
+        if (!acquireRequestLock()) {
             console.warn('已有请求正在处理，丢弃本次调用');
             return;
         }
-        isProcessing = true;
-        disableInput();
 
-        if (currentStreamController) {
-            currentStreamController.abort();
-            currentStreamController = null;
-        }
-        if (currentTTSController) {
-            currentTTSController.abort();
-            currentTTSController = null;
-        }
         if (isStreaming) {
             await new Promise(resolve => setTimeout(resolve, 50));
         }
-        // 创建新的 AbortController
+        // 创建新的 AbortController 并注册
         const abortController = new AbortController();
-        currentStreamController = abortController;
+        setStreamController(abortController);
         isStreaming = true;
         const currentChat = chats.find(c => c.id == currentChatId);
         if (!currentChat) {
             appendMessageToDOM('ai', '系统错误：无法找到当前对话。', getCurrentTime(), true);
+            // 发生错误，释放锁
+            releaseRequestLock(abortController);
             return;
         }
         updateStatusIndicator('thinking', '模型思考中 ...');
@@ -1271,12 +1295,10 @@
                 appendMessageToDOM('ai', `❌ 模型调用失败：${error.message}\n请检查模型地址和 API Key 是否正确。`, getCurrentTime(), true);
             }
         } finally {
-            // 🔓 请求结束，恢复输入
-            isProcessing = false;
-            enableInput();
+            // 🔓 请求结束，恢复输入并清理控制器
             isStreaming = false;
-            currentStreamController = null;
             if (typingDiv && typingDiv.parentNode) typingDiv.remove();
+            releaseRequestLock(abortController);
         }
     }
 
@@ -1302,7 +1324,6 @@
     }
 
     async function sendUserMessage() {
-        // 如果正在处理请求，禁止再次发送
         if (isProcessing) {
             showBriefToast('请等待当前回复完成后再发送');
             return;
@@ -1410,9 +1431,10 @@
                 // 中断流式请求
                 isStreaming = false;
                 if (currentStreamController) {
-                    currentStreamController.abort();
-                    currentStreamController = null;
+                    try { currentStreamController.abort(); } catch(e) { console.warn(e); }
                 }
+                // 释放请求锁（如果有）
+                releaseRequestLock();
                 if (currentAudio) {
                     currentAudio.pause();
                     currentAudio.currentTime = 0;
@@ -1609,9 +1631,10 @@
             // 中断流式生成
             isStreaming = false;
             if (currentStreamController) {
-                currentStreamController.abort();
-                currentStreamController = null;
+                try { currentStreamController.abort(); } catch(e){ console.warn(e); }
             }
+            // 释放请求锁
+            releaseRequestLock();
             if (currentAudio) {
                 currentAudio.pause();
                 currentAudio.currentTime = 0;
@@ -2173,6 +2196,9 @@
                 const model = document.getElementById('image-gen-model').value;
                 const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
                 const imgApiUrl = globalSettings.imgApiUrl || 'http://127.0.0.1:5050';
+                const imgApiKey = globalSettings.imgApiKey || '';
+                const headers = { 'Content-Type': 'application/json' };
+                if (imgApiKey) headers['X-API-Key'] = imgApiKey;
 
                 // 关闭弹窗
                 document.getElementById('image-gen-modal').style.display = 'none';
@@ -2183,7 +2209,7 @@
                 try {
                     const response = await fetch(`${imgApiUrl}/generate_image`, {
                         method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
+                        headers: headers,
                         body: JSON.stringify({ prompt, negative, size, count, model })
                     });
                     const data = await response.json();
@@ -2956,9 +2982,10 @@
             if (confirm('正在生成回复，切换话题会中断当前回复。是否继续？')) {
                 isStreaming = false;
                 if (currentStreamController) {
-                    currentStreamController.abort();
-                    currentStreamController = null;
+                    try { currentStreamController.abort(); } catch(e){ console.warn(e); }
                 }
+                // 释放请求锁
+                releaseRequestLock();
                 if (currentAudio) {
                     currentAudio.pause();
                     currentAudio.currentTime = 0;
@@ -3146,7 +3173,7 @@
             }
             // 取消正在进行的 TTS 请求
             if (currentTTSController) {
-                currentTTSController.abort();
+                try { currentTTSController.abort(); } catch(e){ console.warn(e); }
                 currentTTSController = null;
             }
             // 如果之前有播放按钮被禁用，恢复它（防止按钮永远禁用）
@@ -3164,13 +3191,15 @@
                 window._lastDisabledPlayBtn = playButtonElement;
             }
             const controller = new AbortController();
-            currentTTSController = controller;
+            setTTSController(controller);
             const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
             const ttsApiUrl = globalSettings.ttsApiUrl || 'http://localhost:5000';
-            // 调用 TTS API
+            const ttsApiKey = globalSettings.ttsApiKey || '';
+            const headers = { 'Content-Type': 'application/json' };
+            if (ttsApiKey) headers['X-API-Key'] = ttsApiKey;
             const response = await fetch(`${ttsApiUrl}/tts`, {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: headers,
                 body: JSON.stringify({ text: text, voice: voice }),
                 signal: controller.signal
             });
@@ -3190,14 +3219,14 @@
             audio.onended = () => {
                 URL.revokeObjectURL(audioUrl);
                 currentAudio = null;
-                if (currentTTSController === controller) currentTTSController = null;
+                if (currentTTSController === controller) setTTSController(null);
             };
             audio.onerror = (err) => {
                 URL.revokeObjectURL(audioUrl);
                 console.error('音频播放失败', err);
                 fallbackSpeak(text);
                 currentAudio = null;
-                if (currentTTSController === controller) currentTTSController = null;
+                if (currentTTSController === controller) setTTSController(null);
             };
         } catch (err) {
             if (err.name === 'AbortError') {
@@ -3206,7 +3235,7 @@
                 console.error('TTS 调用失败:', err);
                 fallbackSpeak(text);
             }
-            if (currentTTSController === controller) currentTTSController = null;
+            if (currentTTSController === controller) setTTSController(null);
         } finally{
             if (playButtonElement) {
                     playButtonElement.disabled = false;
@@ -3262,6 +3291,8 @@
         // 图片生成后端接口
         const imgApiUrlInput = document.getElementById('img-api-url');
         if (imgApiUrlInput) imgApiUrlInput.value = globalSettings.imgApiUrl || 'http://127.0.0.1:5050';
+        const imgApiKeyInput = document.getElementById('img-api-key');
+        if (imgApiKeyInput) imgApiKeyInput.value = globalSettings.imgApiKey || '';
 
         if (fetchVoicesBtn) {
             fetchVoicesBtn.addEventListener('click', async () => {
@@ -3348,6 +3379,8 @@
         }
         
         if (ttsApiUrlInput) ttsApiUrlInput.value = globalSettings.ttsApiUrl || 'http://localhost:5000';
+        const ttsApiKeyInput = document.getElementById('tts-api-key');
+        if (ttsApiKeyInput) ttsApiKeyInput.value = globalSettings.ttsApiKey || '';
         if (ctxSlider) {
             if (globalSettings.contextUnlimited) {
                 ctxUnlimitedCheck.checked = true;
@@ -3468,6 +3501,8 @@
             ttsApiUrl: document.getElementById('tts-api-url').value,
             shortcuts: currentShortcuts,
             imgApiUrl: document.getElementById('img-api-url').value,
+            ttsApiKey: document.getElementById('tts-api-key').value,
+            imgApiKey: document.getElementById('img-api-key').value,
         };
         try {
             localStorage.setItem('global_settings', JSON.stringify(globalSettings));
@@ -4323,6 +4358,7 @@
             case 'focus-input':       focusChatInput(); break;
             case 'send-no-ai':        sendMessageWithoutAI(); break;
             case 'focus-search':      focusSearchInput(); break;
+            case 'toggle-immersive':  toggleImmersiveMode(); break;
         }
     }
 
@@ -4628,6 +4664,27 @@
         localStorage.setItem('last_chat_id', chatId);
     }
 
+    // 沉浸模式切换
+    function toggleImmersiveMode() {
+        const body = document.body;
+        const isImmersive = body.classList.toggle('immersive-mode');
+        
+        // 移动端：退出沉浸模式时自动关闭侧边栏打开状态
+        if (!isImmersive && window.innerWidth <= 768) {
+            const sidebar = document.querySelector('.sidebar');
+            if (sidebar && sidebar.classList.contains('open')) {
+                sidebar.classList.remove('open');
+            }
+        }
+        
+        // 可选：显示提示（非必须，可取消注释）
+        // const toast = document.createElement('div');
+        // toast.textContent = isImmersive ? '🌙 沉浸模式已开启 (再次按快捷键退出)' : '✨ 已退出沉浸模式';
+        // toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
+        // document.body.appendChild(toast);
+        // setTimeout(() => toast.remove(), 2000);
+    }
+
     async function init() {
         try {
             const cssRes = await fetch('style.css');
@@ -4651,5 +4708,22 @@
             chatApp.classList.add('visible');
         }
     }
+    // // Expose limited internals for testing in the browser console (development only)
+    // try {
+    //     if (typeof window !== 'undefined') {
+    //         window.__chatAppInternals = window.__chatAppInternals || {};
+    //         Object.assign(window.__chatAppInternals, {
+    //             simulateAIResponse: typeof simulateAIResponse === 'function' ? simulateAIResponse : undefined,
+    //             acquireRequestLock: typeof acquireRequestLock === 'function' ? acquireRequestLock : undefined,
+    //             releaseRequestLock: typeof releaseRequestLock === 'function' ? releaseRequestLock : undefined,
+    //             isProcessing: () => isProcessing,
+    //             isStreaming: () => isStreaming,
+    //             getCurrentStreamController: () => currentStreamController,
+    //             getCurrentTTSController: () => currentTTSController,
+    //             switchChat: typeof switchChat === 'function' ? switchChat : undefined,
+    //         });
+    //     }
+    // } catch (e) { console.warn('expose internals failed', e); }
+
     init();
 })();

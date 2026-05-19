@@ -324,6 +324,11 @@
                         <small>语音合成后端服务地址，默认端口 5000</small>
                     </div>
                     <div class="form-group">
+                        <label>TTS API Key（可选）</label>
+                        <input type="password" id="tts-api-key" placeholder="TTS 服务 API Key">
+                        <small>如果 TTS 服务需要鉴权，请填写对应的 API Key</small>
+                    </div>
+                    <div class="form-group">
                         <label>可用音色</label>
                         <div style="display: flex; gap: 12px; align-items: center;">
                             <button type="button" id="fetch-voices-btn" class="action-btn" style="background: rgba(45,55,85,0.6);"><i class="fas fa-list"></i> 获取音色列表</button>
@@ -354,6 +359,11 @@
                         <label>图片生成 API 地址</label>
                         <input type="text" id="img-api-url" placeholder="http://127.0.0.1:5050">
                         <small>图片生成服务地址，默认端口 5050</small>
+                    </div>
+                    <div class="form-group">
+                        <label>图片生成 API Key（可选）</label>
+                        <input type="password" id="img-api-key" placeholder="图片生成服务 API Key">
+                        <small>如果图片生成服务需要鉴权，请填写对应的 API Key</small>
                     </div>
                 </div>
                 <!-- 通用设置 -->
