@@ -1995,6 +1995,36 @@ body.immersive-mode .chat-messages {
     }
 }
 
+/* 流式文字淡入 */
+.fade-in-text {
+    animation: fadeInWord 0.3s ease forwards;
+    display: inline-block;
+}
+@keyframes fadeInWord {
+    from { opacity: 0; transform: translateY(2px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+.topic-item.active {
+    background: rgba(95, 126, 255, 0.15);
+    border-left: 3px solid #5f7eff;
+    box-shadow: 0 0 10px rgba(95, 126, 255, 0.2);
+}
+/* 新对话插入动画 */
+.history-item.inserting {
+    animation: slideInDown 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+
+@keyframes slideInDown {
+    from {
+        opacity: 0;
+        transform: translateY(-20px);
+    }
+    to {
+        opacity: 1;
+        transform: translateY(0);
+    }
+}
 
 
 
@@ -2272,6 +2302,7 @@ body.light-theme #topics-modal .modal-footer .modal-btn.cancel:hover {
 
 /* 统一明亮主题下所有小号文字、提示信息颜色为深灰色 */
 body.light-theme small,
+body.light-theme h4,
 body.light-theme .form-group small,
 body.light-theme .modal-body small,
 body.light-theme .input-hint,

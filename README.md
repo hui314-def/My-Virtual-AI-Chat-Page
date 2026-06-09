@@ -8,20 +8,29 @@
 
 ---
 
-## 使用方法
+## 简要说明
+
+该网页设计初衷是想要一个区别于普通大模型对话平台，可以像一位灵魂伴侣那样沉浸式深入交流的ai聊天网站。在这里，你可以精心设计模型提示词，设置不同模型参数进行角色扮演，上传喜欢的头像和背景图片增强对话体验。除了支持语音输入，你甚至可以定制角色音色进行语音合成，生成ai图片增强聊天体验。你不仅可以创建多个不同风格特色的智能体进行对话，还能使用话题管理功能，方便你随时切换不同的对话场景深入交流。当然如果想要保存并分享你的精彩对话，网页也支持聊天文件的导出和导入。
+
+## 安装方法
 
 - 直接用浏览器打开index.html文件就行，手机和电脑端都支持访问
-- 网页端默认支持调用ollama模型提供商的模型，以及其他openai兼容的格式。若使用ollama模型，请注意需要添加环境变量然后重启ollama服务，否则无法调用模型，环境变量添加的命令如下：
+- 网页端原生默认支持调用ollama模型提供商的模型，以及其他openai兼容的格式。若使用ollama模型，请注意需要添加环境变量然后重启ollama服务，否则无法调用模型，环境变量添加的命令如下：
 
 ```bash
 set OLLAMA_ORIGINS=*
 ```
 
-- 如果需要用语音合成功能，则安装requirements.txt依赖项运行tts_api.py。本人使用的是qwen-tts语音合成接口，配置教程请参考链接：[https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)
-- 以防不知道，双击消息可以打开操作栏进行删除消息等操作
+- 如果需要用语音合成功能，则需要安装requirements.txt依赖项运行tts_api.py。本人使用的是qwen-tts语音合成接口，配置教程请参考链接：[https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)
 - 对话导入功能支持从左侧智能体列表导出的json格式的会话文件，不支持话题管理的对话导出文件
 - 图片生成使用的是[ComfyUI](https://github.com/Comfy-Org/ComfyUI)，如果需要图片生成功能，则需要确保安装ComfyUI，然后安装requirements.txt依赖项运行image_gen_api.py
-- 后端代码添加了api-key鉴别机制，语音合成密钥是12345678，图片生成密钥是88888888，可在.env文件里更改
+- 后端代码添加了api-key鉴别机制，如不需要则删除.env文件即可
+
+## 使用技巧
+
+- 双击消息可以打开操作栏进行删除消息等操作
+- 话题管理双击话题简介内容可以自己编写
+- 快捷键里有一些额外操作功能
 
 ## 注意事项
 

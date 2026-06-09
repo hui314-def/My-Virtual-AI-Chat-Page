@@ -515,7 +515,7 @@
                         <div class="form-group">
                             <label>聊天背景图片</label>
                             <div class="image-preview" id="bg-preview">
-                                <img id="bg-img" src="https://via.placeholder.com/300x200?text=默认背景" alt="背景预览" style="width:100%; height:auto;">
+                                <img id="bg-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%231a1c2a'/%3E%3Ctext x='150' y='110' font-size='16' fill='%23a5b9ff' text-anchor='middle'%3E默认背景%3C/text%3E%3C/svg%3E" alt="背景预览" style="width:100%; height:auto;">
                             </div>
                             <input type="file" id="bg-upload" accept="image/*">
                             <small>背景图将应用于右侧聊天区域</small>
@@ -1046,6 +1046,11 @@
     // 调用本地 Ollama 模型（流式输出）
     let isStreaming = false; // 防止并发流式请求
 
+    function getTypingSpeed() {
+        const slider = document.getElementById('global-typing-speed');
+        return slider ? parseFloat(slider.value) || 1 : 1;
+    }
+
     async function simulateAIResponse(userMsg) {
         // 🔒 请求开始：集中管理请求生命周期
         if (!acquireRequestLock()) {
@@ -1156,6 +1161,7 @@
 
                 if (typingDiv.parentNode) typingDiv.remove();
                 const bubbleP = messageDiv.querySelector('.bubble p');
+                bubbleP.innerHTML = '';
                 const msgTimeSpan = messageDiv.querySelector('.msg-time');
                 chatMessages.appendChild(messageDiv);
                 scrollToBottom();
@@ -1177,10 +1183,19 @@
                         try {
                             const data = JSON.parse(trimmed);
                             const chunk = data.message?.content || '';
-                            fullReply += chunk;
-                            bubbleP.innerHTML = escapeHtml(fullReply).replace(/\n/g, '<br>');
-                            conditionalScrollToBottom();
+                            if (chunk) {
+                                fullReply += chunk;
+                                const span = document.createElement('span');
+                                span.className = 'fade-in-text';
+                                span.textContent = chunk;   // 自动转义，不支持换行，最终渲染会修正
+                                bubbleP.appendChild(span);
+                                conditionalScrollToBottom();
+                            }
                         } catch (e) { console.warn('解析错误', e, trimmed); }
+                    }
+                    const speed = getTypingSpeed();
+                    if (speed < 1) {
+                        await new Promise(resolve => setTimeout(resolve, (1 - speed) * 150));
                     }
                 }
             } else {
@@ -1208,6 +1223,7 @@
 
                 if (typingDiv.parentNode) typingDiv.remove();
                 const bubbleP = messageDiv.querySelector('.bubble p');
+                bubbleP.innerHTML = '';
                 const msgTimeSpan = messageDiv.querySelector('.msg-time');
                 chatMessages.appendChild(messageDiv);
                 scrollToBottom();
@@ -1231,10 +1247,19 @@
                         try {
                             const data = JSON.parse(jsonStr);
                             const chunk = data.choices?.[0]?.delta?.content || '';
-                            fullReply += chunk;
-                            bubbleP.innerHTML = escapeHtml(fullReply).replace(/\n/g, '<br>');
-                            conditionalScrollToBottom();
+                            if (chunk) {
+                                fullReply += chunk;
+                                const span = document.createElement('span');
+                                span.className = 'fade-in-text';
+                                span.textContent = chunk;   // 自动转义，不支持换行，最终渲染会修正
+                                bubbleP.appendChild(span);
+                                conditionalScrollToBottom();
+                            }
                         } catch (e) { console.warn('解析错误', e, trimmed); }
+                    }
+                    const speed = getTypingSpeed();
+                    if (speed < 1) {
+                        await new Promise(resolve => setTimeout(resolve, (1 - speed) * 150));
                     }
                 }
             }
@@ -1331,6 +1356,16 @@
         let text = messageInput.value.trim();
         let fileAttachment = null;
         
+        // 如果当前为“显示全部话题”模式，自动切换到最后一个话题
+        if (currentTopicIndex === null) {
+            const currentChat = chats.find(c => c.id == currentChatId);
+            if (currentChat) {
+                const topics = getTopicsFromMessages(currentChat.messages);
+                if (topics.length > 0) {
+                    await setCurrentTopic(topics.length - 1, false);
+                }
+            }
+        }
         if (currentFileContent) {
             fileAttachment = {
                 name: currentFile.name,
@@ -1408,6 +1443,17 @@
         renderMessages(currentChatId);
         applyCurrentChatSettings();   // 应用新对话的设置（背景、名称等）
         await saveAllChatsToDB();
+
+        // 为新创建的历史项添加插入动画
+        setTimeout(() => {
+            const newItem = document.querySelector(`.history-item[data-id="${newId}"]`);
+            if (newItem) {
+                newItem.classList.add('inserting');
+                newItem.addEventListener('animationend', () => {
+                    newItem.classList.remove('inserting');
+                }, { once: true });
+            }
+        }, 20); // 确保 DOM 已更新
     }
 
     function switchChat(chatId) {
@@ -1447,9 +1493,16 @@
         closeSidebarOnMobile();
         if (currentChatId == chatId) return;
         setCurrentChatId(chatId);
-        currentTopicIndex = null; // 切换对话时重置话题视图
+        // ✅ 自动切换到最后一个话题（如果存在）
+        const chat = chats.find(c => c.id == chatId);
+        if (chat) {
+            const topics = getTopicsFromMessages(chat.messages);
+            currentTopicIndex = topics.length > 0 ? topics.length - 1 : null;
+        } else {
+            currentTopicIndex = null;
+        }
         renderHistoryList();
-        renderMessages(currentChatId);
+        renderMessages(currentChatId, currentTopicIndex);
         applyCurrentChatSettings();
     }
 
@@ -1550,7 +1603,7 @@
         if (settings.avatarUrl) avatarImg.src = settings.avatarUrl;
         else avatarImg.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E🤖%3C/text%3E%3C/svg%3E";
         if (settings.bgUrl) bgImg.src = settings.bgUrl;
-        else bgImg.src = "https://via.placeholder.com/300x200?text=默认背景";
+        else bgImg.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%231a1c2a'/%3E%3Ctext x='150' y='110' font-size='16' fill='%23a5b9ff' text-anchor='middle'%3E默认背景%3C/text%3E%3C/svg%3E";
         const ttsSwitch = document.getElementById('tts-switch');
         const ttsVoiceSelect = document.getElementById('tts-voice-select');
         const ttsVoiceGroup = document.getElementById('tts-voice-group');
@@ -1669,7 +1722,7 @@
         currentChat.settings.greeting = newGreeting;
         // 头像和背景
         const newAvatarUrl = avatarImg.src !== "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E🤖%3C/text%3E%3C/svg%3E" ? avatarImg.src : null;
-        const newBgUrl = bgImg.src !== "https://via.placeholder.com/300x200?text=默认背景" ? bgImg.src : null;
+        const newBgUrl = bgImg.src !== "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%231a1c2a'/%3E%3Ctext x='150' y='110' font-size='16' fill='%23a5b9ff' text-anchor='middle'%3E默认背景%3C/text%3E%3C/svg%3E" ? bgImg.src : null;
         currentChat.settings.avatarUrl = newAvatarUrl;
         currentChat.settings.bgUrl = newBgUrl;
         // 保存音色设置
@@ -1906,6 +1959,13 @@
                 if (e.target === topicsModal) closeTopicsModal();
             });
         }
+        const showAllTopicsBtn = document.getElementById('show-all-topics-btn');
+        if (showAllTopicsBtn) {
+            showAllTopicsBtn.addEventListener('click', async () => {
+                await setCurrentTopic(null);
+                closeTopicsModal();
+            });
+        }
         const addModelBtn = document.getElementById('add-model-btn');
         if (addModelBtn) {
             addModelBtn.addEventListener('click', () => {
@@ -2081,6 +2141,7 @@
         cancelGlobalBtn.addEventListener('click', closeGlobalModal);
         saveGlobalBtn.addEventListener('click', saveGlobalSettings);
         globalModal.addEventListener('click', (e) => { if (e.target === globalModal) closeGlobalModal(); });
+        document.getElementById('test-model-connection-btn')?.addEventListener('click', testModelConnection);
 
         // 修改左下角设置按钮的点击事件
         const originalSettingBtn = document.querySelector('.setting-btn');
@@ -2754,9 +2815,9 @@
             container.innerHTML = topics.map((topic, idx) => {
                 const firstMsg = topic.messages[0];
                 const preview = firstMsg ? (firstMsg.text.length > 50 ? firstMsg.text.substring(0, 50) + '...' : firstMsg.text) : '无消息';
-                const time = topic.dividerTime || (firstMsg ? firstMsg.time : '未知');
+                const time = firstMsg ? firstMsg.time : '未知';
                 return `
-                    <div class="topic-item" data-topic-index="${idx}">
+                    <div class="topic-item${currentTopicIndex === idx ? ' active' : ''}" data-topic-index="${idx}">
                         <div class="topic-header">
                             <span class="topic-title">话题 ${idx + 1}</span>
                             <span class="topic-time">${time}</span>
@@ -3032,32 +3093,60 @@
             });
             messagesContainer.classList.remove('no-entry-animation');
         }, 500);
-
-        // 7. 更新话题指示器
-        showTopicIndicator();
     }
+    
+    async function testModelConnection() {
+        const statusEl = document.getElementById('test-connection-status');
+        if (!statusEl) return;
 
-    function showTopicIndicator() {
-        const indicator = document.getElementById('topic-indicator');
-        if (!indicator) return;
-        if (currentTopicIndex !== null) {
-            const topicNum = currentTopicIndex + 1;
-            document.getElementById('topic-index-display').innerText = topicNum;
-            indicator.style.display = 'flex';
-            // 强制重绘后添加平滑进入效果
-            requestAnimationFrame(() => {
-                indicator.style.opacity = '1';
-                indicator.style.transform = 'translateY(0)';
-            });
-        } else {
-            // 淡出隐藏
-            indicator.style.opacity = '0';
-            indicator.style.transform = 'translateY(-10px)';
-            setTimeout(() => {
-                if (currentTopicIndex === null) {
-                    indicator.style.display = 'none';
+        statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
+
+        const modelHost = document.getElementById('model-host').value.trim();
+        const apiKey = document.getElementById('api-key').value.trim();
+
+        if (!modelHost) {
+            statusEl.innerHTML = '<span style="color: #ff7a5c;">❌ 请先填写主机地址</span>';
+            return;
+        }
+
+        const isOllama = modelHost.includes(':11434') || modelHost.includes('/api/chat');
+
+        try {
+            if (isOllama) {
+                // Ollama：尝试 /api/tags 端点
+                const resp = await fetch(modelHost.replace(/\/$/, '') + '/api/tags');
+                if (resp.ok) {
+                    statusEl.innerHTML = '<span style="color: #2effb0;">✅ 连接成功 (Ollama)</span>';
+                } else {
+                    throw new Error(`状态码 ${resp.status}`);
                 }
-            }, 200);
+            } else {
+                // OpenAI 兼容：尝试 /v1/models
+                const headers = apiKey ? { Authorization: `Bearer ${apiKey}` } : {};
+                const resp = await fetch(modelHost.replace(/\/$/, '') + '/v1/models', { headers });
+                if (resp.ok) {
+                    statusEl.innerHTML = '<span style="color: #2effb0;">✅ 连接成功 (OpenAI 兼容)</span>';
+                } else {
+                    throw new Error(`状态码 ${resp.status}，请检查 API Key`);
+                }
+            }
+        } catch (err) {
+            // 失败时尝试备选方案：用空消息请求 /api/chat（适用于某些 Ollama 部署）
+            if (isOllama) {
+                try {
+                    const chatUrl = modelHost.replace(/\/$/, '') + '/api/chat';
+                    const resp = await fetch(chatUrl, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ model: 'test', messages: [], stream: false })
+                    });
+                    if (resp.ok || resp.status === 400) { // 400 因模型名无效，但连接可用
+                        statusEl.innerHTML = '<span style="color: #2effb0;">✅ 连接正常（模型列表不可用）</span>';
+                        return;
+                    }
+                } catch {}
+            }
+            statusEl.innerHTML = `<span style="color: #ff7a5c;">❌ 连接失败：${err.message}</span>`;
         }
     }
 
@@ -3428,18 +3517,38 @@
 
         const modal = document.getElementById('global-settings-modal');
         if (modal) modal.style.display = 'flex';
+        // 打字速度
+        const typingSpeedSlider = document.getElementById('global-typing-speed');
+        const typingSpeedSpan = document.getElementById('global-typing-speed-value');
+        if (typingSpeedSlider) {
+            const speed = globalSettings.typingSpeed !== undefined ? globalSettings.typingSpeed : 1.0;
+            typingSpeedSlider.value = speed;
+            const updateLabel = (val) => {
+                if (val === 1.0) typingSpeedSpan.textContent = '原速';
+                else typingSpeedSpan.textContent = val.toFixed(1) + 'x';
+            };
+            updateLabel(speed);
+            typingSpeedSlider.oninput = () => updateLabel(parseFloat(typingSpeedSlider.value));
+        }
 
         renderShortcutsPanel();
     }
 
     // 应用主题（明亮/暗黑）
     function applyTheme(theme) {
-        if (theme === 'light') {
+        // 计算实际应使用的主题（亮色/暗色）
+        let effectiveTheme = theme;
+        if (theme === 'auto') {
+            effectiveTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+        }
+        
+        if (effectiveTheme === 'light') {
             document.body.classList.add('light-theme');
         } else {
             document.body.classList.remove('light-theme');
         }
-        // 同步下拉框值（如果存在）
+        
+        // 同步下拉框的值（如果与传入的 theme 不同，说明是 auto 触发的实际显示，但下拉框保留 auto）
         const themeSelect = document.getElementById('global-theme');
         if (themeSelect && themeSelect.value !== theme) {
             themeSelect.value = theme;
@@ -3503,6 +3612,7 @@
             imgApiUrl: document.getElementById('img-api-url').value,
             ttsApiKey: document.getElementById('tts-api-key').value,
             imgApiKey: document.getElementById('img-api-key').value,
+            typingSpeed: parseFloat(document.getElementById('global-typing-speed').value),
         };
         try {
             localStorage.setItem('global_settings', JSON.stringify(globalSettings));
@@ -4014,6 +4124,7 @@
                 });
             }
             // 匹配消息内容
+            let msgIndex = 0; // 普通消息的顺序索引
             for (let i = 0; i < chat.messages.length; i++) {
                 const msg = chat.messages[i];
                 if (msg.type === 'divider') continue;
@@ -4021,12 +4132,13 @@
                     results.push({
                         type: 'message',
                         chatId: chat.id,
-                        messageIndex: i,
+                        messageIndex: msgIndex,
                         title: roleName,
                         preview: msg.text.length > 60 ? msg.text.substring(0, 60) + '...' : msg.text,
                         time: msg.time
                     });
                 }
+                msgIndex++;
             }
         }
         renderSearchResults(results.slice(0, 20)); // 最多显示20条
@@ -4409,6 +4521,16 @@
         if (isProcessing) {
             customAlert('AI 正在回复中，请稍候...', 'warning');
             return;
+        }
+        // 如果当前为“显示全部话题”模式，自动切换到最后一个话题
+        if (currentTopicIndex === null) {
+            const currentChat = chats.find(c => c.id == currentChatId);
+            if (currentChat) {
+                const topics = getTopicsFromMessages(currentChat.messages);
+                if (topics.length > 0) {
+                    await setCurrentTopic(topics.length - 1, false);
+                }
+            }
         }
         let text = messageInput.value.trim();
         let fileAttachment = null;
