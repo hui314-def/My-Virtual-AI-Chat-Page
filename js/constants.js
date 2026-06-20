@@ -17,6 +17,14 @@ class Constants {
         };
     }
 
+    static get ALLOWED_FILE_EXTENSIONS() {
+        return ['.txt', '.md', '.json', '.js', '.html', '.css', '.xml', '.log'];
+    }
+
+    static get MAX_FILE_SIZE() {
+        return 5 * 1024 * 1024;  // 5MB
+    }
+
     // ==================== 对话默认设置模板 ====================
     static get DEFAULT_SETTINGS() {
         return {
@@ -41,6 +49,50 @@ class Constants {
 
     // ==================== 语音识别语言 ====================
     static get SPEECH_RECOGNITION_LANG() { return 'zh-CN'; }
+
+    // ==================== 默认 SVG 占位图（URL-encoded，URL 中可直接使用）====================
+    // 注意：每个常量保持唯一（例如 emoji 不同），用于区分"用户设置 vs 默认值"。
+
+    /** 默认用户头像 SVG（👤） */
+    static get DEFAULT_USER_AVATAR() {
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E👤%3C/text%3E%3C/svg%3E";
+    }
+
+    /** 默认 AI 头像 SVG（🤖） */
+    static get DEFAULT_AI_AVATAR() {
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E🤖%3C/text%3E%3C/svg%3E";
+    }
+
+    /** 默认聊天背景预览 SVG（"默认背景"文字） */
+    static get DEFAULT_BG_PREVIEW() {
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%231a1c2a'/%3E%3Ctext x='150' y='110' font-size='16' fill='%23a5b9ff' text-anchor='middle'%3E默认背景%3C/text%3E%3C/svg%3E";
+    }
+
+    /** 默认聊天大背景 SVG（⚡ AI CORE ⚡ 主题图腾，用于 main-chat 全屏背景） */
+    static get DEFAULT_CHAT_BG_SVG() {
+        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 1600'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%232a2e5a'/%3E%3Cstop offset='100%25' stop-color='%2312152c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23grad)'/%3E%3Ccircle cx='600' cy='600' r='280' fill='%23333b6e' opacity='0.3'/%3E%3Cpath d='M520,460 L680,460 L720,540 L680,620 L520,620 L480,540 Z' fill='%235f7eff' opacity='0.45'/%3E%3Ccircle cx='600' cy='540' r='38' fill='%23aac0ff' opacity='0.6'/%3E%3Ccircle cx='550' cy='520' r='8' fill='white'/%3E%3Ccircle cx='650' cy='520' r='8' fill='white'/%3E%3Cpath d='M570 580 Q600 620 630 580' stroke='%23f0f3ff' stroke-width='5' fill='none' stroke-linecap='round' opacity='0.7'/%3E%3Ctext x='600' y='800' font-size='42' font-family='monospace' fill='%23ffffff80' text-anchor='middle'%3E⚡ AI CORE ⚡%3C/text%3E%3C/svg%3E";
+    }
+
+    /**
+     * 构建 main-chat 默认背景的 backgroundImage CSS 字符串（与旧实现完全一致）。
+     * @returns {string}
+     */
+    static getDefaultChatBackgroundImage() {
+        return `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url("${Constants.DEFAULT_CHAT_BG_SVG}") center/cover no-repeat`;
+    }
+
+    /**
+     * 判断给定的 URL 是否为指定的默认占位图之一。
+     * 用于"未修改默认值"的等价比较，避免脚本里到处写超长字符串字面量。
+     * @param {string} url
+     * @returns {boolean}
+     */
+    static isDefaultImage(url) {
+        if (!url) return false;
+        return url === Constants.DEFAULT_USER_AVATAR
+            || url === Constants.DEFAULT_AI_AVATAR
+            || url === Constants.DEFAULT_BG_PREVIEW;
+    }
 
     // ==================== 内部使用的 CSS 样式（常量） ====================
     static get MODAL_STYLES() {
@@ -204,7 +256,7 @@ class Constants {
                     <div class="form-group">
                         <label>聊天背景图片</label>
                         <div class="image-preview" id="bg-preview">
-                            <img id="bg-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%231a1c2a'/%3E%3Ctext x='150' y='110' font-size='16' fill='%23a5b9ff' text-anchor='middle'%3E默认背景%3C/text%3E%3C/svg%3E" alt="背景预览" style="width:100%; height:auto;">
+                            <img id="bg-img" src="${Constants.DEFAULT_BG_PREVIEW}" alt="背景预览" style="width:100%; height:auto;">
                         </div>
                         <input type="file" id="bg-upload" accept="image/*">
                         <small>背景图将应用于右侧聊天区域</small>
@@ -291,19 +343,6 @@ class Constants {
             { type: 'ai', text: '⭐ 你甚至可以在背景里看到我的象征——环形核心与流光面甲。每当有新的思潮，它就会泛起涟漪。试试点击左侧历史记录，每个故事都会重塑光影。', time: '19:51' }
         ];
     }
-
-    // ==================== 辅助方法：冻结常量（可选） ====================
-    static freezeConstants() {
-        // 防止运行时意外修改
-        Object.freeze(this.DEFAULT_SHORTCUTS);
-        Object.freeze(this.DEFAULT_SETTINGS);
-        Object.freeze(this.ALLOWED_FILE_EXTENSIONS);
-    }
 }
 
-// 确保常量不被修改（可选）
-Constants.freezeConstants();
-
 export default Constants;
-
-

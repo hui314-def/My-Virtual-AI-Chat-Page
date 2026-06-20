@@ -1,21 +1,58 @@
 // js/chat-io.js
 import { escapeHtml, getCurrentTime, formatDate, renderMessageWithThink } from './utils.js';
+import { SettingsManager } from './settings-manager.js';
 import Constants from './constants.js';
 
 export class ChatIO {
     /**
      * @param {Object} deps
      * @param {Function} deps.saveAllChats - 保存所有对话的函数（例如 chatRepo.saveAllChats）
-     * @param {string} deps.cachedCSS - 缓存的 CSS 文本（用于导出 HTML）
+     * @param {string} deps.cachedCSS - 可选，预缓存的 CSS 文本（用于导出 HTML）
      */
     constructor({ saveAllChats, cachedCSS = '' } = {}) {
         this.saveAllChats = saveAllChats;
         this.cachedCSS = cachedCSS;
+        // CSS 加载状态机：'idle' | 'loading' | 'done' | 'failed'
+        // 用于支持并发：多次导出时复用同一个 Promise
+        this._cssState = cachedCSS ? 'done' : 'idle';
+        this._cssPromise = null;
     }
 
     // 更新缓存的 CSS（在页面加载后调用）
     updateCachedCSS(css) {
         this.cachedCSS = css;
+        this._cssState = css ? 'done' : 'idle';
+    }
+
+    /**
+     * 按需加载 style.css 用于导出 HTML。
+     * - 首次调用发起 fetch；后续调用直接复用同一个 Promise。
+     * - 加载失败时返回空字符串，导出器回退到 <link> 引用。
+     * @returns {Promise<string>}
+     */
+    async loadCSSForExport() {
+        if (this._cssState === 'done') return this.cachedCSS;
+        if (this._cssState === 'loading') return this._cssPromise;
+        if (this._cssState === 'failed') return '';
+
+        this._cssState = 'loading';
+        this._cssPromise = (async () => {
+            try {
+                const res = await fetch('style.css');
+                if (!res.ok) throw new Error(`HTTP ${res.status}`);
+                const css = await res.text();
+                this.cachedCSS = css;
+                this._cssState = 'done';
+                return css;
+            } catch (err) {
+                console.warn('[ChatIO] 延迟加载 style.css 失败，导出将回退到 <link>：', err);
+                this._cssState = 'failed';
+                return '';
+            } finally {
+                this._cssPromise = null;
+            }
+        })();
+        return this._cssPromise;
     }
 
     /**
@@ -50,12 +87,23 @@ export class ChatIO {
      * @param {Object} chat
      */
     exportAsHTML(chat) {
+        // 触发延迟加载：首次导出时后台请求 style.css；
+        // 本次若 CSS 还没就绪，仍回退到 <link>，下次导出即可用内嵌样式。
+        this.loadCSSForExport();
+        this.#exportHTMLSync(chat, this.cachedCSS);
+    }
+
+    /**
+     * 同步导出实现。可重复调用；CSS 由 caller 决定是否内嵌。
+     * @param {Object} chat
+     * @param {string} cssText - 已准备好的 CSS；为空时使用 <link>
+     */
+    #exportHTMLSync(chat, cssText) {
         const settings = chat.settings || Constants.DEFAULT_SETTINGS;
         const roleName = escapeHtml(settings.roleName || 'Nova');
         const title = `${roleName} · 对话记录`;
         const dateStr = chat.date.toLocaleString(Constants.SPEECH_RECOGNITION_LANG);
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-        const userAvatar = globalSettings.avatar;
+        const userAvatar = SettingsManager.getAvatar();
         const bgUrl = chat.settings?.bgUrl;
         const bodyBgStyle = bgUrl
             ? `background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${bgUrl}) center/cover no-repeat fixed;`
@@ -83,8 +131,8 @@ export class ChatIO {
             </div>`;
         }).join('');
 
-        const cssBlock = this.cachedCSS
-            ? `<style>${this.cachedCSS}</style>`
+        const cssBlock = cssText
+            ? `<style>${cssText}</style>`
             : '<link rel="stylesheet" href="style.css">';
 
         const html = `<!DOCTYPE html>

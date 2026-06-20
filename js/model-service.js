@@ -15,9 +15,16 @@ export class ModelService {
     #currentStreamController = null;  // 用于取消当前流式请求
     #isStreaming = false;
     
-    constructor(config) {
+    constructor(config, initialModels = []) {
         this.config = { ...config };
-        ModelService.#loadModelsFromStorage();
+        if (initialModels.length > 0) {
+            ModelService.#models = [...initialModels];
+        }
+    }
+    
+    // 外部调用此方法初始化模型列表（例如从 localStorage 加载后设置）
+    static setModels(models) {
+        ModelService.#models = [...models];
     }
 
     // ========== 模型列表管理 ==========
@@ -26,30 +33,13 @@ export class ModelService {
     static addModel(modelName) {
         if (!modelName || this.#models.includes(modelName)) return false;
         this.#models.push(modelName);
-        this.#saveModelsToStorage();
         return true;
     }
     
     static removeModel(modelName) {
         if (this.#models.length === 1) return false;
         this.#models = this.#models.filter(m => m !== modelName);
-        this.#saveModelsToStorage();
         return true;
-    }
-    
-    static #loadModelsFromStorage() {
-        const stored = localStorage.getItem('model_list');
-        if (stored) {
-            this.#models = JSON.parse(stored);
-        } else {
-            const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-            this.#models = [globalSettings.modelName || Constants.DEFAULT_MODEL_NAME];
-            this.#saveModelsToStorage();
-        }
-    }
-    
-    static #saveModelsToStorage() {
-        localStorage.setItem('model_list', JSON.stringify(this.#models));
     }
 
     // ========== 流式请求管理 ==========
@@ -135,7 +125,7 @@ export class ModelService {
                 throw new Error(`状态码 ${resp.status}`);
             } else {
                 const headers = this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {};
-                const resp = await fetch(modelHost.replace(/\/$/, '') + '/v1/models', { headers });
+                const resp = await fetch(modelHost.replace(/\/$/, '') + '/models', { headers });
                 if (resp.ok) return { success: true, message: '连接成功 (OpenAI 兼容)' };
                 throw new Error(`状态码 ${resp.status}，请检查 API Key`);
             }

@@ -9,13 +9,11 @@ import { ChatRepository } from './js/repository.js';
 import { TTsService } from './js/tts-service.js';
 import { ChatIO } from './js/chat-io.js';
 import { FileUploadService } from './js/file-upload.js';
+import { SettingsManager } from './js/settings-manager.js';
 
 let cachedCSS = '';
-try {
-    const cssRes = await fetch('style.css');
-    if (cssRes.ok) cachedCSS = await cssRes.text();
-    chatIO.updateCachedCSS(cachedCSS);
-} catch(e) {}
+// 注意：style.css 不再预加载，而是在用户首次导出 HTML 时按需加载。
+// 见 ChatIO.loadCSSForExport()。
 
 const DB_NAME = Constants.DB_NAME;
 const DB_VERSION = Constants.DB_VERSION;
@@ -25,7 +23,6 @@ const chatRepo = new ChatRepository();
 const ttsService = new TTsService();
 const chatIO = new ChatIO({
     saveAllChats: (chats) => chatRepo.saveAllChats(chats),  // 传递保存函数
-    cachedCSS: cachedCSS
 });
 const fileUpload = new FileUploadService({
     previewArea: document.getElementById('file-preview-area'),
@@ -50,14 +47,15 @@ let currentActionMsgElement = null;
 let currentActionMenu = null;
 let currentPictureMenu = null;
 let currentPictureMsgElement = null;
+let recognition = null; // 语音识别实例
+let isListening = false;
 
 function getModelService() {
     if (!modelServiceInstance) {
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
         modelServiceInstance = new ModelService({
-            modelHost: globalSettings.modelHost || Constants.DEFAULT_MODEL_HOST,
-            apiKey: globalSettings.apiKey || '',
-            modelName: globalSettings.modelName || Constants.DEFAULT_MODEL_NAME,
+            modelHost: SettingsManager.getModelHost(),
+            apiKey: SettingsManager.getApiKey(),
+            modelName: SettingsManager.getModelName(),
         });
     }
     return modelServiceInstance;
@@ -146,9 +144,7 @@ function renderModelListUI() {
         btn.addEventListener('click', () => {
             const modelName = btn.getAttribute('data-model');
             // 更新全局设置中的当前模型
-            const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-            globalSettings.modelName = modelName;
-            localStorage.setItem('global_settings', JSON.stringify(globalSettings));
+            SettingsManager.update({ modelName });
             // 更新全局设置弹窗中的模型名称输入框
             const modelNameInput = document.getElementById('global-model-name');
             if (modelNameInput) modelNameInput.value = modelName;
@@ -166,13 +162,12 @@ function renderModelListUI() {
                 return;
             }
             ModelService.removeModel(modelName);
+            saveModelListToStorage();
             renderModelListUI();      // 刷新列表
             updateModelSelector();    // 刷新下拉框
             // 如果删除的是当前使用的模型，则自动切换到列表第一个
-            const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-            if (globalSettings.modelName === modelName) {
-                globalSettings.modelName = models[0];
-                localStorage.setItem('global_settings', JSON.stringify(globalSettings));
+            if (SettingsManager.getModelName() === modelName) {
+                SettingsManager.update({ modelName: models[0] });
                 const modelNameInput = document.getElementById('global-model-name');
                 if (modelNameInput) modelNameInput.value = models[0];
                 updateModelSelector();
@@ -185,8 +180,7 @@ function updateModelSelector() {
     const models = ModelService.getModels();
     const select = document.getElementById('quick-model-select');
     if (!select) return;
-    const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-    const currentModel = globalSettings.modelName || Constants.DEFAULT_MODEL_NAME;
+    const currentModel = SettingsManager.getModelName();
     select.innerHTML = '';
     models.forEach(model => {
         const option = document.createElement('option');
@@ -206,9 +200,7 @@ function bindQuickModelSwitch() {
     if (!select) return;
     select.addEventListener('change', (e) => {
         const newModel = e.target.value;
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-        globalSettings.modelName = newModel;
-        localStorage.setItem('global_settings', JSON.stringify(globalSettings));
+        SettingsManager.update({ modelName: newModel });
         // 同步更新全局设置弹窗中的输入框
         const modelNameInput = document.getElementById('global-model-name');
         if (modelNameInput) modelNameInput.value = newModel;
@@ -224,6 +216,7 @@ function bindQuickModelSwitch() {
 // 添加模型
 function addModel(modelName) {
     if (ModelService.addModel(modelName)) {
+        saveModelListToStorage();
         renderModelListUI();
         updateModelSelector();
         return true;
@@ -231,6 +224,24 @@ function addModel(modelName) {
     return false;
 }
 
+// 保存模型列表到 localStorage（由 script.js 负责持久化）
+function saveModelListToStorage() {
+    const models = ModelService.getModels();
+    localStorage.setItem('model_list', JSON.stringify(models));
+}
+
+// 加载模型列表并初始化 ModelService 的静态列表
+function loadModelListAndInit() {
+    const stored = localStorage.getItem('model_list');
+    let models = [];
+    if (stored) {
+        models = JSON.parse(stored);
+    } else {
+        models = [SettingsManager.getModelName()];
+        localStorage.setItem('model_list', JSON.stringify(models));
+    }
+    ModelService.setModels(models);
+}
 // 左侧边栏拖动调整宽度
 function initResizer() {
     if (window.innerWidth <= 768) return; // 移动端不启用拖动
@@ -329,8 +340,8 @@ function applyCurrentChatSettings() {
         mainChat.style.backgroundSize = 'cover';
         mainChat.style.backgroundPosition = 'center';
     } else {
-        // 恢复默认背景（保持原有 SVG）
-        mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 1600'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%232a2e5a'/%3E%3Cstop offset='100%25' stop-color='%2312152c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23grad)'/%3E%3Ccircle cx='600' cy='600' r='280' fill='%23333b6e' opacity='0.3'/%3E%3Cpath d='M520,460 L680,460 L720,540 L680,620 L520,620 L480,540 Z' fill='%235f7eff' opacity='0.45'/%3E%3Ccircle cx='600' cy='540' r='38' fill='%23aac0ff' opacity='0.6'/%3E%3Ccircle cx='550' cy='520' r='8' fill='white'/%3E%3Ccircle cx='650' cy='520' r='8' fill='white'/%3E%3Cpath d='M570 580 Q600 620 630 580' stroke='%23f0f3ff' stroke-width='5' fill='none' stroke-linecap='round' opacity='0.7'/%3E%3Ctext x='600' y='800' font-size='42' font-family='monospace' fill='%23ffffff80' text-anchor='middle'%3E⚡ AI CORE ⚡%3C/text%3E%3C/svg%3E") center/cover no-repeat`;
+        // 恢复默认背景（见 Constants.DEFAULT_CHAT_BG_SVG）
+        mainChat.style.backgroundImage = Constants.getDefaultChatBackgroundImage();
     }
 }
 
@@ -411,8 +422,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         }
     } else {
         // 用户头像：从全局设置中获取
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-        const userAvatar = globalSettings.avatar;
+        const userAvatar = SettingsManager.getAvatar();
         if (userAvatar && userAvatar.startsWith('data:image')) {
             avatarHtml = `<img src="${userAvatar}" style="width:50px; height:50px; border-radius:50%; object-fit:cover;">`;
         } else {
@@ -503,8 +513,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
         avatarHtml = avatarUrl ? `<img src="${avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` 
                             : '<i class="fas fa-robot"></i>';
     } else {
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-        const userAvatar = globalSettings.avatar;
+        const userAvatar = SettingsManager.getAvatar();
         avatarHtml = (userAvatar && userAvatar.startsWith('data:image'))
             ? `<img src="${userAvatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
             : '<i class="fas fa-user-astronaut"></i>';
@@ -719,7 +728,6 @@ async function simulateAIResponse(userMsg) {
     scrollToBottom();
 
     try {
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
         // 获取对话历史（支持话题视图）
         let historyMessages = [];
         if (currentTopicIndex !== null) {
@@ -737,8 +745,9 @@ async function simulateAIResponse(userMsg) {
 
         // 构建 API 消息列表
         const messages = [];
-        const userName = globalSettings.username || '用户';
-        const userBio = globalSettings.bio || '';
+        // 系统提示中的用户名默认值与设置面板不同：系统提示用 '用户'，设置面板用 '访客'，保持原行为
+        const userName = SettingsManager.getUsername() === '访客' ? '用户' : SettingsManager.getUsername();
+        const userBio = SettingsManager.getBio();
 
         let systemPrompt = `你的角色名称是：${roleName}。${rolePersona ? rolePersona : ''}\n\n`;
         if (userBio) {
@@ -763,9 +772,9 @@ async function simulateAIResponse(userMsg) {
         const modelService = getModelService();
         // 确保配置最新（在调用前更新配置）
         modelService.updateConfig({
-            modelHost: globalSettings.modelHost || Constants.DEFAULT_MODEL_HOST,
-            apiKey: globalSettings.apiKey || '',
-            modelName: globalSettings.modelName || Constants.DEFAULT_MODEL_NAME,
+            modelHost: SettingsManager.getModelHost(),
+            apiKey: SettingsManager.getApiKey(),
+            modelName: SettingsManager.getModelName(),
         });
 
         // 准备请求选项
@@ -788,7 +797,7 @@ async function simulateAIResponse(userMsg) {
                 // 第一次收到数据时，移除指示器并创建消息气泡
                 if (typingDiv.parentNode) typingDiv.remove();
                 // 创建消息气泡（复用原 createMessageBubble 或直接构建）
-                const modelNameForDisplay = globalSettings.modelName || '未知模型';
+                const modelNameForDisplay = SettingsManager.getModelName();
                 messageDiv = createMessageBubble('ai', '', getCurrentTime(), currentChat.settings?.avatarUrl, modelNameForDisplay);
                 bubbleP = messageDiv.querySelector('.bubble p');
                 bubbleP.innerHTML = '';  // 清空占位
@@ -836,7 +845,7 @@ async function simulateAIResponse(userMsg) {
         // 保存消息到存储
         const targetChat = chats.find(c => c.id == currentChatId);
         if (targetChat) {
-            const modelName = globalSettings.modelName || '未知模型';
+            const modelName = SettingsManager.getModelName();
             targetChat.messages.push({ type: 'ai', text: fullReply, time: getCurrentTime(), modelName: modelName });
             targetChat.date = new Date();
             renderHistoryList();
@@ -959,12 +968,11 @@ async function sendUserMessage() {
 async function createNewChat() {
     closeSidebarOnMobile();
     const newId = Date.now();
-    const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
     // 新对话的标题使用默认设置
     const newSettings = JSON.parse(JSON.stringify(Constants.DEFAULT_SETTINGS));
-    newSettings.contextLimit = globalSettings.contextLimit !== undefined ? globalSettings.contextLimit : 10;
-    newSettings.temperature = globalSettings.temperature !== undefined ? globalSettings.temperature : 0.7;
-    newSettings.topP = globalSettings.topP !== undefined ? globalSettings.topP : 0.9;
+    newSettings.contextLimit = SettingsManager.getContextLimit();
+    newSettings.temperature = SettingsManager.getTemperature();
+    newSettings.topP = SettingsManager.getTopP();
     // 可选：也可以继承用户管理的用户名等，按需
     const newChat = {
         id: newId,
@@ -1123,9 +1131,9 @@ async function openSettingsModal() {
     rolePersona.value = settings.persona;
     roleGreeting.value = settings.greeting;
     if (settings.avatarUrl) avatarImg.src = settings.avatarUrl;
-    else avatarImg.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E🤖%3C/text%3E%3C/svg%3E";
+    else avatarImg.src = Constants.DEFAULT_AI_AVATAR;
     if (settings.bgUrl) bgImg.src = settings.bgUrl;
-    else bgImg.src = "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%231a1c2a'/%3E%3Ctext x='150' y='110' font-size='16' fill='%23a5b9ff' text-anchor='middle'%3E默认背景%3C/text%3E%3C/svg%3E";
+    else bgImg.src = Constants.DEFAULT_BG_PREVIEW;
     const ttsSwitch = document.getElementById('tts-switch');
     const ttsVoiceSelect = document.getElementById('tts-voice-select');
     const ttsVoiceGroup = document.getElementById('tts-voice-group');
@@ -1229,9 +1237,9 @@ async function saveSettings() {
     currentChat.settings.roleName = newRoleName;
     currentChat.settings.persona = newPersona;
     currentChat.settings.greeting = newGreeting;
-    // 头像和背景
-    const newAvatarUrl = avatarImg.src !== "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E🤖%3C/text%3E%3C/svg%3E" ? avatarImg.src : null;
-    const newBgUrl = bgImg.src !== "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='300' height='200'%3E%3Crect width='300' height='200' fill='%231a1c2a'/%3E%3Ctext x='150' y='110' font-size='16' fill='%23a5b9ff' text-anchor='middle'%3E默认背景%3C/text%3E%3C/svg%3E" ? bgImg.src : null;
+    // 头像和背景：若未修改（仍是默认占位图），保存为 null 以便下次显示默认
+    const newAvatarUrl = Constants.isDefaultImage(avatarImg.src) ? null : avatarImg.src;
+    const newBgUrl = Constants.isDefaultImage(bgImg.src) ? null : bgImg.src;
     currentChat.settings.avatarUrl = newAvatarUrl;
     currentChat.settings.bgUrl = newBgUrl;
     // 保存音色设置
@@ -1266,8 +1274,7 @@ bgUpload.addEventListener('change', (e) => {
 // ==================== 初始化数据 ====================
 async function initData() {
     // 应用已保存的字体大小
-    const saved = JSON.parse(localStorage.getItem('global_settings')) || {};
-    applyFontSize(saved.fontSize || 'medium');
+    applyFontSize(SettingsManager.getFontSize());
     const stored = await loadFromStorage();
     if (stored && stored.length > 0) {
         chats = stored;
@@ -1579,15 +1586,14 @@ function bindEvents() {
         const statusEl = document.getElementById('test-connection-status');
         if (!statusEl) return;
         statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
-        
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+
         const modelService = new ModelService({  // 临时创建或使用单例均可，这里为了配置最新，临时创建
-            modelHost: globalSettings.modelHost || Constants.DEFAULT_MODEL_HOST,
-            apiKey: globalSettings.apiKey || '',
-            modelName: globalSettings.modelName || Constants.DEFAULT_MODEL_NAME,
+            modelHost: SettingsManager.getModelHost(),
+            apiKey: SettingsManager.getApiKey(),
+            modelName: SettingsManager.getModelName(),
         });
         const result = await modelService.testConnection();
-        statusEl.innerHTML = result.success 
+        statusEl.innerHTML = result.success
             ? `<span style="color: #2effb0;">✅ ${result.message}</span>`
             : `<span style="color: #ff7a5c;">❌ ${result.message}</span>`;
     });
@@ -1728,9 +1734,8 @@ function bindEvents() {
             const size = document.getElementById('image-gen-ratio').value;
             const count = parseInt(document.getElementById('image-gen-count').value);
             const model = document.getElementById('image-gen-model').value;
-            const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-            const imgApiUrl = globalSettings.imgApiUrl || Constants.DEFAULT_IMG_API_URL;
-            const imgApiKey = globalSettings.imgApiKey || '';
+            const imgApiUrl = SettingsManager.getImgApiUrl();
+            const imgApiKey = SettingsManager.getImgApiKey();
             const headers = { 'Content-Type': 'application/json' };
             if (imgApiKey) headers['X-API-Key'] = imgApiKey;
 
@@ -2326,10 +2331,6 @@ async function setCurrentTopic(topicIndex) {
     }, 500);
 }
 
-// 语音识别实例
-let recognition = null;
-let isListening = false;
-
 function startVoiceInput() {
     // 检查安全上下文
     if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
@@ -2426,33 +2427,31 @@ function startVoiceInput() {
 
 // 打开全局设置弹窗
 function openGlobalSettings() {
-    const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
-    
     // 模型设置 - 主机和 API Key
     const modelHostInput = document.getElementById('model-host');
     const apiKeyInput = document.getElementById('api-key');
-    if (modelHostInput) modelHostInput.value = globalSettings.modelHost || Constants.DEFAULT_MODEL_HOST;
-    if (apiKeyInput) apiKeyInput.value = globalSettings.apiKey || '';
-    
+    if (modelHostInput) modelHostInput.value = SettingsManager.getModelHost();
+    if (apiKeyInput) apiKeyInput.value = SettingsManager.getApiKey();
+
     // 用户管理
     const usernameInput = document.getElementById('global-username');
     const bioInput = document.getElementById('global-bio');
-    if (usernameInput) usernameInput.value = globalSettings.username || '访客';
-    if (bioInput) bioInput.value = globalSettings.bio || '';
+    if (usernameInput) usernameInput.value = SettingsManager.getUsername();
+    if (bioInput) bioInput.value = SettingsManager.getBio();
     const avatarImg = document.getElementById('global-avatar-img');
-    if (avatarImg && globalSettings.avatar) avatarImg.src = globalSettings.avatar;
+    if (avatarImg && SettingsManager.getAvatar()) avatarImg.src = SettingsManager.getAvatar();
 
     // 模型参数
-    const ctxLimit = globalSettings.contextLimit !== undefined ? globalSettings.contextLimit : 10;
-    const temp = globalSettings.temperature !== undefined ? globalSettings.temperature : 0.7;
-    const topP = globalSettings.topP !== undefined ? globalSettings.topP : 0.9;
-    
+    const ctxLimit = SettingsManager.getContextLimit();
+    const temp = SettingsManager.getTemperature();
+    const topP = SettingsManager.getTopP();
+
     const ctxSlider = document.getElementById('global-context-limit');
     const ctxUnlimitedCheck = document.getElementById('global-context-unlimited');
     const tempSlider = document.getElementById('global-temperature');
     const topPSlider = document.getElementById('global-top-p');
     const ttsApiUrlInput = document.getElementById('tts-api-url');
-    
+
     // 音色克隆按钮事件
     let isCloning = false;
     const cloneBtn = document.getElementById('start-clone-btn');
@@ -2460,10 +2459,10 @@ function openGlobalSettings() {
 
     // 图片生成后端接口
     const imgApiUrlInput = document.getElementById('img-api-url');
-    if (imgApiUrlInput) imgApiUrlInput.value = globalSettings.imgApiUrl || Constants.DEFAULT_IMG_API_URL;
+    if (imgApiUrlInput) imgApiUrlInput.value = SettingsManager.getImgApiUrl();
     const imgApiKeyInput = document.getElementById('img-api-key');
-    if (imgApiKeyInput) imgApiKeyInput.value = globalSettings.imgApiKey || '';
-    
+    if (imgApiKeyInput) imgApiKeyInput.value = SettingsManager.getImgApiKey();
+
     if (cloneBtn) {
         const newCloneBtn = cloneBtn.cloneNode(true);
         cloneBtn.parentNode.replaceChild(newCloneBtn, cloneBtn);
@@ -2493,11 +2492,11 @@ function openGlobalSettings() {
             formData.append('audio', audioFile);
             formData.append('ref_text', audioText);
             
-            const ttsApiUrl = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
-            
+            const ttsApiUrl = SettingsManager.getTtsApiUrl();
+
             cloneStatus.innerText = '正在克隆音色，请稍候...';
             cloneBtn.disabled = true;
-            
+
             try {
                 const response = await fetch(`${ttsApiUrl}/clone_voice`, {
                     method: 'POST',
@@ -2527,19 +2526,19 @@ function openGlobalSettings() {
             }
         });
     }
-    
-    if (ttsApiUrlInput) ttsApiUrlInput.value = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
+
+    if (ttsApiUrlInput) ttsApiUrlInput.value = SettingsManager.getTtsApiUrl();
     const ttsApiKeyInput = document.getElementById('tts-api-key');
-    if (ttsApiKeyInput) ttsApiKeyInput.value = globalSettings.ttsApiKey || '';
+    if (ttsApiKeyInput) ttsApiKeyInput.value = SettingsManager.getTtsApiKey();
     if (ctxSlider) {
-        if (globalSettings.contextUnlimited) {
+        if (SettingsManager.isContextUnlimited()) {
             ctxUnlimitedCheck.checked = true;
             ctxSlider.disabled = true;
             document.getElementById('global-context-limit-value').innerText = '无限制';
         } else {
             ctxUnlimitedCheck.checked = false;
             ctxSlider.disabled = false;
-            ctxSlider.value = globalSettings.contextLimit !== undefined ? globalSettings.contextLimit : 10;
+            ctxSlider.value = ctxLimit;
             document.getElementById('global-context-limit-value').innerText = ctxSlider.value;
         }
         // 绑定复选框变化事件
@@ -2549,7 +2548,7 @@ function openGlobalSettings() {
                 document.getElementById('global-context-limit-value').innerText = '无限制';
             } else {
                 ctxSlider.disabled = false;
-                ctxSlider.value = globalSettings.contextLimit !== undefined ? globalSettings.contextLimit : 10;
+                ctxSlider.value = ctxLimit;
                 document.getElementById('global-context-limit-value').innerText = ctxSlider.value;
             }
         };
@@ -2569,12 +2568,12 @@ function openGlobalSettings() {
         document.getElementById('global-top-p-value').innerText = topP;
         topPSlider.oninput = () => document.getElementById('global-top-p-value').innerText = topPSlider.value;
     }
-    
+
     // 通用设置
     const themeSelect = document.getElementById('global-theme');
     const fontSizeSelect = document.getElementById('global-font-size');
-    if (themeSelect) themeSelect.value = globalSettings.theme || 'dark';
-    if (fontSizeSelect) fontSizeSelect.value = globalSettings.fontSize || 'medium';
+    if (themeSelect) themeSelect.value = SettingsManager.getTheme();
+    if (fontSizeSelect) fontSizeSelect.value = SettingsManager.getFontSize();
 
     const modal = document.getElementById('global-settings-modal');
     if (modal) modal.style.display = 'flex';
@@ -2582,7 +2581,7 @@ function openGlobalSettings() {
     const typingSpeedSlider = document.getElementById('global-typing-speed');
     const typingSpeedSpan = document.getElementById('global-typing-speed-value');
     if (typingSpeedSlider) {
-        const speed = globalSettings.typingSpeed !== undefined ? globalSettings.typingSpeed : 1.0;
+        const speed = SettingsManager.getTypingSpeed();
         typingSpeedSlider.value = speed;
         const updateLabel = (val) => {
             if (val === 1.0) typingSpeedSpan.textContent = '原速';
@@ -2682,24 +2681,22 @@ function saveGlobalSettings() {
         typingSpeed: parseFloat(document.getElementById('global-typing-speed').value),
     };
     if (modelServiceInstance) {
-        const latestSettings = JSON.parse(localStorage.getItem('global_settings'));
         modelServiceInstance.updateConfig({
-            modelHost: latestSettings.modelHost || Constants.DEFAULT_MODEL_HOST,
-            apiKey: latestSettings.apiKey || '',
-            modelName: latestSettings.modelName || Constants.DEFAULT_MODEL_NAME,
+            modelHost: SettingsManager.getModelHost(),
+            apiKey: SettingsManager.getApiKey(),
+            modelName: SettingsManager.getModelName(),
         });
     }
-    try {
-        localStorage.setItem('global_settings', JSON.stringify(globalSettings));
-        closeGlobalModal();
-    } catch (e) {
-        if (e.name === 'QuotaExceededError') {
+    const result = SettingsManager.writeWithResult(globalSettings);
+    if (!result.success) {
+        if (result.errorName === 'QuotaExceededError') {
             customAlert('存储空间不足！请尝试：\n1. 删除一些旧对话\n2. 使用更小的头像图片\n3. 清理浏览器缓存', 'error');
         } else {
-            customAlert('保存失败：' + e.message, 'error');
+            customAlert('保存失败：' + result.error, 'error');
         }
+        return;
     }
-    
+
     // 应用主题
     applyTheme(globalSettings.theme);
     
@@ -3433,8 +3430,7 @@ async function sendMessageWithoutAI() {
 }
 
 function loadShortcutsFromStorage() {
-    const global = JSON.parse(localStorage.getItem('global_settings')) || {};
-    const storedShortcuts = global.shortcuts || {};
+    const storedShortcuts = SettingsManager.getShortcuts();
 
     // 构建默认快捷键映射（从 DEFAULT_SHORTCUTS 提取 keys 字符串）
     const defaultsMap = {};
@@ -3656,9 +3652,16 @@ function toggleImmersiveMode() {
 }
 
 async function init() {
+    // 初始化 index.html 中以 src="" 占位的元素（默认头像等）。
+    // 这样做可以避免在 HTML 中硬编码超长 SVG base64 字符串。
+    const defaultAvatarEl = document.getElementById('global-avatar-img');
+    if (defaultAvatarEl && !defaultAvatarEl.src) {
+        defaultAvatarEl.src = Constants.DEFAULT_USER_AVATAR;
+    }
+
+    loadModelListAndInit();
     await initData();
-    const savedGlobal = JSON.parse(localStorage.getItem('global_settings')) || {};
-    applyTheme(savedGlobal.theme || 'dark');
+    applyTheme(SettingsManager.getTheme());
     initResizer();
     loadShortcutsFromStorage();
     bindEvents();

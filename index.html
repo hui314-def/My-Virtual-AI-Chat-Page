@@ -269,7 +269,8 @@
                     <div class="form-group">
                         <label>头像</label>
                         <div class="image-preview" id="global-avatar-preview" style="width: 80px; height: 80px;">
-                            <img id="global-avatar-img" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'%3E%3Ccircle cx='50' cy='50' r='45' fill='%23333b6e'/%3E%3Ctext x='50' y='67' font-size='40' text-anchor='middle' fill='white'%3E👤%3C/text%3E%3C/svg%3E" alt="用户头像">
+                            <!-- 默认值由 script.js 启动时填充（见 Constants.DEFAULT_USER_AVATAR） -->
+                            <img id="global-avatar-img" src="" alt="用户头像">
                         </div>
                         <input type="file" id="global-avatar-upload" accept="image/*">
                     </div>

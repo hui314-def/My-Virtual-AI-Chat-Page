@@ -96,7 +96,7 @@ export class FileUploadService {
         if (this.previewArea) this.previewArea.style.display = 'none';
     }
 
-    // 清除当前文件
+    /** 清除当前文件*/ 
     clearFile() {
         this.#currentFile = null;
         this.#currentContent = null;
@@ -104,7 +104,7 @@ export class FileUploadService {
         if (this.onFileCleared) this.onFileCleared();
     }
 
-    // 打开文件选择对话框
+    /** 打开文件选择对话框*/ 
     selectFile() {
         const input = document.createElement('input');
         input.type = 'file';
