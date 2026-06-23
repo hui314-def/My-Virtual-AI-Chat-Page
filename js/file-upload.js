@@ -20,8 +20,6 @@ export class FileUploadService {
         this.allowedExtensions = options.allowedExtensions || Constants.ALLOWED_FILE_EXTENSIONS;
         this.maxSize = options.maxSize || Constants.MAX_FILE_SIZE;
         this.alertFn = options.alertFn || ((msg, type) => alert(msg));
-        this.#currentFile = null;     // 存储当前选中的文件对象
-        this.#currentContent = null;  // 存储读取的文件内容
     }
     // 私有字段（使用 # 确保真正私有，或使用 this._ 约定）
     #currentFile = null;

@@ -257,6 +257,7 @@ def tts_synthesis():
 
 @app.route('/clone_voice', methods=['POST'])
 def clone_voice():
+    tmp_path = None
     try:
         voice_name = request.form.get('voice_name')
         if not voice_name:

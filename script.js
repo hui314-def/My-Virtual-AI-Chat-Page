@@ -43,6 +43,23 @@ let currentStatus = 'online';   // 记录当前指示器状态
 let cropper = null;
 let currentShortcuts = {};  // 当前生效的快捷键映射
 let modelServiceInstance = null;
+/**
+ * 基于消息内容 + 时间戳 + 随机数生成唯一 ID（djb2 哈希，base36 编码）。
+ * - 不依赖全局计数器，页面重启也不会与 IndexedDB 中已有消息冲突
+ * - 纳入了随机因子，即使同一毫秒内创建相同内容的消息也不会碰撞
+ * @param {string} type - 消息类型 'user'|'ai'|'divider'
+ * @param {string} text - 消息文本内容
+ * @param {string} time - 格式化时间字符串
+ * @returns {string} base36 编码的哈希值，例如 "2f8k3x9p"
+ */
+function genMsgUid(type, text, time) {
+    const seed = `${type}|${text}|${time}|${Date.now()}|${Math.random()}`;
+    let hash = 5381;
+    for (let i = 0; i < seed.length; i++) {
+        hash = ((hash << 5) + hash) + seed.charCodeAt(i); // hash * 33 + c
+    }
+    return (hash >>> 0).toString(36);
+}
 let currentActionMsgElement = null;
 let currentActionMenu = null;
 let currentPictureMenu = null;
@@ -401,9 +418,10 @@ function renderHistoryList() {
 }
 
 // 追加消息到DOM
-async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null) {
+async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
+    if (msgUid) messageDiv.dataset.msgUid = msgUid;
     let avatarHtml = '';
 
     if (type === 'ai') {
@@ -490,7 +508,9 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         const targetChatId = chatIdForSave || currentChatId;
         const targetChat = chats.find(c => c.id == targetChatId);
         if (targetChat) {
-            targetChat.messages.push({ type, text, time: time || getCurrentTime() });
+            const msgUid = genMsgUid(type, text, time || getCurrentTime());
+            targetChat.messages.push({ type, text, time: time || getCurrentTime(), uid: msgUid });
+            if (messageDiv) messageDiv.dataset.msgUid = msgUid;
             if (type === 'user') {
                 targetChat.date = new Date();
                 renderHistoryList();
@@ -562,11 +582,13 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     if (saveToStorageFlag) {
         const targetChat = chats.find(c => c.id == currentChatId);
         if (targetChat) {
+            const msgUid = genMsgUid(type, imgSrc, time || getCurrentTime());
             targetChat.messages.push({
                 type,
                 text: imgSrc,
                 isImage: true,
                 time: time || getCurrentTime(),
+                uid: msgUid,
             });
             targetChat.date = new Date();
             renderHistoryList();
@@ -682,7 +704,7 @@ function renderMessages(chatId, topicIndex = null) {
             chatMessages.appendChild(divider);
         } else {
             const fileAttachment = msg.file || null;
-            appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null);
+            appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid);
         }
     });
     
@@ -846,7 +868,8 @@ async function simulateAIResponse(userMsg) {
         const targetChat = chats.find(c => c.id == currentChatId);
         if (targetChat) {
             const modelName = SettingsManager.getModelName();
-            targetChat.messages.push({ type: 'ai', text: fullReply, time: getCurrentTime(), modelName: modelName });
+            const msgUid = genMsgUid('ai', fullReply, getCurrentTime());
+            targetChat.messages.push({ type: 'ai', text: fullReply, time: getCurrentTime(), modelName: modelName, uid: msgUid });
             targetChat.date = new Date();
             renderHistoryList();
             await chatRepo.saveChat(targetChat);
@@ -946,12 +969,14 @@ async function sendUserMessage() {
         modelUserMsg = text + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
     }
     if (targetChat) {
+        const msgUid = genMsgUid('user', text, userTime);
         targetChat.messages.push({
             type: 'user',
             text: text,
             time: userTime,
             file: fileAttachment,  // 附加文件信息
             modelInputText: modelUserMsg,
+            uid: msgUid,
         });
         targetChat.date = new Date();
         renderHistoryList();
@@ -1370,25 +1395,6 @@ function bindEvents() {
     });
     }
     if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
-    if (settingBtn) {
-        settingBtn.addEventListener('click', () => {
-            const toast = document.createElement('div');
-            toast.textContent = '⚙️ 个性化设置开发中 · 主题/音效即将上线';
-            toast.style.position = 'fixed';
-            toast.style.bottom = '80px';
-            toast.style.right = '20px';
-            toast.style.backgroundColor = 'rgba(20,20,40,0.9)';
-            toast.style.backdropFilter = 'blur(12px)';
-            toast.style.color = '#ccd6ff';
-            toast.style.padding = '10px 20px';
-            toast.style.borderRadius = '40px';
-            toast.style.fontSize = '0.8rem';
-            toast.style.border = '1px solid #5f7eff';
-            toast.style.zIndex = '9999';
-            document.body.appendChild(toast);
-            setTimeout(() => toast.remove(), 2500);
-        });
-    }
     // 头像上传预览
     document.getElementById('global-avatar-upload').addEventListener('change', async (e) => {
         const file = e.target.files[0];
@@ -1769,7 +1775,7 @@ function bindEvents() {
 }
 
 // 开启新话题（插入分隔线 + 开场白）
-function startNewTopic() {
+async function startNewTopic() {
     const modelService = getModelService();
     if (modelService.isStreaming()) {
         if (confirm('当前正在生成回复，开启新话题会中断本次回复。是否继续？')) {
@@ -1790,7 +1796,8 @@ function startNewTopic() {
     currentChat.messages.push({
         type: 'divider',
         text: '新话题',
-        time: dividerTime
+        time: dividerTime,
+        uid: genMsgUid('divider', '新话题', dividerTime)
     });
     // 立即在界面添加分隔线
     const divider = document.createElement('div');
@@ -1808,7 +1815,7 @@ function startNewTopic() {
     // 刷新左侧历史列表（更新最后消息时间）
     currentChat.date = new Date();
     renderHistoryList();
-    chatRepo.saveChat(currentChat);
+    await chatRepo.saveChat(currentChat);
 
     // 如果当前对话开启语音合成，则朗读开场白
     if (settings.ttsEnabled) {
@@ -2056,7 +2063,7 @@ async function generateTopicSummary(topicIndex, topicMessages) {
     }
 }
 
-function openTopicsModal() {
+async function openTopicsModal() {
     const currentChat = chats.find(c => c.id == currentChatId);
     if (!currentChat) return;
     const topics = getTopicsFromMessages(currentChat.messages, currentChat.settings?.topicSummaries);
@@ -2228,7 +2235,7 @@ function openTopicsModal() {
                 // 更新聊天界面与历史列表
                 renderMessages(currentChatId);
                 renderHistoryList();
-                chatRepo.saveAllChats(chats);
+                await chatRepo.saveAllChats(chats);
 
                 // 若消息清空，自动开启新话题
                 if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
@@ -2250,7 +2257,7 @@ function closeTopicsModal() {
     closeModalWithAnimation(modal);
 }
 
-function deleteTopic(topicIndex, topics, currentChat) {
+async function deleteTopic(topicIndex, topics, currentChat) {
     if (confirm(`确定要删除话题 ${topicIndex+1} 吗？此操作不可撤销。`)) {
         const topic = topics[topicIndex];
         if (!topic) return;
@@ -2270,7 +2277,7 @@ function deleteTopic(topicIndex, topics, currentChat) {
         // 重新渲染
         renderMessages(currentChatId);
         renderHistoryList();
-        chatRepo.saveChat(currentChat);
+        await chatRepo.saveChat(currentChat);
         if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
             // 如果没有任何实际消息，自动开启一个新话题
             startNewTopic();
@@ -2653,10 +2660,9 @@ function saveGlobalSettings() {
     let contextLimit = parseInt(document.getElementById('global-context-limit').value);
     if (ctxUnlimited) contextLimit = -1; // 用 -1 表示无限制
     const quickSelect = document.getElementById('quick-model-select');
-    let currentModel = Constants.DEFAULT_MODEL_NAME;
-    if (quickSelect) {
-        currentModel = quickSelect.value;
-    } else {
+    // 优先从下拉框取当前模型，其次从 SettingsManager，最后用默认值
+    let currentModel = quickSelect?.value || SettingsManager.getModelName() || Constants.DEFAULT_MODEL_NAME;
+    if (!currentModel) {
         const models = ModelService.getModels();
         currentModel = models[0] || Constants.DEFAULT_MODEL_NAME;
     }
@@ -2680,11 +2686,12 @@ function saveGlobalSettings() {
         imgApiKey: document.getElementById('img-api-key').value,
         typingSpeed: parseFloat(document.getElementById('global-typing-speed').value),
     };
+    // 立即用新值更新模型服务实例（此时 SettingsManager 尚未写入）
     if (modelServiceInstance) {
         modelServiceInstance.updateConfig({
-            modelHost: SettingsManager.getModelHost(),
-            apiKey: SettingsManager.getApiKey(),
-            modelName: SettingsManager.getModelName(),
+            modelHost: globalSettings.modelHost,
+            apiKey: globalSettings.apiKey,
+            modelName: currentModel,
         });
     }
     const result = SettingsManager.writeWithResult(globalSettings);
@@ -2843,7 +2850,8 @@ function showMessageActions(msgElement, type, text, time, saveToStorageFlag, cha
         deleteBtn.addEventListener('click', async (e) => {
             e.stopPropagation();
             if (confirm('确定要删除这条消息吗？')) {
-                await deleteMessageFromChat(type, text, time);
+                const msgUid = msgElement.dataset.msgUid ? parseInt(msgElement.dataset.msgUid) : null;
+                await deleteMessageFromChat(msgUid, type, text, time);
                 closeActionMenu();
             }
         });
@@ -2968,12 +2976,18 @@ function showMessageActions(msgElement, type, text, time, saveToStorageFlag, cha
     }
 }
 
-async function deleteMessageFromChat(type, text, time) {
+async function deleteMessageFromChat(msgUid, type, text, time) {
     const currentChat = chats.find(c => c.id == currentChatId);
     if (!currentChat) return;
-    
-    // 查找匹配的消息（根据 type, text, time）
-    const index = currentChat.messages.findIndex(msg => msg.type === type && msg.text === text && msg.time === time);
+
+    // 优先用 uid 精确匹配，回退到 type+text+time 兼容旧消息
+    let index = -1;
+    if (msgUid) {
+        index = currentChat.messages.findIndex(msg => msg.uid === msgUid);
+    }
+    if (index === -1 && type && text && time) {
+        index = currentChat.messages.findIndex(msg => msg.type === type && msg.text === text && msg.time === time);
+    }
     if (index !== -1) {
         currentChat.messages.splice(index, 1);
         // 重新渲染当前对话
@@ -3039,7 +3053,8 @@ async function continueAIMessage() {
     currentChat.messages.push({
         type: 'user',
         text: continuePrompt,
-        time: userTime
+        time: userTime,
+        uid: genMsgUid('user', continuePrompt, userTime)
     });
     await chatRepo.saveChat(currentChat);
     await appendMessageToDOM('user', continuePrompt, userTime, false);
@@ -3418,6 +3433,7 @@ async function sendMessageWithoutAI() {
             time: userTime,
             file: fileAttachment,
             modelInputText: modelUserMsg,
+            uid: genMsgUid('user', text, userTime)
         });
         targetChat.date = new Date();
         renderHistoryList();

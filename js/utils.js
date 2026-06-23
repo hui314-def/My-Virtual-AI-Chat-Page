@@ -21,14 +21,19 @@ export function escapeHtml(str) {
 // 格式化日期（用于侧边栏历史记录）
 export function formatDate(dateObj) {
     const now = new Date();
-    const diff = now - dateObj;
-    if (diff < 24 * 3600 * 1000 && now.getDate() === dateObj.getDate()) {
+    // 使用 YYYY-MM-DD 字符串比较，正确处理跨月/跨年边界
+    const fmtDate = (d) => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+    const dateStr = fmtDate(dateObj);
+    const todayStr = fmtDate(now);
+    if (dateStr === todayStr) {
         return `今天 ${dateObj.getHours()}:${String(dateObj.getMinutes()).padStart(2,'0')}`;
-    } else if (diff < 48 * 3600 * 1000) {
-        return `昨天 ${dateObj.getHours()}:${String(dateObj.getMinutes()).padStart(2,'0')}`;
-    } else {
-        return `${dateObj.getMonth()+1}月${dateObj.getDate()}日`;
     }
+    const yesterday = new Date(now);
+    yesterday.setDate(yesterday.getDate() - 1);
+    if (dateStr === fmtDate(yesterday)) {
+        return `昨天 ${dateObj.getHours()}:${String(dateObj.getMinutes()).padStart(2,'0')}`;
+    }
+    return `${dateObj.getMonth()+1}月${dateObj.getDate()}日`;
 }
 // 解析原始文本，分离思考内容和回复内容
 export function parseThinkContent(rawText) {

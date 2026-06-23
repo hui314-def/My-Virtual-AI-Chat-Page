@@ -5,24 +5,15 @@ import Constants from './constants.js';
  * 支持通过后端 API 生成语音，降级使用浏览器内置 TTS
  */
 export class TTsService {
-    constructor() {
-        /** @type {AbortController|null} 当前 TTS 请求的控制器 */
-        this.#currentController = null;
-        /** @type {HTMLAudioElement|null} 当前播放的音频对象 */
-        this.#currentAudio = null;
-        /** @type {SpeechSynthesisUtterance|null} 当前朗读的 utterance */
-        this.#currentUtterance = null;
-        /** @type {boolean} 是否正在播放/合成中 */
-        this.#isSpeaking = false;
-        /** @type {HTMLElement|null} 最后被禁用的播放按钮 */
-        this.#lastDisabledPlayBtn = null;
-    }
-
-    // 私有字段
+    /** @type {AbortController|null} 当前 TTS 请求的控制器 */
     #currentController = null;
-    #currentAudio = null;// 当前播放的音频对象
-    #currentUtterance = null;// 用于停止当前朗读
+    /** @type {HTMLAudioElement|null} 当前播放的音频对象 */
+    #currentAudio = null;
+    /** @type {SpeechSynthesisUtterance|null} 当前朗读的 utterance */
+    #currentUtterance = null;
+    /** @type {boolean} 是否正在播放/合成中 */
     #isSpeaking = false;
+    /** @type {HTMLElement|null} 最后被禁用的播放按钮 */
     #lastDisabledPlayBtn = null;
     static #voiceCache = null;// 静态私有音色缓存
     /**
