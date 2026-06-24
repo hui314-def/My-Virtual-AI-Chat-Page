@@ -1,6 +1,6 @@
 // 聊天页面核心交互功能
 import { 
-    escapeHtml, getCurrentTime, formatDate, parseThinkContent,renderMessageWithThink, 
+    escapeHtml, getCurrentTime, formatDate, parseThinkContent,renderMessageWithThink, genMsgUid,
     parseParenthesesContent, compressImage, normalizeShortcut,parseShortcut, eventToShortcutString, isBrowserReserved,
 } from './js/utils.js';
 import Constants from './js/constants.js'
@@ -10,10 +10,20 @@ import { TTsService } from './js/tts-service.js';
 import { ChatIO } from './js/chat-io.js';
 import { FileUploadService } from './js/file-upload.js';
 import { SettingsManager } from './js/settings-manager.js';
+import ModalManager from './js/modal-manager.js';
+import VoiceInput from './js/voice-input.js';
+import SearchManager from './js/search.js';
+import MessageActions from './js/message-actions.js';
 
-let cachedCSS = '';
-// 注意：style.css 不再预加载，而是在用户首次导出 HTML 时按需加载。
-// 见 ChatIO.loadCSSForExport()。
+
+// ==================== DOM 元素绑定 ====================
+const historyList = document.querySelector('.history-list');
+const newChatBtn = document.querySelector('.new-chat-btn');
+const settingBtn = document.querySelector('.setting-btn');
+const chatMessages = document.querySelector('.chat-messages');
+const messageInput = document.querySelector('.auto-expand-textarea');
+const sendBtn = document.querySelector('.send-btn');
+
 
 const DB_NAME = Constants.DB_NAME;
 const DB_VERSION = Constants.DB_VERSION;
@@ -34,48 +44,114 @@ let chats = [];
 let currentChatId = null;
 let currentTopicIndex = null;
 let autoScrollEnabled = true;     // 是否允许自动滚动
-let searchDebounceTimer = null;
 let globalModal = null;
-let currentActionClickHandler = null;
-let currentActionScrollHandler = null;
 let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
 let currentStatus = 'online';   // 记录当前指示器状态
-let cropper = null;
-let currentShortcuts = {};  // 当前生效的快捷键映射
-let modelServiceInstance = null;
-/**
- * 基于消息内容 + 时间戳 + 随机数生成唯一 ID（djb2 哈希，base36 编码）。
- * - 不依赖全局计数器，页面重启也不会与 IndexedDB 中已有消息冲突
- * - 纳入了随机因子，即使同一毫秒内创建相同内容的消息也不会碰撞
- * @param {string} type - 消息类型 'user'|'ai'|'divider'
- * @param {string} text - 消息文本内容
- * @param {string} time - 格式化时间字符串
- * @returns {string} base36 编码的哈希值，例如 "2f8k3x9p"
- */
-function genMsgUid(type, text, time) {
-    const seed = `${type}|${text}|${time}|${Date.now()}|${Math.random()}`;
-    let hash = 5381;
-    for (let i = 0; i < seed.length; i++) {
-        hash = ((hash << 5) + hash) + seed.charCodeAt(i); // hash * 33 + c
-    }
-    return (hash >>> 0).toString(36);
-}
-let currentActionMsgElement = null;
-let currentActionMenu = null;
-let currentPictureMenu = null;
-let currentPictureMsgElement = null;
-let recognition = null; // 语音识别实例
-let isListening = false;
+const cropperRef = { value: null };
+const currentShortcutsRef = { value: {} };  // 当前生效的快捷键映射
+const modelServiceInstanceRef = { value: null };
 
+// ==================== 弹窗管理器 ====================
+// 注意：ctx 中的回调函数（renderMessages 等）由 function 声明定义在下方，JS 会提升声明，因此引用安全。
+const modalManager = new ModalManager({
+    get chats() { return chats; },            // getter：initData 会重新赋值 chats，必须动态读取
+    get currentChatId() { return currentChatId; },
+    get currentTopicIndex() { return currentTopicIndex; },
+    chatRepo,
+    chatIO,
+    ttsService,
+    modelServiceInstanceRef,
+    cropperRef,
+    currentShortcutsRef,
+    getModelService,
+    releaseRequestLock,
+    updateStatusIndicator,
+    // 以下回调函数由下方 function 声明定义（JS 提升），在构造时引用安全：
+    renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
+    renderHistoryList: () => renderHistoryList(),
+    applyCurrentChatSettings: () => applyCurrentChatSettings(),
+    startNewTopic: () => startNewTopic(),
+    setCurrentTopic: (idx) => setCurrentTopic(idx),
+    applyTheme: (theme) => applyTheme(theme),
+    applyFontSize: (size) => applyFontSize(size),
+    renderShortcutsPanel: () => renderShortcutsPanel(),
+    bindAutoResize: (el) => bindAutoResize(el),
+    updateModelSelector: () => updateModelSelector(),
+    renderModelListUI: () => renderModelListUI(),
+    saveModelListToStorage: () => saveModelListToStorage(),
+    addModel: (name) => addModel(name),
+    getTopicsFromMessages: (msgs, summaries) => getTopicsFromMessages(msgs, summaries),
+    generateTopicSummary: (idx, msgs) => generateTopicSummary(idx, msgs),
+    focusChatInput: () => focusChatInput(),
+    focusSearchInput: () => focusSearchInput(),
+    createNewChat: () => createNewChat(),
+    switchToPreviousChat: () => switchToPreviousChat(),
+    switchToNextChat: () => switchToNextChat(),
+    sendMessageWithoutAI: () => sendMessageWithoutAI(),
+    toggleImmersiveMode: () => toggleImmersiveMode(),
+    executeAction: (action) => executeAction(action),
+});
+
+// ==================== 包装函数（供 script.js 内部直接调用） ====================
+function customAlert(message, type) { modalManager.customAlert(message, type); }
+function showBriefToast(message) { modalManager.showBriefToast(message); }
+function showFileContentModal(filename, content) { modalManager.showFileContentModal(filename, content); }
+function showFullscreenImage(src) { modalManager.showFullscreenImage(src); }
+function showCropModal(file, aspectRatio, options, callback) { modalManager.showCropModal(file, aspectRatio, options, callback); }
+function closeModalWithAnimation(modal, afterClose) { modalManager.closeModalWithAnimation(modal, afterClose); }
+function openSettingsModal() { modalManager.openSettingsModal(); }
+function closeModal() { modalManager.closeSettingsModal(); }
+function saveSettings() { return modalManager.saveSettings(); }
+function openGlobalSettings() { modalManager.openGlobalSettings(); }
+function closeGlobalModal() { modalManager.closeGlobalModal(); }
+function saveGlobalSettings() { return modalManager.saveGlobalSettings(); }
+function openTopicsModal() { modalManager.openTopicsModal(); }
+function closeTopicsModal() { modalManager.closeTopicsModal(); }
+
+// ==================== 语音输入 ====================
+const voiceInput = new VoiceInput({ customAlert });
+function startVoiceInput() { voiceInput.start(); }
+
+// ==================== 搜索管理器 ====================
+const searchManager = new SearchManager({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getCurrentTopicIndex: () => currentTopicIndex,
+    setCurrentTopicIndex: (v) => { currentTopicIndex = v; },
+    switchChat,
+    renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
+});
+
+// ==================== 消息操作菜单 ====================
+const msgActions = new MessageActions({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getCurrentTopicIndex: () => currentTopicIndex,
+    isProcessing: () => isProcessing,
+    chatRepo,
+    ttsService,
+    chatMessages,
+    renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
+    renderHistoryList: () => renderHistoryList(),
+    customAlert,
+    showBriefToast,
+    simulateAIResponse,
+    appendMessageToDOM,
+    updateStatusIndicator,
+});
+function showMessageActions(...args) { msgActions.showMessageActions(...args); }
+function showPictureActions(...args) { msgActions.showPictureActions(...args); }
+
+// currentActionMsgElement / currentActionMenu / currentPictureMenu / currentPictureMsgElement 已移入 MessageActions
 function getModelService() {
-    if (!modelServiceInstance) {
-        modelServiceInstance = new ModelService({
+    if (!modelServiceInstanceRef.value) {
+        modelServiceInstanceRef.value = new ModelService({
             modelHost: SettingsManager.getModelHost(),
             apiKey: SettingsManager.getApiKey(),
             modelName: SettingsManager.getModelName(),
         });
     }
-    return modelServiceInstance;
+    return modelServiceInstanceRef.value;
 }
 
 function setCurrentChatId(id) { 
@@ -315,14 +391,6 @@ document.head.appendChild(styleSheet);
 // ==================== 动态创建弹窗 HTML ====================
 const modalHTML = Constants.MODAL_HTML;
 document.body.insertAdjacentHTML('beforeend', modalHTML);
-
-// ==================== DOM 元素绑定 ====================
-const historyList = document.querySelector('.history-list');
-const newChatBtn = document.querySelector('.new-chat-btn');
-const settingBtn = document.querySelector('.setting-btn');
-const chatMessages = document.querySelector('.chat-messages');
-const messageInput = document.querySelector('.auto-expand-textarea');
-const sendBtn = document.querySelector('.send-btn');
 
 
 // 从 IndexedDB 加载
@@ -597,84 +665,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     }
 }
 
-function showPictureActions(msgElement, msgData) {
-    // 关闭已有菜单
-    if (currentPictureMenu) {
-        currentPictureMenu.remove();
-        currentPictureMenu = null;
-    }
-    const bubble = msgElement.querySelector('.bubble');
-    if (!bubble) return;
-
-    const rect = bubble.getBoundingClientRect();
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'message-actions';
-    // 仅保留保存和删除
-    actionsDiv.innerHTML = `
-        <button class="save-pic-btn"><i class="fas fa-download"></i> 保存</button>
-        <button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除</button>
-    `;
-    document.body.appendChild(actionsDiv);
-    currentPictureMenu = actionsDiv;
-    currentPictureMsgElement = msgElement;
-
-    // 定位
-    actionsDiv.style.top = `${rect.bottom + scrollTop + 8}px`;
-    actionsDiv.style.left = `${rect.left + scrollLeft}px`;
-    const actionsRect = actionsDiv.getBoundingClientRect();
-    if (actionsRect.right > window.innerWidth) {
-        actionsDiv.style.left = `${window.innerWidth - actionsRect.width - 10 + scrollLeft}px`;
-    }
-
-    // 保存图片
-    const saveBtn = actionsDiv.querySelector('.save-pic-btn');
-    if (saveBtn) {
-        saveBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const a = document.createElement('a');
-            a.href = msgData.src;
-            a.download = `generated_image_${Date.now()}.png`;
-            a.click();
-            closePictureMenu();
-        });
-    }
-
-    // 删除图片
-    const deleteBtn = actionsDiv.querySelector('.delete-btn');
-    if (deleteBtn) {
-        deleteBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('确定要删除这张图片吗？')) {
-                await deletePictureMessage(msgElement, msgData);
-                closePictureMenu();
-            }
-        });
-    }
-
-    // 关闭逻辑
-    const closeHandler = (e) => {
-        if (!actionsDiv.contains(e.target) && e.target !== msgElement && !msgElement.contains(e.target)) {
-            closePictureMenu();
-            document.removeEventListener('click', closeHandler);
-        }
-    };
-    const scrollCloseHandler = () => closePictureMenu();
-    setTimeout(() => {
-        document.addEventListener('click', closeHandler);
-        chatMessages.addEventListener('scroll', scrollCloseHandler, { once: true });
-    }, 0);
-
-    function closePictureMenu() {
-        if (actionsDiv.parentNode) actionsDiv.remove();
-        currentPictureMenu = null;
-        currentPictureMsgElement = null;
-        document.removeEventListener('click', closeHandler);
-        chatMessages.removeEventListener('scroll', scrollCloseHandler);
-    }
-}
+// showPictureActions 已提取到 js/message-actions.js（通过包装函数调用）
 
 function renderMessages(chatId, topicIndex = null) {
     const chat = chats.find(c => c.id == chatId);
@@ -1078,218 +1069,14 @@ function historyClickHandler(e) {
     }
 }
 
-// ==================== 弹窗逻辑（编辑当前对话的设置） ====================
-const modal = document.getElementById('settings-modal');
-const closeModalBtn = document.getElementById('close-modal-btn');
-const cancelBtn = document.getElementById('cancel-settings-btn');
-const saveBtn = document.getElementById('save-settings-btn');
+// ==================== 弹窗逻辑（见 js/modal-manager.js） ====================
+// openSettingsModal / closeModal / closeModalWithAnimation / saveSettings 已提取
 const bgUpload = document.getElementById('bg-upload');
-const roleNameInput = document.getElementById('role-name');
-const rolePersona = document.getElementById('role-persona');
-const roleGreeting = document.getElementById('role-greeting');
-const avatarImg = document.getElementById('avatar-img');
-const bgImg = document.getElementById('bg-img');
-
-async function openSettingsModal() {
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-    const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
-    // 加载模型参数（如果不存在则使用默认值）
-    const contextLimit = settings.contextLimit !== undefined ? settings.contextLimit : 10;
-    const contextUnlimited = (settings.contextLimit === -1);
-    const temperature = settings.temperature !== undefined ? settings.temperature : 0.7;
-    const topP = settings.topP !== undefined ? settings.topP : 0.9;
-
-    const contextLimitSlider = document.getElementById('context-limit');
-    const contextLimitSpan = document.getElementById('context-limit-value');
-    const contextUnlimitedCheck = document.getElementById('context-unlimited');
-
-    const temperatureSlider = document.getElementById('temperature');
-    const temperatureSpan = document.getElementById('temperature-value');
-    const topPSlider = document.getElementById('top-p');
-    const topPSpan = document.getElementById('top-p-value');
-
-    if (contextLimitSlider) {
-        if (contextUnlimited) {
-            contextUnlimitedCheck.checked = true;
-            contextLimitSlider.disabled = true;
-            contextLimitSpan.innerText = '无限制';
-        } else {
-            contextUnlimitedCheck.checked = false;
-            contextLimitSlider.disabled = false;
-            contextLimitSlider.value = contextLimit;
-            contextLimitSpan.innerText = contextLimit;
-        }
-        // 绑定复选框变化事件
-        contextUnlimitedCheck.onchange = () => {
-            if (contextUnlimitedCheck.checked) {
-                contextLimitSlider.disabled = true;
-                contextLimitSpan.innerText = '无限制';
-            } else {
-                contextLimitSlider.disabled = false;
-                contextLimitSlider.value = contextLimit;
-                contextLimitSpan.innerText = contextLimitSlider.value;
-            }
-        };
-        contextLimitSlider.oninput = () => {
-            if (!contextUnlimitedCheck.checked) {
-                contextLimitSpan.innerText = contextLimitSlider.value;
-            }
-        };
-    }
-    if (temperatureSlider) {
-        temperatureSlider.value = temperature;
-        temperatureSpan.innerText = temperature;
-        temperatureSlider.oninput = () => {
-            temperatureSpan.innerText = temperatureSlider.value;
-        };
-    }
-    if (topPSlider) {
-        topPSlider.value = topP;
-        topPSpan.innerText = topP;
-        topPSlider.oninput = () => {
-            topPSpan.innerText = topPSlider.value;
-        };
-    }
-
-    roleNameInput.value = settings.roleName;
-    rolePersona.value = settings.persona;
-    roleGreeting.value = settings.greeting;
-    if (settings.avatarUrl) avatarImg.src = settings.avatarUrl;
-    else avatarImg.src = Constants.DEFAULT_AI_AVATAR;
-    if (settings.bgUrl) bgImg.src = settings.bgUrl;
-    else bgImg.src = Constants.DEFAULT_BG_PREVIEW;
-    const ttsSwitch = document.getElementById('tts-switch');
-    const ttsVoiceSelect = document.getElementById('tts-voice-select');
-    const ttsVoiceGroup = document.getElementById('tts-voice-group');
-    
-    if (ttsSwitch) {
-        ttsSwitch.checked = settings.ttsEnabled || false;
-        // 根据开关状态显示/隐藏音色选择
-        if (ttsVoiceGroup) {
-            ttsVoiceGroup.style.display = ttsSwitch.checked ? 'block' : 'none';
-        }
-        if (ttsSwitch.checked && ttsVoiceSelect) {
-            await TTsService.populateVoiceSelect(ttsVoiceSelect, currentChat?.settings?.ttsVoice, false);  // 使用缓存
-        }
-        // 绑定开关变化事件
-        ttsSwitch.onchange = async () => {
-            if (ttsVoiceGroup) {
-                ttsVoiceGroup.style.display = ttsSwitch.checked ? 'block' : 'none';
-            }
-            if (ttsSwitch.checked && ttsVoiceSelect) {
-            await TTsService.populateVoiceSelect(ttsVoiceSelect, currentChat?.settings?.ttsVoice, false);
-        }
-        };
-    }
-
-    const content = modal.querySelector('.modal-content');
-    if (content) content.classList.remove('closing');
-    modal.style.display = 'flex';
-    // 绑定自动扩展（每次打开时重新绑定，确保生效）
-    bindAutoResize(rolePersona);
-    bindAutoResize(roleGreeting);
-}
-
-function closeModal() {
-    const modal = document.getElementById('settings-modal');
-    closeModalWithAnimation(modal);
-}
-
-function closeModalWithAnimation(modal, afterClose) {
-    if (!modal) return;
-    const content = modal.querySelector('.modal-content');
-    if (!content) {
-        modal.style.display = 'none';
-        if (afterClose) afterClose();
-        return;
-    }
-    // 如果已经在关闭动画中，不再重复触发
-    if (content.classList.contains('closing')) return;
-    
-    content.classList.add('closing');
-    const onAnimationEnd = () => {
-        content.classList.remove('closing');
-        modal.style.display = 'none';
-        content.removeEventListener('animationend', onAnimationEnd);
-        if (afterClose) afterClose();
-    };
-    content.addEventListener('animationend', onAnimationEnd, { once: true });
-    // 安全后备：如果动画未触发，1秒后强制关闭
-    setTimeout(() => {
-        if (modal.style.display !== 'none') {
-            content.classList.remove('closing');
-            modal.style.display = 'none';
-            if (afterClose) afterClose();
-        }
-    }, 200);
-}
-
-async function saveSettings() {
-    const modelService = getModelService();
-    if (modelService.isStreaming()) {
-        if (confirm('当前对话正在生成回复，保存设置会中断该回复。是否继续？')) {
-            modelService.abortCurrentStream();
-            releaseRequestLock();
-            ttsService.stop();
-            await new Promise(resolve => setTimeout(resolve, 100));
-        } else {
-            closeModal();
-            return;
-        }
-    }
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-    const oldGreeting = currentChat.settings?.greeting || Constants.DEFAULT_SETTINGS.greeting;
-    const newRoleName = roleNameInput.value.trim() || 'Nova';
-    const newPersona = rolePersona.value.trim() || '暂无设定';
-    const newGreeting = roleGreeting.value.trim() || '✨ 你好，我是你的虚拟AI伙伴。';
-    // 获取模型参数值
-    const contextUnlimited = document.getElementById('context-unlimited').checked;
-    let contextLimit = parseInt(document.getElementById('context-limit').value);
-    if (contextUnlimited) {
-        contextLimit = -1; // 用 -1 表示无限制
-    }
-    currentChat.settings.contextLimit = contextLimit;
-    const temperature = parseFloat(document.getElementById('temperature').value);
-    const topP = parseFloat(document.getElementById('top-p').value);
-
-    currentChat.settings.contextLimit = contextLimit;
-    currentChat.settings.temperature = temperature;
-    currentChat.settings.topP = topP;
-    // 更新设置
-    currentChat.settings = currentChat.settings || {};
-    currentChat.settings.roleName = newRoleName;
-    currentChat.settings.persona = newPersona;
-    currentChat.settings.greeting = newGreeting;
-    // 头像和背景：若未修改（仍是默认占位图），保存为 null 以便下次显示默认
-    const newAvatarUrl = Constants.isDefaultImage(avatarImg.src) ? null : avatarImg.src;
-    const newBgUrl = Constants.isDefaultImage(bgImg.src) ? null : bgImg.src;
-    currentChat.settings.avatarUrl = newAvatarUrl;
-    currentChat.settings.bgUrl = newBgUrl;
-    // 保存音色设置
-    const ttsEnabled = document.getElementById('tts-switch').checked;
-    const ttsVoice = document.getElementById('tts-voice-select').value;
-    currentChat.settings.ttsEnabled = ttsEnabled;
-    currentChat.settings.ttsVoice = ttsVoice;
-    // 应用界面设置（背景、名称）
-    applyCurrentChatSettings();
-    // 重新渲染当前对话，所有 AI 消息头像立即更新
-    renderMessages(currentChatId);
-    // 更新左侧历史列表
-    renderHistoryList();
-    await chatRepo.saveChat(currentChat);
-    if (oldGreeting !== newGreeting) {
-        startNewTopic();
-    }
-    closeModal();
-}
-
 bgUpload.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
     showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
-        bgImg.src = croppedDataUrl;
+        document.getElementById('bg-img').src = croppedDataUrl;
         const mainChat = document.querySelector('.main-chat');
         mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
         mainChat.style.backgroundSize = 'cover';
@@ -1379,20 +1166,25 @@ function bindEvents() {
         };
         sendBtn.onclick = newSend;
         textarea.addEventListener('keydown', (e) => {
-        if (e.key === 'Enter') {
-            if (e.ctrlKey) {
-                // Ctrl+Enter：发送但不生成回复
+            const pressed = eventToShortcutString(e);
+            if (!pressed) return; // 纯修饰键，忽略
+
+            // 优先匹配「发送但不生成回复」快捷方式（从快捷键映射读取，默认 ctrl+enter）
+            const sendNoAiShortcut = currentShortcutsRef.value['send-no-ai'];
+            if (sendNoAiShortcut && normalizeShortcut(sendNoAiShortcut) === pressed) {
                 e.preventDefault();
                 sendMessageWithoutAI();
-            } else if (!e.shiftKey) {
-                // 普通 Enter：发送并生成 AI 回复
+                return;
+            }
+
+            // 普通 Enter（无修饰键）：发送并生成 AI 回复
+            if (pressed === 'enter') {
                 e.preventDefault();
                 sendUserMessage();
                 setTimeout(() => { textarea.style.height = 'auto'; }, 0);
             }
-            // Shift+Enter 不处理，默认换行
-        }
-    });
+            // Shift+Enter 及其他组合键不拦截，默认行为（换行等）
+        });
     }
     if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
     // 头像上传预览
@@ -1473,51 +1265,8 @@ function bindEvents() {
         fileUpload.setupDragAndDrop(dropZone);
     }
 
-    // 搜索框展开/收回动画
-    const searchInput = document.getElementById('global-search-input');
-    const searchToggleBtn = document.getElementById('search-toggle-btn');
-    const searchDropdown = document.getElementById('search-results-dropdown');
-    if (searchToggleBtn && searchInput) {
-        // 点击圆形按钮 → 展开输入框并聚焦
-        searchToggleBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            if (searchInput.classList.contains('search-input-hidden')) {
-                // 展开
-                searchInput.classList.remove('search-input-hidden');
-                searchToggleBtn.classList.add('hidden');
-                setTimeout(() => searchInput.focus(), 50); // 等待过渡开始
-            } else collapseSearch(); // 如果已展开，则关闭并清除内容
-        });
-
-        // 全局点击：点击搜索容器外部时收起
-        document.addEventListener('click', (e) => {
-            if (!document.getElementById('search-container').contains(e.target)) {
-                collapseSearch();
-            }
-        });
-
-        // ESC 键收起
-        searchInput.addEventListener('keydown', (e) => {
-            if (e.key === 'Escape') collapseSearch();
-        });
-
-        function collapseSearch() {
-            searchInput.classList.add('search-input-hidden');
-            searchInput.value = '';
-            searchToggleBtn.classList.remove('hidden');
-            searchDropdown.style.display = 'none';
-        }
-    }
-
-    // 保留原有的搜索输入监听（不变）
-    if (searchInput) {
-        searchInput.addEventListener('input', (e) => {
-            if (searchDebounceTimer) clearTimeout(searchDebounceTimer);
-            searchDebounceTimer = setTimeout(() => {
-                performSearch(e.target.value);
-            }, 300);
-        });
-    }
+    // 搜索功能 UI 绑定（见 js/search.js）
+    searchManager.setupUI();
 
     const importBtn = document.querySelector('.import-chat-btn');
     if (importBtn) {
@@ -1614,12 +1363,6 @@ function bindEvents() {
     } else if (settingBtn) {
         settingBtn.addEventListener('click', openGlobalSettings);
     }
-    // 关闭下拉框（点击外部）
-    document.addEventListener('click', (e) => {
-        if (!searchInput.contains(e.target) && !searchDropdown.contains(e.target)) {
-            searchDropdown.style.display = 'none';
-        }
-    });
     // 点击头像图片触发文件选择
     const avatarImgElement = document.getElementById('avatar-img');
     if (avatarImgElement) {
@@ -1637,6 +1380,10 @@ function bindEvents() {
             fileInput.click();
         });
     }
+    const modal = document.getElementById('settings-modal');
+    const closeModalBtn = document.getElementById('close-modal-btn');
+    const cancelBtn = document.getElementById('cancel-settings-btn');
+    const saveBtn = document.getElementById('save-settings-btn');
     if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
     if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
     if (saveBtn) saveBtn.addEventListener('click', saveSettings);
@@ -1668,9 +1415,9 @@ function bindEvents() {
         }
     }, true);
     document.getElementById('reset-shortcuts-btn').addEventListener('click', () => {
-        currentShortcuts = {};
+        currentShortcutsRef.value = {};
         for (const [action, obj] of Object.entries(DEFAULT_SHORTCUTS)) {
-            currentShortcuts[action] = obj.keys;
+            currentShortcutsRef.value[action] = obj.keys;
         }
         renderShortcutsPanel();
     });
@@ -2063,230 +1810,6 @@ async function generateTopicSummary(topicIndex, topicMessages) {
     }
 }
 
-async function openTopicsModal() {
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-    const topics = getTopicsFromMessages(currentChat.messages, currentChat.settings?.topicSummaries);
-    const container = document.getElementById('topics-list-container');
-    if (!container) return;
-
-    if (topics.length === 0) {
-        container.innerHTML = '<div style="padding: 20px; text-align: center;">暂无话题</div>';
-    } else {
-        container.innerHTML = topics.map((topic, idx) => {
-            const firstMsg = topic.messages[0];
-            const preview = firstMsg ? (firstMsg.text.length > 50 ? firstMsg.text.substring(0, 50) + '...' : firstMsg.text) : '无消息';
-            const time = firstMsg ? firstMsg.time : '未知';
-            return `
-                <div class="topic-item${currentTopicIndex === idx ? ' active' : ''}" data-topic-index="${idx}">
-                    <div class="topic-header">
-                        <span class="topic-title">话题 ${idx + 1}</span>
-                        <span class="topic-time">${time}</span>
-                    </div>
-                    <div class="topic-preview editable-preview" data-topic-index="${idx}" data-original="${escapeHtml(topic.summary || preview)}">${escapeHtml(topic.summary || preview)}</div>
-                    <div class="topic-actions">
-                        <button class="topic-gen-intro-btn" data-topic-index="${idx}"><i class="fas fa-magic"></i> 生成简介</button>
-                        <button class="topic-export-btn" data-topic-index="${idx}"><i class="fas fa-download"></i> 导出</button>
-                        <button class="topic-delete-btn" data-topic-index="${idx}"><i class="fas fa-trash-alt"></i> 删除</button>
-                    </div>
-                </div>
-            `;
-        }).join('');
-        // 绑定可编辑预览区双击事件
-        container.querySelectorAll('.editable-preview').forEach(elem => {
-            elem.addEventListener('dblclick', (e) => {
-                e.stopPropagation();
-                const topicIdx = parseInt(elem.getAttribute('data-topic-index'));
-                const oldText = elem.innerText;
-                // 创建输入框
-                const input = document.createElement('input');
-                input.type = 'text';
-                input.value = oldText;
-                input.style.width = '100%';
-                input.style.background = 'rgba(30,34,55,0.9)';
-                input.style.border = '1px solid #5f7eff';
-                input.style.borderRadius = '8px';
-                input.style.padding = '4px 8px';
-                input.style.color = '#f0f3ff';
-                elem.innerHTML = '';
-                elem.appendChild(input);
-                input.focus();
-                
-                const saveEdit = () => {
-                    const newText = input.value.trim();
-                    if (newText && newText !== oldText) {
-                        // 更新存储
-                        if (!currentChat.settings.topicSummaries) currentChat.settings.topicSummaries = {};
-                        currentChat.settings.topicSummaries[topicIdx] = newText;
-                        chatRepo.saveAllChats(chats);
-                        // 更新显示
-                        elem.innerText = newText;
-                        elem.setAttribute('data-original', newText);
-                    } else if (!newText) {
-                        elem.innerText = oldText;
-                    } else {
-                        elem.innerText = oldText;
-                    }
-                };
-                
-                input.addEventListener('blur', saveEdit);
-                input.addEventListener('keypress', (e) => {
-                    if (e.key === 'Enter') {
-                        input.blur();
-                    }
-                });
-            });
-        });
-        // 阻止单击简介时触发父级（.topic-item）的切换话题事件
-        container.querySelectorAll('.topic-preview').forEach(preview => {
-            preview.addEventListener('click', (e) => {
-                e.stopPropagation();
-            });
-        });
-        // 绑定生成简介按钮事件
-        container.querySelectorAll('.topic-gen-intro-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const idx = parseInt(btn.getAttribute('data-topic-index'));
-                const topic = topics[idx];
-                if (!topic) return;
-                
-                // 通过按钮找到所属的话题项，再找到预览区
-                const topicItem = btn.closest('.topic-item');
-                const summaryElem = topicItem ? topicItem.querySelector('.topic-preview') : null;
-                if (summaryElem) {
-                    summaryElem.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
-                }
-                
-                const summary = await generateTopicSummary(idx, topic.messages);
-                if (summary && summaryElem) {
-                    // 保存到存储
-                    if (!currentChat.settings.topicSummaries) currentChat.settings.topicSummaries = {};
-                    currentChat.settings.topicSummaries[idx] = summary;
-                    await chatRepo.saveAllChats(chats);
-                    // 更新显示
-                    summaryElem.innerHTML = escapeHtml(summary);
-                    summaryElem.setAttribute('data-original', summary);  // 同步自定义属性
-                } else if (summaryElem) {
-                    summaryElem.innerHTML = '生成失败';
-                }
-            });
-        });
-        // 绑定切换按钮的事件
-        container.querySelectorAll('.topic-item').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                // 如果点击的是按钮区域或其子元素，不触发切换
-                if (e.target.closest('.topic-actions')) return;
-                const idx = parseInt(btn.getAttribute('data-topic-index'));
-                closeTopicsModal();                // 关闭话题管理弹窗
-                setCurrentTopic(idx);             // 切换到该话题视图
-            });
-        });
-        // 绑定导出和删除按钮事件
-        container.querySelectorAll('.topic-export-btn').forEach(btn => {
-            btn.addEventListener('click', (e) => {
-                const idx = parseInt(btn.getAttribute('data-topic-index'));
-                chatIO.exportTopic(idx, topics, currentChat);
-            });
-        });
-        container.querySelectorAll('.topic-delete-btn').forEach(btn => {
-            btn.addEventListener('click', async (e) => {
-                e.stopPropagation();
-                const idx = parseInt(btn.getAttribute('data-topic-index'));
-                const topicItem = btn.closest('.topic-item');
-                if (!topicItem || topicItem.classList.contains('removing')) return;
-                // 检查流式状态
-                const modelService = getModelService();
-                if (modelService.isStreaming()) {
-                    const confirmMsg = '当前正在生成回复，删除话题会中断本次回复。是否继续？';
-                    if (!confirm(confirmMsg)) return;
-                    modelService.abortCurrentStream();
-                    releaseRequestLock();
-                    ttsService.stop();
-                }
-                if (!confirm(`确定要删除话题 ${idx + 1} 吗？此操作不可撤销。`)) return;
-
-                // 播放退出动画
-                topicItem.classList.add('removing');
-
-                // 等待动画结束或超时
-                await new Promise(resolve => {
-                    const onEnd = (e) => {
-                        if (e.propertyName === 'transform') {
-                            topicItem.removeEventListener('transitionend', onEnd);
-                            resolve();
-                        }
-                    };
-                    topicItem.addEventListener('transitionend', onEnd);
-                    setTimeout(resolve, 500);   // 兜底
-                });
-
-                // 执行实际删除逻辑
-                const topic = topics[idx];
-                if (!topic) return;
-                let start = topic.startIndex;
-                let end = topic.endIndex;
-                if (start > 0 && currentChat.messages[start - 1].type === 'divider') {
-                    start = start - 1;
-                }
-                currentChat.messages.splice(start, end - start + 1);
-                currentChat.date = new Date();
-
-                // 更新聊天界面与历史列表
-                renderMessages(currentChatId);
-                renderHistoryList();
-                await chatRepo.saveAllChats(chats);
-
-                // 若消息清空，自动开启新话题
-                if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
-                    startNewTopic();
-                }
-
-                // 刷新话题管理弹窗（不关闭，只重绘列表）
-                openTopicsModal();
-            });
-        });
-    }
-
-    const modal = document.getElementById('topics-modal');
-    if (modal) modal.style.display = 'flex';
-}
-
-function closeTopicsModal() {
-    const modal = document.getElementById('topics-modal');
-    closeModalWithAnimation(modal);
-}
-
-async function deleteTopic(topicIndex, topics, currentChat) {
-    if (confirm(`确定要删除话题 ${topicIndex+1} 吗？此操作不可撤销。`)) {
-        const topic = topics[topicIndex];
-        if (!topic) return;
-        // 删除该话题对应的消息（从 startIndex 到 endIndex）
-        // 同时需要删除可能的前后分隔线？规则：删除话题时，如果话题前面有分隔线，则一并删除该分隔线，以保证话题列表连续
-        let start = topic.startIndex;
-        let end = topic.endIndex;
-        // 如果 start > 0 且 messages[start-1] 是分隔线，则一并删除该分隔线
-        if (start > 0 && currentChat.messages[start-1].type === 'divider') {
-            start = start - 1;
-        }
-        // 如果 end+1 < messages.length 且 messages[end+1] 是分隔线，且该分隔线是下一个话题的开始，则也删除？通常不删，因为下一个话题需要分隔线。
-        // 简单起见，只删除话题内容及其前面的分隔线（如果有）
-        currentChat.messages.splice(start, end - start + 1);
-        // 更新聊天记录时间
-        currentChat.date = new Date();
-        // 重新渲染
-        renderMessages(currentChatId);
-        renderHistoryList();
-        await chatRepo.saveChat(currentChat);
-        if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
-            // 如果没有任何实际消息，自动开启一个新话题
-            startNewTopic();
-        }
-        closeTopicsModal(); // 关闭弹窗
-        openTopicsModal(); // 重新打开显示更新后的列表
-    }
-}
-
 async function setCurrentTopic(topicIndex) {
     const modelService = getModelService();
     if (modelService.isStreaming()) {
@@ -2338,268 +1861,9 @@ async function setCurrentTopic(topicIndex) {
     }, 500);
 }
 
-function startVoiceInput() {
-    // 检查安全上下文
-    if (location.protocol !== 'https:' && location.hostname !== 'localhost' && location.hostname !== '127.0.0.1') {
-        customAlert('语音输入需要 HTTPS 环境，请在本地或部署到 HTTPS 站点后使用。\n当前页面协议：' + location.protocol, 'warn');
-        return;
-    }
+// startVoiceInput 已提取到 js/voice-input.js（通过包装函数调用）
 
-    if (!('webkitSpeechRecognition' in window) && !('SpeechRecognition' in window)) {
-        customAlert('您的浏览器不支持语音识别，请使用 Chrome、Edge 或 Safari 等现代浏览器。', 'warn');
-        return;
-    }
-
-    if (isListening && recognition) {
-        recognition.stop();
-        return;
-    }
-
-    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
-    recognition = new SpeechRecognition();
-    recognition.lang = Constants.SPEECH_RECOGNITION_LANG;
-    recognition.interimResults = true;
-    recognition.maxAlternatives = 1;
-    recognition.continuous = false;
-
-    recognition.start();
-    isListening = true;
-
-    const voiceBtn = document.getElementById('voice-input-btn');
-    if (voiceBtn) {
-        voiceBtn.style.background = '#4e6eff';
-        voiceBtn.innerHTML = '<i class="fas fa-microphone-slash"></i> 语音输入 (聆听中...)';
-    }
-
-    recognition.onresult = (event) => {
-        let interimTranscript = '';
-        let finalTranscript = '';
-        for (let i = event.resultIndex; i < event.results.length; i++) {
-            const transcript = event.results[i][0].transcript;
-            if (event.results[i].isFinal) {
-                finalTranscript += transcript;
-            } else {
-                interimTranscript += transcript;
-            }
-        }
-        const textarea = document.querySelector('.auto-expand-textarea');
-        if (textarea) {
-            if (interimTranscript) {
-                textarea.value = interimTranscript;
-                textarea.dispatchEvent(new Event('input'));
-            }
-            if (finalTranscript) {
-                textarea.value = finalTranscript;
-                textarea.dispatchEvent(new Event('input'));
-            }
-        }
-    };
-
-    recognition.onend = () => {
-        isListening = false;
-        if (voiceBtn) {
-            voiceBtn.style.background = '';
-            voiceBtn.innerHTML = '<i class="fas fa-microphone"></i> 语音输入';
-        }
-    };
-
-    recognition.onerror = (event) => {
-        console.error('语音识别错误', event.error);
-        let errorMsg = '';
-        switch (event.error) {
-            case 'not-allowed':
-                errorMsg = '请允许麦克风权限以使用语音输入。';
-                break;
-            case 'no-speech':
-                errorMsg = '没有检测到语音，请重试。';
-                break;
-            case 'audio-capture':
-                errorMsg = '无法获取麦克风，请检查设备连接。';
-                break;
-            case 'network':
-                errorMsg = '网络错误，请检查网络连接，并确保页面在 HTTPS 或 localhost 环境下运行。';
-                break;
-            default:
-                errorMsg = `语音识别失败：${event.error}`;
-        }
-        customAlert(errorMsg, 'error');
-        recognition.stop();
-        isListening = false;
-        if (voiceBtn) {
-            voiceBtn.style.background = '';
-            voiceBtn.innerHTML = '<i class="fas fa-microphone"></i> 语音输入';
-        }
-    };
-}
-
-// 打开全局设置弹窗
-function openGlobalSettings() {
-    // 模型设置 - 主机和 API Key
-    const modelHostInput = document.getElementById('model-host');
-    const apiKeyInput = document.getElementById('api-key');
-    if (modelHostInput) modelHostInput.value = SettingsManager.getModelHost();
-    if (apiKeyInput) apiKeyInput.value = SettingsManager.getApiKey();
-
-    // 用户管理
-    const usernameInput = document.getElementById('global-username');
-    const bioInput = document.getElementById('global-bio');
-    if (usernameInput) usernameInput.value = SettingsManager.getUsername();
-    if (bioInput) bioInput.value = SettingsManager.getBio();
-    const avatarImg = document.getElementById('global-avatar-img');
-    if (avatarImg && SettingsManager.getAvatar()) avatarImg.src = SettingsManager.getAvatar();
-
-    // 模型参数
-    const ctxLimit = SettingsManager.getContextLimit();
-    const temp = SettingsManager.getTemperature();
-    const topP = SettingsManager.getTopP();
-
-    const ctxSlider = document.getElementById('global-context-limit');
-    const ctxUnlimitedCheck = document.getElementById('global-context-unlimited');
-    const tempSlider = document.getElementById('global-temperature');
-    const topPSlider = document.getElementById('global-top-p');
-    const ttsApiUrlInput = document.getElementById('tts-api-url');
-
-    // 音色克隆按钮事件
-    let isCloning = false;
-    const cloneBtn = document.getElementById('start-clone-btn');
-    const cloneStatus = document.getElementById('clone-status');
-
-    // 图片生成后端接口
-    const imgApiUrlInput = document.getElementById('img-api-url');
-    if (imgApiUrlInput) imgApiUrlInput.value = SettingsManager.getImgApiUrl();
-    const imgApiKeyInput = document.getElementById('img-api-key');
-    if (imgApiKeyInput) imgApiKeyInput.value = SettingsManager.getImgApiKey();
-
-    if (cloneBtn) {
-        const newCloneBtn = cloneBtn.cloneNode(true);
-        cloneBtn.parentNode.replaceChild(newCloneBtn, cloneBtn);
-        newCloneBtn.addEventListener('click', async () => {
-            if (isCloning) {
-                customAlert('正在克隆中，请稍候...');
-                return;
-            }
-            const voiceName = document.getElementById('clone-voice-name').value.trim();
-            if (!voiceName) {
-                customAlert('请输入音色名称');
-                return;
-            }
-            const audioFile = document.getElementById('clone-audio-file').files[0];
-            if (!audioFile) {
-                customAlert('请选择参考音频文件');
-                return;
-            }
-            const audioText = document.getElementById('clone-audio-text').value.trim();
-            if (!audioText) {
-                customAlert('请填写音频对应的文本内容');
-                return;
-            }
-            isCloning = true;
-            const formData = new FormData();
-            formData.append('voice_name', voiceName);
-            formData.append('audio', audioFile);
-            formData.append('ref_text', audioText);
-            
-            const ttsApiUrl = SettingsManager.getTtsApiUrl();
-
-            cloneStatus.innerText = '正在克隆音色，请稍候...';
-            cloneBtn.disabled = true;
-
-            try {
-                const response = await fetch(`${ttsApiUrl}/clone_voice`, {
-                    method: 'POST',
-                    body: formData
-                });
-                const result = await response.json();
-                if (response.ok) {
-                    cloneStatus.innerText = '✅ 音色克隆成功！已保存到音色库。';
-                    TTsService.clearVoiceCache();  // 清空缓存
-                    // 刷新音色列表显示
-                    const voiceDisplaySpan = document.getElementById('voice-list-display');
-                    if (voiceDisplaySpan) {
-                        await TTsService.updateVoiceDisplay(voiceDisplaySpan, true);
-                    }
-                    // 清空表单
-                    document.getElementById('clone-voice-name').value = '';
-                    document.getElementById('clone-audio-file').value = '';
-                    document.getElementById('clone-audio-text').value = '';
-                } else {
-                    cloneStatus.innerText = `❌ 克隆失败：${result.error}`;
-                }
-            } catch (err) {
-                cloneStatus.innerText = `❌ 网络错误：${err.message}`;
-            } finally {
-                isCloning = false;
-                newCloneBtn.disabled = false;
-            }
-        });
-    }
-
-    if (ttsApiUrlInput) ttsApiUrlInput.value = SettingsManager.getTtsApiUrl();
-    const ttsApiKeyInput = document.getElementById('tts-api-key');
-    if (ttsApiKeyInput) ttsApiKeyInput.value = SettingsManager.getTtsApiKey();
-    if (ctxSlider) {
-        if (SettingsManager.isContextUnlimited()) {
-            ctxUnlimitedCheck.checked = true;
-            ctxSlider.disabled = true;
-            document.getElementById('global-context-limit-value').innerText = '无限制';
-        } else {
-            ctxUnlimitedCheck.checked = false;
-            ctxSlider.disabled = false;
-            ctxSlider.value = ctxLimit;
-            document.getElementById('global-context-limit-value').innerText = ctxSlider.value;
-        }
-        // 绑定复选框变化事件
-        ctxUnlimitedCheck.onchange = () => {
-            if (ctxUnlimitedCheck.checked) {
-                ctxSlider.disabled = true;
-                document.getElementById('global-context-limit-value').innerText = '无限制';
-            } else {
-                ctxSlider.disabled = false;
-                ctxSlider.value = ctxLimit;
-                document.getElementById('global-context-limit-value').innerText = ctxSlider.value;
-            }
-        };
-        ctxSlider.oninput = () => {
-            if (!ctxUnlimitedCheck.checked) {
-                document.getElementById('global-context-limit-value').innerText = ctxSlider.value;
-            }
-        };
-    }
-    if (tempSlider) {
-        tempSlider.value = temp;
-        document.getElementById('global-temperature-value').innerText = temp;
-        tempSlider.oninput = () => document.getElementById('global-temperature-value').innerText = tempSlider.value;
-    }
-    if (topPSlider) {
-        topPSlider.value = topP;
-        document.getElementById('global-top-p-value').innerText = topP;
-        topPSlider.oninput = () => document.getElementById('global-top-p-value').innerText = topPSlider.value;
-    }
-
-    // 通用设置
-    const themeSelect = document.getElementById('global-theme');
-    const fontSizeSelect = document.getElementById('global-font-size');
-    if (themeSelect) themeSelect.value = SettingsManager.getTheme();
-    if (fontSizeSelect) fontSizeSelect.value = SettingsManager.getFontSize();
-
-    const modal = document.getElementById('global-settings-modal');
-    if (modal) modal.style.display = 'flex';
-    // 打字速度
-    const typingSpeedSlider = document.getElementById('global-typing-speed');
-    const typingSpeedSpan = document.getElementById('global-typing-speed-value');
-    if (typingSpeedSlider) {
-        const speed = SettingsManager.getTypingSpeed();
-        typingSpeedSlider.value = speed;
-        const updateLabel = (val) => {
-            if (val === 1.0) typingSpeedSpan.textContent = '原速';
-            else typingSpeedSpan.textContent = val.toFixed(1) + 'x';
-        };
-        updateLabel(speed);
-        typingSpeedSlider.oninput = () => updateLabel(parseFloat(typingSpeedSlider.value));
-    }
-
-    renderShortcutsPanel();
-}
+// openGlobalSettings 已提取到 js/modal-manager.js（通过包装函数调用）
 
 // 应用主题（明亮/暗黑）
 function applyTheme(theme) {
@@ -2620,126 +1884,6 @@ function applyTheme(theme) {
     if (themeSelect && themeSelect.value !== theme) {
         themeSelect.value = theme;
     }
-}
-
-// 保存全局设置
-function saveGlobalSettings() {
-    const avatarImg = document.getElementById('global-avatar-img');
-    let avatarSrc = avatarImg.src;
-    const fontSize = document.getElementById('global-font-size').value;
-    
-    // 如果头像 Base64 长度超过 200KB（约 270,000 字符），尝试重新压缩或提示
-    if (avatarSrc && avatarSrc.startsWith('data:image') && avatarSrc.length > 300000) {
-        if (!confirm('头像图片过大，可能导致存储失败。是否继续保存？点击“确定”将尝试自动压缩。')) {
-            return;
-        }
-        // 自动压缩：从当前图片元素重新生成压缩版（需要将 img 转为 canvas 再压缩）
-        const tempImg = new Image();
-        tempImg.onload = () => {
-            const canvas = document.createElement('canvas');
-            const maxWidth = 150;
-            let width = tempImg.width;
-            let height = tempImg.height;
-            if (width > maxWidth) {
-                height = (height * maxWidth) / width;
-                width = maxWidth;
-            }
-            canvas.width = width;
-            canvas.height = height;
-            const ctx = canvas.getContext('2d');
-            ctx.drawImage(tempImg, 0, 0, width, height);
-            const compressed = canvas.toDataURL('image/jpeg', 0.6);
-            avatarImg.src = compressed;
-            // 递归调用自身（但避免无限循环）
-            setTimeout(() => saveGlobalSettings(), 10);
-        };
-        tempImg.src = avatarSrc;
-        return;
-    }
-    const ctxUnlimited = document.getElementById('global-context-unlimited').checked;
-    let contextLimit = parseInt(document.getElementById('global-context-limit').value);
-    if (ctxUnlimited) contextLimit = -1; // 用 -1 表示无限制
-    const quickSelect = document.getElementById('quick-model-select');
-    // 优先从下拉框取当前模型，其次从 SettingsManager，最后用默认值
-    let currentModel = quickSelect?.value || SettingsManager.getModelName() || Constants.DEFAULT_MODEL_NAME;
-    if (!currentModel) {
-        const models = ModelService.getModels();
-        currentModel = models[0] || Constants.DEFAULT_MODEL_NAME;
-    }
-    const globalSettings = {
-        modelHost: document.getElementById('model-host').value,
-        apiKey: document.getElementById('api-key').value,
-        username: document.getElementById('global-username').value,
-        bio: document.getElementById('global-bio').value,
-        avatar: document.getElementById('global-avatar-img').src,
-        contextLimit: contextLimit,
-        contextUnlimited: ctxUnlimited,
-        temperature: parseFloat(document.getElementById('global-temperature').value),
-        topP: parseFloat(document.getElementById('global-top-p').value),
-        theme: document.getElementById('global-theme').value,
-        fontSize: document.getElementById('global-font-size').value,
-        modelName: currentModel,
-        ttsApiUrl: document.getElementById('tts-api-url').value,
-        shortcuts: currentShortcuts,
-        imgApiUrl: document.getElementById('img-api-url').value,
-        ttsApiKey: document.getElementById('tts-api-key').value,
-        imgApiKey: document.getElementById('img-api-key').value,
-        typingSpeed: parseFloat(document.getElementById('global-typing-speed').value),
-    };
-    // 立即用新值更新模型服务实例（此时 SettingsManager 尚未写入）
-    if (modelServiceInstance) {
-        modelServiceInstance.updateConfig({
-            modelHost: globalSettings.modelHost,
-            apiKey: globalSettings.apiKey,
-            modelName: currentModel,
-        });
-    }
-    const result = SettingsManager.writeWithResult(globalSettings);
-    if (!result.success) {
-        if (result.errorName === 'QuotaExceededError') {
-            customAlert('存储空间不足！请尝试：\n1. 删除一些旧对话\n2. 使用更小的头像图片\n3. 清理浏览器缓存', 'error');
-        } else {
-            customAlert('保存失败：' + result.error, 'error');
-        }
-        return;
-    }
-
-    // 应用主题
-    applyTheme(globalSettings.theme);
-    
-    // 应用字体大小
-    applyFontSize(fontSize);
-    if (currentChatId) {
-        renderMessages(currentChatId);
-    }
-    closeGlobalModal();
-}
-
-function closeGlobalModal() {
-    const modal = document.getElementById('global-settings-modal');
-    closeModalWithAnimation(modal);
-}
-
-function showFileContentModal(filename, content) {
-    // 创建模态框
-    const modal = document.createElement('div');
-    modal.className = 'file-content-modal';
-    modal.innerHTML = `
-        <div class="file-content-modal-content">
-            <div class="file-content-header">
-                <span>${escapeHtml(filename)}</span>
-                <button class="file-content-close">&times;</button>
-            </div>
-            <div class="file-content-body">
-                <pre>${escapeHtml(content)}</pre>
-            </div>
-        </div>
-    `;
-    document.body.appendChild(modal);
-    modal.style.display = 'flex';
-    const closeBtn = modal.querySelector('.file-content-close');
-    closeBtn.addEventListener('click', () => modal.remove());
-    modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
 }
 
 function applyFontSize(size) {
@@ -2778,414 +1922,7 @@ function applyFontSize(size) {
     }
 }
 
-function showMessageActions(msgElement, type, text, time, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment) {
-    // 移除已存在的操作栏
-    if (currentActionMenu) {
-        if (currentActionClickHandler) {
-            document.removeEventListener('click', currentActionClickHandler);
-            currentActionClickHandler = null;
-        }
-        if (currentActionScrollHandler) {
-            document.removeEventListener('scroll', currentActionScrollHandler);
-            currentActionScrollHandler = null;
-        }
-        currentActionMenu.remove();
-        currentActionMenu = null;
-        currentActionMsgElement = null;
-    }
-    
-    const bubble = msgElement.querySelector('.bubble');
-    if (!bubble) return;
-    
-    // 获取气泡位置
-    const rect = bubble.getBoundingClientRect();
-    const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-    const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-    
-    // 创建操作栏
-    const actionsDiv = document.createElement('div');
-    actionsDiv.className = 'message-actions';
-    
-    // 判断是否为最新的 AI 消息
-    const currentChat = chats.find(c => c.id == currentChatId);
-    const isLatestAi = (type === 'ai' && currentChat && currentChat.messages.length > 0 && 
-                        currentChat.messages[currentChat.messages.length - 1].text === text);
-    
-    let buttonsHtml = `<button class="quote-btn"><i class="fas fa-quote-right"></i> 引用</button><button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除消息</button>`;
-    if (type === 'ai') {
-        buttonsHtml += `<button class="play-msg-btn"><i class="fas fa-play"></i> 播放</button>`;
-    }
-    if (isLatestAi) {
-        buttonsHtml += `
-            <button class="regenerate-btn"><i class="fas fa-undo-alt"></i> 重新生成</button>
-            <button class="continue-btn"><i class="fas fa-forward"></i> 继续说</button>
-        `;
-    }
-
-    const isLatestUser = (type === 'user' && currentChat && currentChat.messages.length > 0 && 
-                        currentChat.messages[currentChat.messages.length - 1].type === 'user' &&
-                        currentChat.messages[currentChat.messages.length - 1].text === text &&
-                        currentChat.messages[currentChat.messages.length - 1].time === time);
-    if (isLatestUser) {
-        buttonsHtml += `<button class="generate-reply-btn"><i class="fas fa-comment-dots"></i> 生成回复</button>`;
-    }
-    actionsDiv.innerHTML = buttonsHtml;
-    document.body.appendChild(actionsDiv);
-    currentActionMenu = actionsDiv;
-    currentActionMsgElement = msgElement;
-    
-    // 定位操作栏
-    const top = rect.bottom + scrollTop + 8;
-    const left = rect.left + scrollLeft;
-    actionsDiv.style.top = `${top}px`;
-    actionsDiv.style.left = `${left}px`;
-    const actionsRect = actionsDiv.getBoundingClientRect();
-    if (actionsRect.right > window.innerWidth) {
-        actionsDiv.style.left = `${window.innerWidth - actionsRect.width - 10 + scrollLeft}px`;
-    }
-    
-    // 删除按钮
-    const deleteBtn = actionsDiv.querySelector('.delete-btn');
-    if (deleteBtn) {
-        deleteBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            if (confirm('确定要删除这条消息吗？')) {
-                const msgUid = msgElement.dataset.msgUid ? parseInt(msgElement.dataset.msgUid) : null;
-                await deleteMessageFromChat(msgUid, type, text, time);
-                closeActionMenu();
-            }
-        });
-    }
-
-    // 播放按钮
-    const playBtn = actionsDiv.querySelector('.play-msg-btn');
-    if (playBtn) {
-        playBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            closeActionMenu();
-            // 检查是否正在语音合成/播放
-            if (ttsService.isSpeaking()) {
-                customAlert('正在合成和播放语音，请稍后再试');
-                return;
-            }
-            const currentChat = chats.find(c => c.id == currentChatId);
-            const ttsEnabled = currentChat?.settings?.ttsEnabled;
-            const ttsVoice = currentChat?.settings?.ttsVoice || 'default';
-            if (ttsEnabled) {
-                const { replyContent } = parseThinkContent(text);
-                const contentToSpeak = replyContent || text;
-                const parts = parseParenthesesContent(contentToSpeak);
-                const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');
-                if (speechText.trim()) {
-                    updateStatusIndicator('speaking', '语音合成中 ...');
-                    ttsService.speak(speechText, ttsVoice, playBtn)
-                        .finally(() => updateStatusIndicator('online'));;
-                } else {
-                    customAlert('当前消息没有可朗读的语言内容');
-                }
-            } else {
-                customAlert('当前对话未开启语音合成，请在对话设置中开启 TTS 开关');
-            }
-        });
-    }
-    // 生成按钮
-    const generateReplyBtn = actionsDiv.querySelector('.generate-reply-btn');
-    if (generateReplyBtn) {
-        generateReplyBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            closeActionMenu();
-            // 调用 AI 回复该用户消息
-            await simulateAIResponse(text);
-        });
-    }
-    // 重新生成按钮
-    const regenBtn = actionsDiv.querySelector('.regenerate-btn');
-    if (regenBtn) {
-        regenBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            closeActionMenu();
-            await regenerateAIMessage(text, time);
-        });
-    }
-    
-    // 继续说按钮
-    const continueBtn = actionsDiv.querySelector('.continue-btn');
-    if (continueBtn) {
-        continueBtn.addEventListener('click', async (e) => {
-            e.stopPropagation();
-            closeActionMenu();
-            if (isProcessing) {
-                showBriefToast('请等待当前请求完成');
-                return;
-            }
-            await continueAIMessage();
-        });
-    }
-
-    // 引用按钮
-    const quoteBtn = actionsDiv.querySelector('.quote-btn');
-    if (quoteBtn) {
-        quoteBtn.addEventListener('click', (e) => {
-            e.stopPropagation();
-            // 构建引用文本（标记原消息角色）
-            const chat = chats.find(c => c.id == currentChatId);
-            if (!chat) return;
-            const settings = chat.settings || Constants.DEFAULT_SETTINGS;
-            const role = type === 'ai' ? settings.roleName : '用户';
-            const quoteText = `引用消息> **${role}**：${text}\n\n`;
-            // 插入到输入框
-            const textarea = document.querySelector('.auto-expand-textarea');
-            if (textarea) {
-                // 若输入框已有内容，则在后面追加；否则直接设置
-                textarea.value = textarea.value ? textarea.value + '\n' + quoteText : quoteText;
-                textarea.dispatchEvent(new Event('input')); // 触发自动高度
-                textarea.focus();
-            }
-            closeActionMenu();
-        });
-    }
-    // 点击外部关闭
-    const closeHandler = (e) => {
-        if (!actionsDiv.contains(e.target) && e.target !== msgElement && !msgElement.contains(e.target)) {
-            closeActionMenu();
-            document.removeEventListener('click', closeHandler);
-            document.removeEventListener('scroll', scrollCloseHandler);
-        }
-    };
-    const scrollCloseHandler = () => closeActionMenu();
-    chatMessages.addEventListener('scroll', scrollCloseHandler);
-    setTimeout(() => {
-        document.addEventListener('click', closeHandler);
-    }, 0);
-    currentActionClickHandler = closeHandler;
-    currentActionScrollHandler = scrollCloseHandler;
-    function closeActionMenu() {
-        // 移除事件监听器
-        if (currentActionClickHandler) {
-            document.removeEventListener('click', currentActionClickHandler);
-            currentActionClickHandler = null;
-        }
-        if (currentActionScrollHandler) {
-            document.removeEventListener('scroll', currentActionScrollHandler);
-            currentActionScrollHandler = null;
-        }
-        // 移除 DOM 元素
-        if (actionsDiv && actionsDiv.parentNode) actionsDiv.remove();
-        currentActionMenu = null;
-        currentActionMsgElement = null;
-    }
-}
-
-async function deleteMessageFromChat(msgUid, type, text, time) {
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-
-    // 优先用 uid 精确匹配，回退到 type+text+time 兼容旧消息
-    let index = -1;
-    if (msgUid) {
-        index = currentChat.messages.findIndex(msg => msg.uid === msgUid);
-    }
-    if (index === -1 && type && text && time) {
-        index = currentChat.messages.findIndex(msg => msg.type === type && msg.text === text && msg.time === time);
-    }
-    if (index !== -1) {
-        currentChat.messages.splice(index, 1);
-        // 重新渲染当前对话
-        renderMessages(currentChatId, currentTopicIndex);
-        await chatRepo.saveChat(currentChat);
-        // 更新历史列表时间（可选）
-        if (currentChat.messages.length > 0) {
-            currentChat.date = new Date();
-            renderHistoryList();
-        }
-    } else {
-        customAlert('无法找到该消息，删除失败', 'error');
-    }
-}
-
-async function regenerateAIMessage(oldText, oldTime) {
-    if (isProcessing) {
-        showBriefToast('请等待当前请求完成');
-        return;
-    }
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-    
-    // 找到最后一条 AI 消息（应该是触发重新生成的那条）
-    const lastIndex = currentChat.messages.length - 1;
-    if (lastIndex < 0 || currentChat.messages[lastIndex].type !== 'ai') return;
-    
-    // 获取触发重新生成的用户消息（上一条用户消息）
-    let userMsg = '';
-    for (let i = lastIndex - 1; i >= 0; i--) {
-        if (currentChat.messages[i].type === 'user') {
-            userMsg = currentChat.messages[i].modelInputText || currentChat.messages[i].text;
-            break;
-        }
-    }
-    if (!userMsg) {
-        appendMessageToDOM('ai', '无法找到对应的用户消息，无法重新生成。', getCurrentTime(), true);
-        return;
-    }
-    
-    // 删除原 AI 消息
-    currentChat.messages.splice(lastIndex, 1);
-    await chatRepo.saveChat(currentChat);
-    // 重新渲染界面（移除原消息）
-    renderMessages(currentChatId, currentTopicIndex);
-    
-    await simulateAIResponse(userMsg);
-}
-
-async function continueAIMessage() {
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-    
-    // 获取最后一条 AI 消息的内容（作为继续对话的上下文）
-    const lastMsg = currentChat.messages[currentChat.messages.length - 1];
-    if (!lastMsg || lastMsg.type !== 'ai') return;
-    
-    // 构造一个“继续说”的提示，例如：“请继续”
-    const continuePrompt = '请继续刚才的话题，接着上面的内容继续说。';
-    // 将该提示作为用户消息临时添加并发送
-    // 为了用户体验，我们将在界面上显示一条用户消息“继续说”。
-    const userTime = getCurrentTime();
-    currentChat.messages.push({
-        type: 'user',
-        text: continuePrompt,
-        time: userTime,
-        uid: genMsgUid('user', continuePrompt, userTime)
-    });
-    await chatRepo.saveChat(currentChat);
-    await appendMessageToDOM('user', continuePrompt, userTime, false);
-    
-    // 调用模型回复
-    await simulateAIResponse(continuePrompt);
-}
-
-function performSearch(keyword) {
-    if (!keyword.trim()) {
-        const searchDropdown = document.getElementById('search-results-dropdown');
-        searchDropdown.style.display = 'none';
-        return;
-    }
-    const results = [];
-    const lowerKeyword = keyword.toLowerCase();
-    for (const chat of chats) {
-        const settings = chat.settings || Constants.DEFAULT_SETTINGS;
-        const roleName = settings.roleName || 'Nova';
-        // 匹配会话标题（角色名）
-        if (roleName.toLowerCase().includes(lowerKeyword)) {
-            results.push({
-                type: 'chat',
-                chatId: chat.id,
-                title: roleName,
-                preview: '会话标题匹配'
-            });
-        }
-        // 匹配消息内容
-        let msgIndex = 0; // 普通消息的顺序索引
-        for (let i = 0; i < chat.messages.length; i++) {
-            const msg = chat.messages[i];
-            if (msg.type === 'divider') continue;
-            if (msg.text.toLowerCase().includes(lowerKeyword)) {
-                results.push({
-                    type: 'message',
-                    chatId: chat.id,
-                    messageIndex: msgIndex,
-                    title: roleName,
-                    preview: msg.text.length > 60 ? msg.text.substring(0, 60) + '...' : msg.text,
-                    time: msg.time
-                });
-            }
-            msgIndex++;
-        }
-    }
-    renderSearchResults(results.slice(0, 20)); // 最多显示20条
-}
-
-function renderSearchResults(results) {
-    const searchDropdown = document.getElementById('search-results-dropdown');
-    if (results.length === 0) {
-        searchDropdown.innerHTML = '<div class="search-dropdown-item" style="color:#8e8eb3;">未找到相关结果</div>';
-        searchDropdown.style.display = 'block';
-        return;
-    }
-    searchDropdown.innerHTML = results.map(result => {
-        if (result.type === 'chat') {
-            return `
-                <div class="search-dropdown-item" data-chat-id="${result.chatId}" data-type="chat">
-                    <div class="search-dropdown-title">
-                        <i class="fas fa-comment"></i> ${escapeHtml(result.title)}
-                        <span class="search-dropdown-badge">会话</span>
-                    </div>
-                    <div class="search-dropdown-preview">${escapeHtml(result.preview)}</div>
-                </div>
-            `;
-        } else {
-            return `
-                <div class="search-dropdown-item" data-chat-id="${result.chatId}" data-type="message" data-message-index="${result.messageIndex}">
-                    <div class="search-dropdown-title">
-                        <i class="fas fa-comment-dots"></i> ${escapeHtml(result.title)}
-                        <span class="search-dropdown-badge">消息</span>
-                    </div>
-                    <div class="search-dropdown-preview">${escapeHtml(result.preview)}</div>
-                    <div style="font-size: 0.65rem; color:#8e8eb3; margin-top: 4px;">${escapeHtml(result.time)}</div>
-                </div>
-            `;
-        }
-    }).join('');
-    searchDropdown.style.display = 'block';
-    
-    // 绑定点击事件
-    document.querySelectorAll('.search-dropdown-item').forEach(item => {
-        item.addEventListener('click', (e) => {
-            e.stopPropagation();
-            const chatId = parseInt(item.getAttribute('data-chat-id'));
-            const type = item.getAttribute('data-type');
-            const messageIndex = item.getAttribute('data-message-index');
-            
-            // 切换会话
-            if (currentChatId !== chatId) {
-                switchChat(chatId);
-                // 等待渲染完成再滚动
-                setTimeout(() => {
-                    if (type === 'message' && messageIndex !== null) {
-                        scrollToMessage(parseInt(messageIndex));
-                    }
-                }, 100);
-            } else {
-                // 同一会话
-                if (type === 'message' && messageIndex !== null) {
-                    scrollToMessage(parseInt(messageIndex));
-                }
-            }
-            searchDropdown.style.display = 'none';
-            const searchInput = document.getElementById('global-search-input');
-            searchInput.value = ''; // 清空搜索框
-        });
-    });
-}
-
-function scrollToMessage(index) {
-    const messages = document.querySelectorAll('.chat-messages .message');
-    if (messages[index]) {
-        messages[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
-        // 高亮效果
-        messages[index].style.transition = 'background 0.3s';
-        messages[index].style.backgroundColor = 'rgba(95, 126, 255, 0.3)';
-        setTimeout(() => {
-            messages[index].style.backgroundColor = '';
-        }, 1500);
-    } else {
-        // 如果消息未渲染（可能因为话题视图），先重置话题视图再滚动
-        if (currentTopicIndex !== null) {
-            currentTopicIndex = null;
-            renderMessages(currentChatId);
-            setTimeout(() => scrollToMessage(index), 100);
-        }
-    }
-}
+// showMessageActions / deleteMessageFromChat / regenerateAIMessage / continueAIMessage 已提取到 js/message-actions.js（通过包装函数调用）
 
 // 状态指示器控制
 function updateStatusIndicator(state, customText = null) {
@@ -3221,88 +1958,6 @@ function updateStatusIndicator(state, customText = null) {
     statusTextElem.innerHTML = `${dotHtml} ${text}`;
 }
 
-function showBriefToast(message) {
-    const toast = document.createElement('div');
-    toast.textContent = message;
-    toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
-}
-
-function showCropModal(file, aspectRatio, options = {}, callback) {
-    const modal = document.getElementById('crop-modal');
-    const img = document.getElementById('crop-image');
-    const closeBtn = document.getElementById('close-crop-modal');
-    const cancelBtn = document.getElementById('cancel-crop-btn');
-    const applyBtn = document.getElementById('apply-crop-btn');
-    const content = modal.querySelector('.modal-content');
-
-    if (cropper) {
-        cropper.destroy();
-        cropper = null;
-    }
-
-    let objectUrl = null;   // 用于后续释放
-
-    const closeCropModal = () => {
-        if (cropper) {
-            cropper.destroy();
-            cropper = null;
-        }
-        if (objectUrl) {
-            URL.revokeObjectURL(objectUrl);
-            objectUrl = null;
-        }
-        content.classList.add('closing');
-        content.addEventListener('animationend', function onAnimEnd() {
-            content.classList.remove('closing');
-            modal.style.display = 'none';
-            content.removeEventListener('animationend', onAnimEnd);
-        }, { once: true });
-    };
-
-    // 关键：使用 Object URL 代替 Data URL
-    objectUrl = URL.createObjectURL(file);
-    img.src = objectUrl;
-    img.onload = () => {
-        cropper = new Cropper(img, {
-            aspectRatio: isNaN(aspectRatio) ? NaN : aspectRatio,
-            viewMode: 1,
-            autoCropArea: 1,
-            responsive: true,
-            background: false,
-        });
-        content.classList.remove('closing');
-        modal.style.display = 'flex';
-    };
-
-    applyBtn.onclick = () => {
-        if (!cropper) return;
-
-        const { maxWidth, mimeType = 'image/jpeg', quality = 0.9 } = options;
-        const canvasOptions = {};
-        // 设置最大宽度限制，防止输出巨大 canvas
-        if (maxWidth && maxWidth > 0) {
-            canvasOptions.maxWidth = maxWidth;
-        } else {
-            canvasOptions.maxWidth = 1920;   // 默认上限，避免卡死
-        }
-        const canvas = cropper.getCroppedCanvas(canvasOptions);
-        const dataUrl = canvas.toDataURL(mimeType, quality);
-
-        cropper.destroy();
-        cropper = null;
-        closeCropModal();
-        callback(dataUrl);
-    };
-
-    cancelBtn.onclick = closeCropModal;
-    closeBtn.onclick = closeCropModal;
-    modal.onclick = (e) => {
-        if (e.target === modal) closeCropModal();
-    };
-}
-
 // 全局快捷键处理
 function handleKeyDown(e) {
     const pressed = eventToShortcutString(e);
@@ -3310,7 +1965,7 @@ function handleKeyDown(e) {
 
     // 先解析出动作
     let targetAction = null;
-    for (const [action, keys] of Object.entries(currentShortcuts)) {
+    for (const [action, keys] of Object.entries(currentShortcutsRef.value)) {
         if (normalizeShortcut(keys) === pressed) {
             targetAction = action;
             break;
@@ -3384,17 +2039,7 @@ function focusChatInput() {
 }
 
 // 聚焦搜索框
-function focusSearchInput() {
-    const searchInput = document.getElementById('global-search-input');
-    const searchToggleBtn = document.getElementById('search-toggle-btn');
-    if (searchInput) {
-        // 如果输入框处于隐藏状态，先展开
-        searchInput.classList.remove('search-input-hidden');
-        searchToggleBtn.classList.add('hidden');
-        // 等待一帧确保过渡开始后再聚焦
-        requestAnimationFrame(() => searchInput.focus());
-    }
-}
+function focusSearchInput() { searchManager.focusSearchInput(); }
 
 // 发送消息但不触发 AI 回复
 async function sendMessageWithoutAI() {
@@ -3455,7 +2100,7 @@ function loadShortcutsFromStorage() {
     }
 
     // 用户存储的优先级更高，但默认值补齐未定义的项
-    currentShortcuts = { ...defaultsMap, ...storedShortcuts };
+    currentShortcutsRef.value = { ...defaultsMap, ...storedShortcuts };
     // 移除旧的监听器（如果存在）
     document.removeEventListener('keydown', handleKeyDown, true);
     document.addEventListener('keydown', handleKeyDown, true);
@@ -3464,9 +2109,9 @@ function loadShortcutsFromStorage() {
 function renderShortcutsPanel() {
     const container = document.getElementById('shortcuts-list');
     if (!container) return;
-    loadShortcutsFromStorage(); // 确保 currentShortcuts 是最新的
+    loadShortcutsFromStorage(); // 确保 currentShortcutsRef.value 是最新的
     let html = '';
-    for (const [action, keys] of Object.entries(currentShortcuts)) {
+    for (const [action, keys] of Object.entries(currentShortcutsRef.value)) {
         const desc = DEFAULT_SHORTCUTS[action]?.description || action;
         html += `
             <div class="shortcut-row" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; background: rgba(30,34,55,0.5); border-radius:12px; padding:10px 16px;">
@@ -3501,7 +2146,7 @@ function startRecordShortcut(action, displayElement) {
         if (conflict) {
             customAlert(`组合键 ${shortcut.toUpperCase()} 可能被浏览器保留，仍可设置但可能无法完全拦截默认行为。`);
         }
-        currentShortcuts[action] = shortcut;
+        currentShortcutsRef.value[action] = shortcut;
         if (displayElement) displayElement.textContent = shortcut.toUpperCase();
         document.removeEventListener('keydown', handler, true);
     };
@@ -3509,142 +2154,7 @@ function startRecordShortcut(action, displayElement) {
     // ... 超时回调 ...
 }
 
-function showFullscreenImage(src) {
-    // 移除已有的全屏层
-    const existing = document.querySelector('.fullscreen-overlay');
-    if (existing) existing.remove();
-
-    const overlay = document.createElement('div');
-    overlay.className = 'fullscreen-overlay';
-    overlay.innerHTML = `<img src="${src}" alt="预览">`;
-    // 点击关闭
-    overlay.addEventListener('click', () => overlay.remove());
-    // Esc 关闭（全局 Esc 监听中需追加处理，见后文）
-    document.addEventListener('keydown', function onEsc(e) {
-        if (e.key === 'Escape') {
-            overlay.remove();
-            document.removeEventListener('keydown', onEsc);
-        }
-    });
-    document.body.appendChild(overlay);
-}
-
-async function deletePictureMessage(msgElement, msgData) {
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-
-    const index = currentChat.messages.findIndex(m => m.isImage && m.time === msgData.time && m.text === msgData.src);
-    if (index !== -1) {
-        currentChat.messages.splice(index, 1);
-        await chatRepo.saveChat(currentChat);
-        msgElement.remove();
-        renderHistoryList();
-    }
-}
-
-// ========== 自定义弹窗 ==========
-function showCustomDialog(options) {
-    const {
-        title = '提示',
-        message = '',
-        buttons = [{ text: '确定', value: true, className: 'save' }],
-        closable = true
-    } = options;
-
-    const modal = document.getElementById('custom-dialog');
-    const titleEl = document.getElementById('custom-dialog-title');
-    const messageEl = document.getElementById('custom-dialog-message');
-    const footerEl = document.getElementById('custom-dialog-footer');
-    const closeBtn = document.getElementById('custom-dialog-close');
-
-    return new Promise((resolve) => {
-        // 清理旧事件（通过克隆节点移除监听器）
-        footerEl.innerHTML = '';
-
-        // 设置标题和消息
-        titleEl.innerHTML = title;
-        messageEl.innerHTML = message.replace(/\n/g, '<br>'); // 支持换行
-
-        // 创建按钮
-        buttons.forEach(btn => {
-            const button = document.createElement('button');
-            button.className = `modal-btn ${btn.className || ''}`;
-            button.textContent = btn.text;
-            button.addEventListener('click', () => {
-                closeModal();
-                resolve(btn.value);
-            });
-            footerEl.appendChild(button);
-        });
-
-        // 关闭行为
-        const closeModal = () => {
-            modal.style.display = 'none';
-            cleanup();
-        };
-
-        // 清理事件监听
-        const cleanup = () => {
-            closeBtn.removeEventListener('click', onClose);
-            modal.removeEventListener('click', onOverlayClick);
-            document.removeEventListener('keydown', onEsc);
-        };
-
-        const onClose = () => {
-            if (closable) {
-                resolve(buttons.length > 0 ? buttons[0].value : null); // 默认返回第一个按钮的值或null
-                closeModal();
-            }
-        };
-
-        const onOverlayClick = (e) => {
-            if (e.target === modal && closable) {
-                onClose();
-            }
-        };
-
-        const onEsc = (e) => {
-            if (e.key === 'Escape' && closable) {
-                onClose();
-            }
-        };
-
-        closeBtn.addEventListener('click', onClose);
-        modal.addEventListener('click', onOverlayClick);
-        document.addEventListener('keydown', onEsc);
-
-        modal.style.display = 'flex';
-    });
-}
-
-async function customAlert(message, type = 'info') {
-    const typeMap = {
-        info:    { title: '提示', icon: 'fa-info-circle' },
-        warning: { title: '警告', icon: 'fa-exclamation-triangle' },
-        error:   { title: '错误', icon: 'fa-times-circle' },
-        success: { title: '成功', icon: 'fa-check-circle' }
-    };
-    const { title, icon } = typeMap[type] || typeMap.info;
-    await showCustomDialog({
-        title: `<i class="fas ${icon}"></i> ${title}`,
-        message: message,
-        buttons: [{ text: '确定', value: undefined, className: 'save' }]
-    });
-}
-
-// 暂未使用
-// async function customConfirm(message) {
-//     const result = await showCustomDialog({
-//         title: '确认操作',
-//         message: message,
-//         buttons: [
-//             { text: '取消', value: false, className: 'cancel' },
-//             { text: '确定', value: true, className: 'save' }
-//         ],
-//         closable: true  // 点击关闭或遮罩也视为取消
-//     });
-//     return result === true;
-// }
+// deletePictureMessage 已提取到 js/message-actions.js
 
 // 沉浸模式切换
 function toggleImmersiveMode() {

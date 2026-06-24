@@ -1,4 +1,6 @@
-// 获取当前格式化时间字符串 YYYY-MM-DD HH:MM
+// 工具函数
+
+/** 获取当前格式化时间字符串 YYYY-MM-DD HH:MM*/ 
 export function getCurrentTime() {
     const d = new Date();
     const year = d.getFullYear();
@@ -8,7 +10,7 @@ export function getCurrentTime() {
     const minutes = String(d.getMinutes()).padStart(2, '0');
     return `${year}-${month}-${day} ${hours}:${minutes}`;
 }
-// HTML 转义，防止 XSS
+/** HTML 转义，防止 XSS*/ 
 export function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/[&<>]/g, function(m) {
@@ -18,7 +20,7 @@ export function escapeHtml(str) {
         return m;
     });
 }
-// 格式化日期（用于侧边栏历史记录）
+/** 格式化日期（用于侧边栏历史记录）*/ 
 export function formatDate(dateObj) {
     const now = new Date();
     // 使用 YYYY-MM-DD 字符串比较，正确处理跨月/跨年边界
@@ -35,14 +37,14 @@ export function formatDate(dateObj) {
     }
     return `${dateObj.getMonth()+1}月${dateObj.getDate()}日`;
 }
-// 解析原始文本，分离思考内容和回复内容
+/** 解析原始文本，分离思考内容和回复内容*/ 
 export function parseThinkContent(rawText) {
     const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/);
     const thinkContent = thinkMatch ? thinkMatch[1].trim() : '';
     const replyContent = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     return { thinkContent, replyContent };
 }
-// 将原始文本渲染为带折叠区域的 HTML
+/** 将原始文本渲染为带折叠区域的 HTML*/ 
 export function renderMessageWithThink(rawText) {
     const { thinkContent, replyContent } = parseThinkContent(rawText);
     let html = '';
@@ -62,7 +64,7 @@ export function renderMessageWithThink(rawText) {
     html += `<p>${contentHtml}</p>`;
     return html;
 }
-// 解析文本，分离括号内（非语言）和括号外（语言）部分
+/** 解析文本，分离括号内（非语言）和括号外（语言）部分*/ 
 export function parseParenthesesContent(text) {
     const parts = [];
     // 正则匹配括号及其内容（非贪婪）
@@ -86,7 +88,7 @@ export function parseParenthesesContent(text) {
     }
     return parts;
 }
-// 压缩图片：限制最大宽度，输出为 JPEG 格式（质量可调）
+/** 压缩图片：限制最大宽度，输出为 JPEG 格式（质量可调）*/ 
 export function compressImage(file, maxWidth = 200, quality = 0.7) {
     return new Promise((resolve, reject) => {
         const reader = new FileReader();
@@ -115,7 +117,7 @@ export function compressImage(file, maxWidth = 200, quality = 0.7) {
         reader.readAsDataURL(file);
     });
 }
-// 将快捷键字符串转为规范化的小写形式 (ctrl+n)
+/** 将快捷键字符串转为规范化的小写形式 (ctrl+n)*/ 
 export function normalizeShortcut(keys) {
     return keys.toLowerCase().replace(/\s/g, '');
 }
@@ -131,7 +133,7 @@ export function parseShortcut(shortcutStr) {
         key: key
     };
 }
-// 从event对象生成快捷键字符串（用于捕获）
+/** 从event对象生成快捷键字符串（用于捕获）*/ 
 export function eventToShortcutString(e) {
     const parts = [];
     if (e.ctrlKey) parts.push('ctrl');
@@ -151,7 +153,7 @@ export function eventToShortcutString(e) {
     parts.push(key);
     return parts.join('+');
 }
-// 判断是否为浏览器通常保护的组合（基于常识）
+/** 判断是否为浏览器通常保护的组合（基于常识）*/ 
 export function isBrowserReserved(shortcut) {
     const reserved = [
         'ctrl+n', 'ctrl+t', 'ctrl+w', 'ctrl+s', 'ctrl+p', 'ctrl+o',
@@ -159,4 +161,21 @@ export function isBrowserReserved(shortcut) {
         'ctrl+q', 'alt+f4', 'ctrl+shift+q'
     ];
     return reserved.includes(normalizeShortcut(shortcut));
+}
+
+/**
+ * 基于消息内容 + 时间戳 + 随机数生成唯一 ID（djb2 哈希，base36 编码）。
+ * - 纳入了随机因子，即使同一毫秒内创建相同内容的消息也不会碰撞
+ * @param {string} type - 消息类型 'user'|'ai'|'divider'
+ * @param {string} text - 消息文本内容
+ * @param {string} time - 格式化时间字符串
+ * @returns {string} base36 编码的哈希值，例如 "2f8k3x9p"
+ */
+export function genMsgUid(type, text, time) {
+    const seed = `${type}|${text}|${time}|${Date.now()}|${Math.random()}`;
+    let hash = 5381;
+    for (let i = 0; i < seed.length; i++) {
+        hash = ((hash << 5) + hash) + seed.charCodeAt(i); // hash * 33 + c
+    }
+    return (hash >>> 0).toString(36);
 }
