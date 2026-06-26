@@ -17,7 +17,7 @@ export class ModalManager {
      * @param {Object} ctx.ttsService      — TTsService 实例
      * @param {Object} ctx.modelServiceInstanceRef — { value: ModelService|null } 模型服务实例的包装引用
      * @param {Object} ctx.cropperRef      — { value: Cropper|null } 裁剪器实例的包装引用
-     * @param {Object} ctx.currentShortcutsRef — { value: Object } 快捷键映射的包装引用
+     * @param {Function} ctx.getShortcuts — () => Object  获取当前快捷键映射
      * @param {Function} ctx.getModelService    — () => ModelService
      * @param {Function} ctx.releaseRequestLock — 释放请求锁
      * @param {Function} ctx.renderMessages     — (chatId, topicIndex?) 渲染消息
@@ -641,7 +641,7 @@ export class ModalManager {
             fontSize: fontSize,
             modelName: currentModel,
             ttsApiUrl: document.getElementById('tts-api-url').value,
-            shortcuts: ctx.currentShortcutsRef.value,
+            shortcuts: ctx.getShortcuts(),
             imgApiUrl: document.getElementById('img-api-url').value,
             ttsApiKey: document.getElementById('tts-api-key').value,
             imgApiKey: document.getElementById('img-api-key').value,

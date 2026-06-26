@@ -1,7 +1,7 @@
 // 聊天页面核心交互功能
 import { 
     escapeHtml, getCurrentTime, formatDate, parseThinkContent,renderMessageWithThink, genMsgUid,
-    parseParenthesesContent, compressImage, normalizeShortcut,parseShortcut, eventToShortcutString, isBrowserReserved,
+    parseParenthesesContent, compressImage, eventToShortcutString,
 } from './js/utils.js';
 import Constants from './js/constants.js'
 import { ModelService } from './js/model-service.js';
@@ -14,6 +14,7 @@ import ModalManager from './js/modal-manager.js';
 import VoiceInput from './js/voice-input.js';
 import SearchManager from './js/search.js';
 import MessageActions from './js/message-actions.js';
+import ShortcutManager from './js/shortcut-manager.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -37,7 +38,7 @@ const chatIO = new ChatIO({
 const fileUpload = new FileUploadService({
     previewArea: document.getElementById('file-preview-area'),
     fileNameSpan: document.getElementById('file-name'),
-    alertFn: (msg, type) => customAlert(msg, type)
+    alertFn: (msg, type) => modalManager.customAlert(msg, type)
 });
 
 let chats = [];
@@ -48,8 +49,27 @@ let globalModal = null;
 let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
 let currentStatus = 'online';   // 记录当前指示器状态
 const cropperRef = { value: null };
-const currentShortcutsRef = { value: {} };  // 当前生效的快捷键映射
 const modelServiceInstanceRef = { value: null };
+
+// ==================== 快捷键管理器 ====================
+// 注意：先于 modalManager 构造，因为 modalManager 依赖 shortcutManager。
+// customAlert 在 modalManager 创建后注入。
+const shortcutManager = new ShortcutManager({
+    defaultShortcuts: DEFAULT_SHORTCUTS,
+    getStoredShortcuts: () => SettingsManager.getShortcuts(),
+    saveShortcuts: (shortcuts) => SettingsManager.update({ shortcuts }),
+    actionCallbacks: {
+        'new-chat':          () => createNewChat(),
+        'new-topic':         () => startNewTopic(),
+        'prev-chat':         () => switchToPreviousChat(),
+        'next-chat':         () => switchToNextChat(),
+        'export-json':       () => chatIO.exportAsJSON(chats.find(c => c.id == currentChatId)),
+        'focus-input':       () => focusChatInput(),
+        'send-no-ai':        () => sendMessageWithoutAI(),
+        'focus-search':      () => searchManager.focusSearchInput(),
+        'toggle-immersive':  () => toggleImmersiveMode(),
+    },
+});
 
 // ==================== 弹窗管理器 ====================
 // 注意：ctx 中的回调函数（renderMessages 等）由 function 声明定义在下方，JS 会提升声明，因此引用安全。
@@ -62,7 +82,7 @@ const modalManager = new ModalManager({
     ttsService,
     modelServiceInstanceRef,
     cropperRef,
-    currentShortcutsRef,
+    getShortcuts: () => shortcutManager.getShortcuts(),
     getModelService,
     releaseRequestLock,
     updateStatusIndicator,
@@ -74,7 +94,7 @@ const modalManager = new ModalManager({
     setCurrentTopic: (idx) => setCurrentTopic(idx),
     applyTheme: (theme) => applyTheme(theme),
     applyFontSize: (size) => applyFontSize(size),
-    renderShortcutsPanel: () => renderShortcutsPanel(),
+    renderShortcutsPanel: () => shortcutManager.renderPanel(),
     bindAutoResize: (el) => bindAutoResize(el),
     updateModelSelector: () => updateModelSelector(),
     renderModelListUI: () => renderModelListUI(),
@@ -83,33 +103,20 @@ const modalManager = new ModalManager({
     getTopicsFromMessages: (msgs, summaries) => getTopicsFromMessages(msgs, summaries),
     generateTopicSummary: (idx, msgs) => generateTopicSummary(idx, msgs),
     focusChatInput: () => focusChatInput(),
-    focusSearchInput: () => focusSearchInput(),
+    focusSearchInput: () => searchManager.focusSearchInput(),
     createNewChat: () => createNewChat(),
     switchToPreviousChat: () => switchToPreviousChat(),
     switchToNextChat: () => switchToNextChat(),
     sendMessageWithoutAI: () => sendMessageWithoutAI(),
     toggleImmersiveMode: () => toggleImmersiveMode(),
-    executeAction: (action) => executeAction(action),
+    executeAction: (action) => shortcutManager.executeAction(action),
 });
 
-// ==================== 包装函数（供 script.js 内部直接调用） ====================
-function customAlert(message, type) { modalManager.customAlert(message, type); }
-function showBriefToast(message) { modalManager.showBriefToast(message); }
-function showFileContentModal(filename, content) { modalManager.showFileContentModal(filename, content); }
-function showFullscreenImage(src) { modalManager.showFullscreenImage(src); }
-function showCropModal(file, aspectRatio, options, callback) { modalManager.showCropModal(file, aspectRatio, options, callback); }
-function closeModalWithAnimation(modal, afterClose) { modalManager.closeModalWithAnimation(modal, afterClose); }
-function openSettingsModal() { modalManager.openSettingsModal(); }
-function closeModal() { modalManager.closeSettingsModal(); }
-function saveSettings() { return modalManager.saveSettings(); }
-function openGlobalSettings() { modalManager.openGlobalSettings(); }
-function closeGlobalModal() { modalManager.closeGlobalModal(); }
-function saveGlobalSettings() { return modalManager.saveGlobalSettings(); }
-function openTopicsModal() { modalManager.openTopicsModal(); }
-function closeTopicsModal() { modalManager.closeTopicsModal(); }
+// 注入 customAlert（modalManager 创建后才能引用）
+shortcutManager._customAlert = (msg, type) => modalManager.customAlert(msg, type);
 
 // ==================== 语音输入 ====================
-const voiceInput = new VoiceInput({ customAlert });
+const voiceInput = new VoiceInput({ customAlert: (msg, type) => modalManager.customAlert(msg, type) });
 function startVoiceInput() { voiceInput.start(); }
 
 // ==================== 搜索管理器 ====================
@@ -133,8 +140,8 @@ const msgActions = new MessageActions({
     chatMessages,
     renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
     renderHistoryList: () => renderHistoryList(),
-    customAlert,
-    showBriefToast,
+    customAlert: (msg, type) => modalManager.customAlert(msg, type),
+    showBriefToast: (msg) => modalManager.showBriefToast(msg),
     simulateAIResponse,
     appendMessageToDOM,
     updateStatusIndicator,
@@ -142,7 +149,6 @@ const msgActions = new MessageActions({
 function showMessageActions(...args) { msgActions.showMessageActions(...args); }
 function showPictureActions(...args) { msgActions.showPictureActions(...args); }
 
-// currentActionMsgElement / currentActionMenu / currentPictureMenu / currentPictureMsgElement 已移入 MessageActions
 function getModelService() {
     if (!modelServiceInstanceRef.value) {
         modelServiceInstanceRef.value = new ModelService({
@@ -243,7 +249,7 @@ function renderModelListUI() {
             if (modelNameInput) modelNameInput.value = modelName;
             // 刷新快速切换下拉菜单
             updateModelSelector();
-            customAlert(`已切换到模型：${modelName}`, 'success');
+            modalManager.customAlert(`已切换到模型：${modelName}`, 'success');
         });
     });
     document.querySelectorAll('.delete-model-btn').forEach(btn => {
@@ -251,7 +257,7 @@ function renderModelListUI() {
             const modelName = btn.getAttribute('data-model');
             const currentModels = ModelService.getModels();
             if (currentModels.length === 1) {
-                customAlert('至少保留一个模型');
+                modalManager.customAlert('至少保留一个模型');
                 return;
             }
             ModelService.removeModel(modelName);
@@ -547,7 +553,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         aiAvatar.style.cursor = 'pointer';
         aiAvatar.addEventListener('click', (e) => {
             e.stopPropagation();
-            openSettingsModal();   // 复用已有的打开对话设置函数
+            modalManager.openSettingsModal();   // 复用已有的打开对话设置函数
         });
     }
 
@@ -568,7 +574,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         const fileElem = messageDiv.querySelector('.file-attachment');
         if (fileElem) {
             fileElem.addEventListener('click', () => {
-                showFileContentModal(fileAttachment.name, fileAttachment.content);
+                modalManager.showFileContentModal(fileAttachment.name, fileAttachment.content);
             });
         }
     }
@@ -625,7 +631,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     if (imgElement) {
         imgElement.addEventListener('click', (e) => {
             e.stopPropagation();
-            showFullscreenImage(imgSrc);
+            modalManager.showFullscreenImage(imgSrc);
         });
     }
 
@@ -665,11 +671,11 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     }
 }
 
-// showPictureActions 已提取到 js/message-actions.js（通过包装函数调用）
-
 function renderMessages(chatId, topicIndex = null) {
     const chat = chats.find(c => c.id == chatId);
     if (!chat || !chatMessages) return;
+    // 清理残留的动画状态（setCurrentTopic 的定时器可能尚未触发）
+    chatMessages.classList.remove('no-entry-animation');
     chatMessages.innerHTML = '';
     const currentAvatarUrl = chat.settings?.avatarUrl || null;
     
@@ -919,7 +925,7 @@ function createMessageBubble(type, text, time, avatarUrl, modelName = null) {
 
 async function sendUserMessage() {
     if (isProcessing) {
-        showBriefToast('请等待当前回复完成后再发送');
+        modalManager.showBriefToast('请等待当前回复完成后再发送');
         return;
     }
     // 如果当前为“显示全部话题”模式，自动切换到最后一个话题
@@ -1069,13 +1075,11 @@ function historyClickHandler(e) {
     }
 }
 
-// ==================== 弹窗逻辑（见 js/modal-manager.js） ====================
-// openSettingsModal / closeModal / closeModalWithAnimation / saveSettings 已提取
 const bgUpload = document.getElementById('bg-upload');
 bgUpload.addEventListener('change', (e) => {
     const file = e.target.files[0];
     if (!file) return;
-    showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
+    modalManager.showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
         document.getElementById('bg-img').src = croppedDataUrl;
         const mainChat = document.querySelector('.main-chat');
         mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
@@ -1169,9 +1173,8 @@ function bindEvents() {
             const pressed = eventToShortcutString(e);
             if (!pressed) return; // 纯修饰键，忽略
 
-            // 优先匹配「发送但不生成回复」快捷方式（从快捷键映射读取，默认 ctrl+enter）
-            const sendNoAiShortcut = currentShortcutsRef.value['send-no-ai'];
-            if (sendNoAiShortcut && normalizeShortcut(sendNoAiShortcut) === pressed) {
+            // 优先匹配「发送但不生成回复」快捷方式（默认 ctrl+enter）
+            if (shortcutManager.matchesAction(e, 'send-no-ai')) {
                 e.preventDefault();
                 sendMessageWithoutAI();
                 return;
@@ -1197,7 +1200,7 @@ function bindEvents() {
                 document.getElementById('global-avatar-img').src = compressedUrl;
             } catch (err) {
                 console.error('头像压缩失败', err);
-                customAlert('头像处理失败，请重试', 'error');
+                modalManager.customAlert('头像处理失败，请重试', 'error');
             }
         }
     });
@@ -1216,38 +1219,38 @@ function bindEvents() {
     }
     // 对话设置按钮（输入框下方）
     const chatSettingsBtn = document.getElementById('chat-settings-btn');
-    if (chatSettingsBtn) chatSettingsBtn.addEventListener('click', openSettingsModal);
+    if (chatSettingsBtn) chatSettingsBtn.addEventListener('click', () => modalManager.openSettingsModal());
 
     const topicsBtn = document.getElementById('topics-manage-btn');
     if (topicsBtn) {
-        topicsBtn.addEventListener('click', openTopicsModal);
+        topicsBtn.addEventListener('click', () => modalManager.openTopicsModal());
     }
 
     const newTopicModalBtn = document.getElementById('new-topic-modal-btn');
     if (newTopicModalBtn) {
         newTopicModalBtn.addEventListener('click', () => {
             startNewTopic();
-            closeTopicsModal();
+            modalManager.closeTopicsModal();
         });
     }
 
     // 话题管理弹窗关闭按钮
     const closeTopicsModalBtn = document.getElementById('close-topics-modal');
-    if (closeTopicsModalBtn) closeTopicsModalBtn.addEventListener('click', closeTopicsModal);
+    if (closeTopicsModalBtn) closeTopicsModalBtn.addEventListener('click', () => modalManager.closeTopicsModal());
     const cancelTopicsBtn = document.getElementById('cancel-topics-btn');
-    if (cancelTopicsBtn) cancelTopicsBtn.addEventListener('click', closeTopicsModal);
+    if (cancelTopicsBtn) cancelTopicsBtn.addEventListener('click', () => modalManager.closeTopicsModal());
     // 点击遮罩关闭
     const topicsModal = document.getElementById('topics-modal');
     if (topicsModal) {
         topicsModal.addEventListener('click', (e) => {
-            if (e.target === topicsModal) closeTopicsModal();
+            if (e.target === topicsModal) modalManager.closeTopicsModal();
         });
     }
     const showAllTopicsBtn = document.getElementById('show-all-topics-btn');
     if (showAllTopicsBtn) {
         showAllTopicsBtn.addEventListener('click', async () => {
             await setCurrentTopic(null);
-            closeTopicsModal();
+            modalManager.closeTopicsModal();
         });
     }
     const addModelBtn = document.getElementById('add-model-btn');
@@ -1289,9 +1292,9 @@ function bindEvents() {
                         renderMessages(currentChatId);
                         applyCurrentChatSettings();
                         await chatRepo.saveAllChats(chats);
-                        customAlert('导入成功', 'success');
+                        modalManager.customAlert('导入成功', 'success');
                     } catch (err) {
-                        customAlert('JSON 解析失败：' + err.message, 'error');
+                        modalManager.customAlert('JSON 解析失败：' + err.message, 'error');
                     }
                 };
                 reader.readAsText(file, 'UTF-8');
@@ -1333,10 +1336,10 @@ function bindEvents() {
     });
 
     // 绑定按钮事件
-    closeGlobalBtn.addEventListener('click', closeGlobalModal);
-    cancelGlobalBtn.addEventListener('click', closeGlobalModal);
-    saveGlobalBtn.addEventListener('click', saveGlobalSettings);
-    globalModal.addEventListener('click', (e) => { if (e.target === globalModal) closeGlobalModal(); });
+    closeGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
+    cancelGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
+    saveGlobalBtn.addEventListener('click', () => modalManager.saveGlobalSettings());
+    globalModal.addEventListener('click', (e) => { if (e.target === globalModal) modalManager.closeGlobalModal(); });
     document.getElementById('test-model-connection-btn')?.addEventListener('click', async () => {
         const statusEl = document.getElementById('test-connection-status');
         if (!statusEl) return;
@@ -1359,9 +1362,9 @@ function bindEvents() {
         // 移除原有监听（避免重复）
         const newBtn = originalSettingBtn.cloneNode(true);
         originalSettingBtn.parentNode.replaceChild(newBtn, originalSettingBtn);
-        newBtn.addEventListener('click', openGlobalSettings);
+        newBtn.addEventListener('click', () => modalManager.openGlobalSettings());
     } else if (settingBtn) {
-        settingBtn.addEventListener('click', openGlobalSettings);
+        settingBtn.addEventListener('click', () => modalManager.openGlobalSettings());
     }
     // 点击头像图片触发文件选择
     const avatarImgElement = document.getElementById('avatar-img');
@@ -1373,7 +1376,7 @@ function bindEvents() {
             fileInput.onchange = (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
-                showCropModal(file, 1, { maxWidth: 1024, mimeType: 'image/jpeg', quality: 0.9 }, (croppedDataUrl) => {
+                modalManager.showCropModal(file, 1, { maxWidth: 1024, mimeType: 'image/jpeg', quality: 0.9 }, (croppedDataUrl) => {
                     avatarImgElement.src = croppedDataUrl;
                 });
             };
@@ -1384,10 +1387,10 @@ function bindEvents() {
     const closeModalBtn = document.getElementById('close-modal-btn');
     const cancelBtn = document.getElementById('cancel-settings-btn');
     const saveBtn = document.getElementById('save-settings-btn');
-    if (closeModalBtn) closeModalBtn.addEventListener('click', closeModal);
-    if (cancelBtn) cancelBtn.addEventListener('click', closeModal);
-    if (saveBtn) saveBtn.addEventListener('click', saveSettings);
-    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) closeModalWithAnimation(modal); });
+    if (closeModalBtn) closeModalBtn.addEventListener('click', () => modalManager.closeSettingsModal());
+    if (cancelBtn) cancelBtn.addEventListener('click', () => modalManager.closeSettingsModal());
+    if (saveBtn) saveBtn.addEventListener('click', () => modalManager.saveSettings());
+    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modalManager.closeModalWithAnimation(modal); });
     bindQuickModelSwitch();
     document.addEventListener('keydown', function(e) {
         if (e.key === 'Escape') {
@@ -1415,11 +1418,7 @@ function bindEvents() {
         }
     }, true);
     document.getElementById('reset-shortcuts-btn').addEventListener('click', () => {
-        currentShortcutsRef.value = {};
-        for (const [action, obj] of Object.entries(DEFAULT_SHORTCUTS)) {
-            currentShortcutsRef.value[action] = obj.keys;
-        }
-        renderShortcutsPanel();
+        shortcutManager.reset();
     });
 
     const fetchVoicesBtn = document.getElementById('fetch-voices-btn');
@@ -1427,7 +1426,7 @@ function bindEvents() {
         fetchVoicesBtn.addEventListener('click', async () => {
             const apiUrl = document.getElementById('tts-api-url').value;
             if (!apiUrl) {
-                customAlert('请先填写 TTS API 地址');
+                modalManager.customAlert('请先填写 TTS API 地址');
                 return;
             }
             try {
@@ -1480,7 +1479,7 @@ function bindEvents() {
         startImageGenBtn.addEventListener('click', async () => {
             const prompt = document.getElementById('image-gen-prompt').value;
             if (!prompt) {
-                customAlert('请输入图片描述');
+                modalManager.customAlert('请输入图片描述');
                 return;
             }
             const negative = document.getElementById('image-gen-negative').value;
@@ -1564,12 +1563,18 @@ async function startNewTopic() {
     renderHistoryList();
     await chatRepo.saveChat(currentChat);
 
-    // 如果当前对话开启语音合成，则朗读开场白
+    // 如果当前对话开启语音合成，则朗读开场白（跳过括号内的非语言内容）
     if (settings.ttsEnabled) {
-        const ttsVoice = currentChat?.settings?.ttsVoice || 'default';
-        updateStatusIndicator('speaking', '语音合成中 ...');
-        ttsService.speak(greeting, ttsVoice)
-            .finally(() => updateStatusIndicator('online'));;
+        const { replyContent } = parseThinkContent(greeting);
+        const contentToSpeak = replyContent || greeting;
+        const parts = parseParenthesesContent(contentToSpeak);
+        const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');
+        if (speechText.trim()) {
+            const ttsVoice = currentChat?.settings?.ttsVoice || 'default';
+            updateStatusIndicator('speaking', '语音合成中 ...');
+            ttsService.speak(speechText, ttsVoice)
+                .finally(() => updateStatusIndicator('online'));
+        }
     }
 }
 
@@ -1681,7 +1686,7 @@ async function togglePinChat(chat) {
 // 删除会话
 async function deleteChat(chatId) {
     if (chats.length === 1) {
-        customAlert('至少保留一个对话，无法删除最后一个。', 'warn');
+        modalManager.customAlert('至少保留一个对话，无法删除最后一个。', 'warn');
         return;
     }
     if (!confirm('确定要删除这个会话吗？此操作不可撤销。')) return;
@@ -1922,8 +1927,6 @@ function applyFontSize(size) {
     }
 }
 
-// showMessageActions / deleteMessageFromChat / regenerateAIMessage / continueAIMessage 已提取到 js/message-actions.js（通过包装函数调用）
-
 // 状态指示器控制
 function updateStatusIndicator(state, customText = null) {
     const statusTextElem = document.querySelector('.user-details p');
@@ -1958,56 +1961,6 @@ function updateStatusIndicator(state, customText = null) {
     statusTextElem.innerHTML = `${dotHtml} ${text}`;
 }
 
-// 全局快捷键处理
-function handleKeyDown(e) {
-    const pressed = eventToShortcutString(e);
-    if (!pressed) return;
-
-    // 先解析出动作
-    let targetAction = null;
-    for (const [action, keys] of Object.entries(currentShortcutsRef.value)) {
-        if (normalizeShortcut(keys) === pressed) {
-            targetAction = action;
-            break;
-        }
-    }
-    if (!targetAction) return;
-
-    // 如果是聚焦类操作，不管焦点在哪里都执行
-    if (targetAction === 'focus-input' || targetAction === 'focus-search') {
-        e.preventDefault();
-        e.stopPropagation();
-        executeAction(targetAction);
-        return;
-    }
-
-    // 其他快捷键：焦点在输入框或编辑区则忽略
-    const active = document.activeElement;
-    if (active && (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA' || active.isContentEditable)) {
-        return;
-    }
-
-    // 执行
-    e.preventDefault();
-    e.stopPropagation();
-    executeAction(targetAction);
-}
-
-
-function executeAction(action) {
-    switch (action) {
-        case 'new-chat':          createNewChat(); break;
-        case 'new-topic':         startNewTopic(); break;
-        case 'prev-chat':         switchToPreviousChat(); break;
-        case 'next-chat':         switchToNextChat(); break;
-        case 'export-json':       chatIO.exportAsJSON(chats.find(c => c.id == currentChatId)); break;
-        case 'focus-input':       focusChatInput(); break;
-        case 'send-no-ai':        sendMessageWithoutAI(); break;
-        case 'focus-search':      focusSearchInput(); break;
-        case 'toggle-immersive':  toggleImmersiveMode(); break;
-    }
-}
-
 // 切换到上一个/下一个对话（在chats数组中按排序顺序）
 function switchToPreviousChat() {
     // 按置顶 + 时间倒序排列（与 renderHistoryList 相同）
@@ -2038,13 +1991,10 @@ function focusChatInput() {
     }
 }
 
-// 聚焦搜索框
-function focusSearchInput() { searchManager.focusSearchInput(); }
-
 // 发送消息但不触发 AI 回复
 async function sendMessageWithoutAI() {
     if (isProcessing) {
-        customAlert('AI 正在回复中，请稍候...', 'warning');
+        modalManager.customAlert('AI 正在回复中，请稍候...', 'warning');
         return;
     }
     // 如果当前为“显示全部话题”模式，自动切换到最后一个话题
@@ -2090,72 +2040,6 @@ async function sendMessageWithoutAI() {
     forceScrollToBottom();
 }
 
-function loadShortcutsFromStorage() {
-    const storedShortcuts = SettingsManager.getShortcuts();
-
-    // 构建默认快捷键映射（从 DEFAULT_SHORTCUTS 提取 keys 字符串）
-    const defaultsMap = {};
-    for (const [action, obj] of Object.entries(DEFAULT_SHORTCUTS)) {
-        defaultsMap[action] = obj.keys;
-    }
-
-    // 用户存储的优先级更高，但默认值补齐未定义的项
-    currentShortcutsRef.value = { ...defaultsMap, ...storedShortcuts };
-    // 移除旧的监听器（如果存在）
-    document.removeEventListener('keydown', handleKeyDown, true);
-    document.addEventListener('keydown', handleKeyDown, true);
-}
-
-function renderShortcutsPanel() {
-    const container = document.getElementById('shortcuts-list');
-    if (!container) return;
-    loadShortcutsFromStorage(); // 确保 currentShortcutsRef.value 是最新的
-    let html = '';
-    for (const [action, keys] of Object.entries(currentShortcutsRef.value)) {
-        const desc = DEFAULT_SHORTCUTS[action]?.description || action;
-        html += `
-            <div class="shortcut-row" style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; background: rgba(30,34,55,0.5); border-radius:12px; padding:10px 16px;">
-                <span>${desc}</span>
-                <div style="display:flex; align-items:center; gap:8px;">
-                    <kbd style="background: #1a1c2a; padding: 4px 10px; border-radius:6px; border:1px solid #5f7eff; min-width:80px; text-align:center; cursor:pointer;" class="shortcut-key" data-action="${action}">${keys.toUpperCase()}</kbd>
-                </div>
-            </div>`;
-    }
-    container.innerHTML = html;
-
-    // 绑定记录按钮和点击kbd也可以触发记录
-    document.querySelectorAll('.record-shortcut-btn, .shortcut-key').forEach(el => {
-        el.addEventListener('click', (e) => {
-            const action = el.getAttribute('data-action');
-            const kbd = container.querySelector(`.shortcut-key[data-action="${action}"]`);
-            if (kbd) kbd.innerHTML = '<i class="fas fa-spinner fa-pulse"></i> 按下组合键...';
-            startRecordShortcut(action, kbd);
-        });
-    });
-}
-
-function startRecordShortcut(action, displayElement) {
-    const handler = (e) => {
-        e.preventDefault();
-        e.stopPropagation();
-        const shortcut = eventToShortcutString(e);
-        if (!shortcut) return;
-        
-        // 检查常见不可覆盖组合
-        const conflict = isBrowserReserved(shortcut);
-        if (conflict) {
-            customAlert(`组合键 ${shortcut.toUpperCase()} 可能被浏览器保留，仍可设置但可能无法完全拦截默认行为。`);
-        }
-        currentShortcutsRef.value[action] = shortcut;
-        if (displayElement) displayElement.textContent = shortcut.toUpperCase();
-        document.removeEventListener('keydown', handler, true);
-    };
-    document.addEventListener('keydown', handler, true);
-    // ... 超时回调 ...
-}
-
-// deletePictureMessage 已提取到 js/message-actions.js
-
 // 沉浸模式切换
 function toggleImmersiveMode() {
     const body = document.body;
@@ -2189,7 +2073,7 @@ async function init() {
     await initData();
     applyTheme(SettingsManager.getTheme());
     initResizer();
-    loadShortcutsFromStorage();
+    shortcutManager.init();
     bindEvents();
     getModelService();
     renderModelListUI();      // 渲染模型列表弹窗
