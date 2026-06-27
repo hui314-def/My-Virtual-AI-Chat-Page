@@ -410,10 +410,9 @@ body {
     border: 1px solid #9b8cff;
 }
 
-/* 气泡 ———— 高透明度 + 毛玻璃效果，让虚拟人物背景隐约透出 */
+/* 气泡 ———— 高透明度，让虚拟人物背景隐约透出 */
 .bubble {
     background: rgba(8, 10, 20, 0.2);
-    backdrop-filter: blur(16px);
     padding: 12px 18px;
     border-radius: 24px;
     border-bottom-left-radius: 6px;
@@ -424,7 +423,6 @@ body {
 
 .message.user .bubble {
     background: rgba(20, 24, 48, 0.3);
-    backdrop-filter: blur(16px);
     border-bottom-right-radius: 6px;
     border-bottom-left-radius: 24px;
     border: 0.5px solid rgba(140, 160, 255, 0.55);
@@ -1418,6 +1416,86 @@ body.dragging {
     color: #ff5c4a;
 }
 
+/* 引用消息标识卡片（输入框上方） */
+.quote-indicator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(30, 34, 55, 0.85);
+    backdrop-filter: blur(8px);
+    border: 1px solid rgba(95, 126, 255, 0.5);
+    border-radius: 16px;
+    padding: 8px 14px;
+    margin-bottom: 10px;
+}
+.quote-indicator-icon {
+    color: #5f7eff;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+}
+.quote-indicator-role {
+    color: #b7c4ff;
+    font-size: 0.8rem;
+    font-weight: 600;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.quote-indicator-text {
+    color: #9bb0ff;
+    font-size: 0.78rem;
+    flex: 1;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+    opacity: 0.85;
+    min-width: 0;
+}
+.quote-indicator-close {
+    background: transparent;
+    border: none;
+    color: #aaa;
+    cursor: pointer;
+    font-size: 0.9rem;
+    padding: 2px 6px;
+    border-radius: 50%;
+    transition: color 0.2s, background 0.2s;
+    flex-shrink: 0;
+    line-height: 1;
+}
+.quote-indicator-close:hover {
+    color: #ff8a7a;
+    background: rgba(255, 80, 80, 0.15);
+}
+
+/* 引用消息块（消息气泡内可点击跳转） */
+.quoted-msg-ref {
+    background: rgba(95, 126, 255, 0.12);
+    border-left: 3px solid #5f7eff;
+    border-radius: 6px;
+    padding: 6px 10px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: background 0.2s;
+    max-width: 100%;
+}
+.quoted-msg-ref:hover {
+    background: rgba(95, 126, 255, 0.22);
+}
+.quoted-msg-ref-role {
+    font-size: 0.7rem;
+    color: #5f7eff;
+    font-weight: 600;
+    margin-bottom: 2px;
+}
+.quoted-msg-ref-text {
+    font-size: 0.78rem;
+    color: #b7c4ff;
+    opacity: 0.85;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+}
+
 /* 文件附件样式（聊天气泡内） */
 .file-attachment {
     display: inline-block;
@@ -2046,16 +2124,16 @@ body.light-theme {
     background: #f5f7fc;
 }
 
-/* 侧边栏纯白 */
+/* 侧边栏渐变浅蓝 */
 body.light-theme .sidebar {
-    background: #ffffff !important;
+    background: linear-gradient(180deg, #bbd5ff 0%, #a3c4ff 50%, #b8d0ff 100%) !important;
     backdrop-filter: none !important;
     border-right: 1px solid #e5e9f0;
 }
 
 /* 左上角用户区域 */
 body.light-theme .user-profile {
-    background: #ffffff !important;
+    background: linear-gradient(180deg, #bbd5ff 0%, #c5d8ff 100%) !important;
     border-bottom: 1px solid #e5e9f0 !important;
 }
 body.light-theme .user-card .avatar {
@@ -2095,7 +2173,7 @@ body.light-theme .history-header h3 {
 /* 新对话、设置按钮区域 */
 body.light-theme .new-chat-fixed,
 body.light-theme .settings-area {
-    background: #ffffff !important;
+    background: linear-gradient(180deg, #c5d8ff 0%, #b0c8ff 100%) !important;
     border-top: 1px solid #e5e9f0 !important;
 }
 body.light-theme .new-chat-btn,
@@ -2190,13 +2268,13 @@ body.light-theme .action-btn:hover {
     background: #eef2ff !important;
 }
 
-/* 弹窗、菜单等其他组件保持白色背景，文字蓝色 */
+/* 弹窗、菜单等组件渐变浅蓝背景 */
 body.light-theme .modal-content,
 body.light-theme .settings-modal .modal-content,
 body.light-theme .history-menu,
 body.light-theme .message-actions,
 body.light-theme .search-dropdown {
-    background: #ffffff !important;
+    background: linear-gradient(135deg, #c8dfff 0%, #b8d4ff 100%) !important;
     backdrop-filter: none !important;
     border-color: #e0e4f0 !important;
 }
@@ -2219,7 +2297,7 @@ body.light-theme .modal-btn.save {
 }
 /* ========== 话题管理弹窗明亮主题修复 ========== */
 body.light-theme #topics-modal .modal-content {
-    background: #ffffff !important;
+    background: linear-gradient(135deg, #c8dfff 0%, #b8d4ff 100%) !important;
     border: 1px solid #e0e4f0 !important;
     box-shadow: 0 12px 28px rgba(0, 0, 0, 0.08) !important;
 }
@@ -2331,7 +2409,7 @@ body.light-theme #global-settings-modal #model-list-container div {
 }
 
 body.light-theme #global-settings-modal .settings-sidebar {
-    background: #f8faff !important;
+    background: linear-gradient(180deg, #bbd5ff 0%, #c5d8ff 100%) !important;
     border-right: 1px solid #e0e4f0 !important;
 }
 
@@ -2406,6 +2484,42 @@ body.light-theme .search-toggle-btn {
 body.light-theme .search-toggle-btn:hover {
     background: #e6edff !important;
     color: #1e3a8a !important;
+}
+
+/* 明亮主题：引用标识卡片 */
+body.light-theme .quote-indicator {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-color: #cdd9ff !important;
+}
+body.light-theme .quote-indicator-icon {
+    color: #2563eb !important;
+}
+body.light-theme .quote-indicator-role {
+    color: #1e3a8a !important;
+}
+body.light-theme .quote-indicator-text {
+    color: #4b5563 !important;
+}
+body.light-theme .quote-indicator-close {
+    color: #8b9bbe !important;
+}
+body.light-theme .quote-indicator-close:hover {
+    color: #ef4444 !important;
+}
+
+/* 明亮主题：引用消息块 */
+body.light-theme .quoted-msg-ref {
+    background: rgba(37, 99, 235, 0.08) !important;
+    border-left-color: #3b82f6 !important;
+}
+body.light-theme .quoted-msg-ref:hover {
+    background: rgba(37, 99, 235, 0.16) !important;
+}
+body.light-theme .quoted-msg-ref-role {
+    color: #2563eb !important;
+}
+body.light-theme .quoted-msg-ref-text {
+    color: #4b5563 !important;
 }
 
 /* 所有自定义滚动条（历史列表、聊天区域、文本框、弹窗等） */

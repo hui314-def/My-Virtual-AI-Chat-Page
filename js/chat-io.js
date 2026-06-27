@@ -64,12 +64,18 @@ export class ChatIO {
             id: chat.id,
             title: chat.title,
             date: chat.date,
-            messages: chat.messages.map(msg => {
-                const newMsg = { ...msg };
-                if (newMsg.file === null || newMsg.file === undefined) delete newMsg.file;
-                if (newMsg.modelInputText !== undefined && newMsg.modelInputText === newMsg.text) delete newMsg.modelInputText;
-                return newMsg;
-            }),
+            topics: (chat.topics || []).map(topic => ({
+                id: topic.id,
+                name: topic.name,
+                createdAt: topic.createdAt,
+                summary: topic.summary,
+                messages: topic.messages.map(msg => {
+                    const newMsg = { ...msg };
+                    if (newMsg.file === null || newMsg.file === undefined) delete newMsg.file;
+                    if (newMsg.modelInputText !== undefined && newMsg.modelInputText === newMsg.text) delete newMsg.modelInputText;
+                    return newMsg;
+                })
+            })),
             settings: chat.settings
         };
         const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
@@ -109,26 +115,30 @@ export class ChatIO {
             ? `background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${bgUrl}) center/cover no-repeat fixed;`
             : `background: #030305;`;
 
-        const messagesHtml = chat.messages.map(msg => {
-            if (msg.type === 'divider') {
-                return `<div class="topic-divider"><i class="fas fa-asterisk"></i> ${escapeHtml(msg.text)} <i class="fas fa-asterisk"></i></div>`;
+        const messagesHtml = (chat.topics || []).map((topic, idx) => {
+            let html = '';
+            if (idx > 0) {
+                html += `<div class="topic-divider"><i class="fas fa-asterisk"></i> ${escapeHtml(topic.name)} <i class="fas fa-asterisk"></i></div>`;
             }
-            const isAi = msg.type === 'ai';
-            const bubbleContent = isAi ? renderMessageWithThink(msg.text) : `<p>${escapeHtml(msg.text).replace(/\n/g, '<br>')}</p>`;
-            const timeHtml = `<div class="msg-time">${escapeHtml(msg.time || '')}${isAi && msg.modelName ? `<span>🤖 ${escapeHtml(msg.modelName)}</span>` : ''}</div>`;
-            const avatarHtml = isAi
-                ? (settings.avatarUrl ? `<img src="${settings.avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>')
-                : (userAvatar && userAvatar.startsWith('data:image')
-                    ? `<img src="${userAvatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
-                    : '<i class="fas fa-user-astronaut"></i>');
-            return `
-            <div class="message ${msg.type}">
-                <div class="avatar-msg">${avatarHtml}</div>
-                <div class="bubble">
-                    ${bubbleContent}
-                    ${timeHtml}
-                </div>
-            </div>`;
+            html += topic.messages.map(msg => {
+                const isAi = msg.type === 'ai';
+                const bubbleContent = isAi ? renderMessageWithThink(msg.text) : `<p>${escapeHtml(msg.text).replace(/\n/g, '<br>')}</p>`;
+                const timeHtml = `<div class="msg-time">${escapeHtml(msg.time || '')}${isAi && msg.modelName ? `<span>🤖 ${escapeHtml(msg.modelName)}</span>` : ''}</div>`;
+                const avatarHtml = isAi
+                    ? (settings.avatarUrl ? `<img src="${settings.avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>')
+                    : (userAvatar && userAvatar.startsWith('data:image')
+                        ? `<img src="${userAvatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
+                        : '<i class="fas fa-user-astronaut"></i>');
+                return `
+                <div class="message ${msg.type}">
+                    <div class="avatar-msg">${avatarHtml}</div>
+                    <div class="bubble">
+                        ${bubbleContent}
+                        ${timeHtml}
+                    </div>
+                </div>`;
+            }).join('');
+            return html;
         }).join('');
 
         const cssBlock = cssText
@@ -186,8 +196,8 @@ export class ChatIO {
      */
     async importFromJSON(data, currentChats, onSuccess) {
         if (!data || typeof data !== 'object') throw new Error('无效的 JSON 数据');
-        if (!data.messages || !Array.isArray(data.messages) || !data.settings) {
-            throw new Error('无效的对话格式：缺少 messages 或 settings 字段');
+        if (!data.topics || !Array.isArray(data.topics) || !data.settings) {
+            throw new Error('无效的对话格式：缺少 topics 或 settings 字段');
         }
         const newId = Date.now();
         let chatDate = data.date ? new Date(data.date) : new Date();
@@ -197,10 +207,17 @@ export class ChatIO {
             id: newId,
             title: data.title || `导入对话 ${currentChats.length + 1}`,
             date: chatDate,
-            messages: data.messages.map(msg => ({
-                ...msg,
-                time: msg.time || getCurrentTime()
+            topics: data.topics.map(topic => ({
+                id: topic.id || Date.now(),
+                name: topic.name || '话题',
+                createdAt: topic.createdAt || new Date().toISOString(),
+                summary: topic.summary || null,
+                messages: (topic.messages || []).map(msg => ({
+                    ...msg,
+                    time: msg.time || getCurrentTime()
+                }))
             })),
+            currentTopicIndex: data.topics.length > 0 ? 0 : null,
             settings: { ...Constants.DEFAULT_SETTINGS, ...data.settings },
             pinned: false
         };
@@ -215,16 +232,15 @@ export class ChatIO {
     /**
      * 导出单个话题为 JSON 文件
      * @param {number} topicIndex
-     * @param {Array} topics
      * @param {Object} currentChat
      */
-    exportTopic(topicIndex, topics, currentChat) {
-        const topic = topics[topicIndex];
+    exportTopic(topicIndex, currentChat) {
+        const topic = (currentChat.topics || [])[topicIndex];
         if (!topic) return;
         const data = {
             chatId: currentChat.id,
             chatTitle: currentChat.title,
-            topicIndex: topicIndex + 1,
+            topicName: topic.name,
             messages: topic.messages,
             exportedAt: new Date().toISOString()
         };

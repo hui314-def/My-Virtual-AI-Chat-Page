@@ -43,13 +43,73 @@ const fileUpload = new FileUploadService({
 
 let chats = [];
 let currentChatId = null;
-let currentTopicIndex = null;
 let autoScrollEnabled = true;     // 是否允许自动滚动
 let globalModal = null;
 let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
+let currentQuoteRef = null;  // 当前引用状态 { msgUid, role, text }
 let currentStatus = 'online';   // 记录当前指示器状态
 const cropperRef = { value: null };
 const modelServiceInstanceRef = { value: null };
+
+// ==================== 话题辅助函数 ====================
+// currentTopicIndex 移入 chat 对象，不再使用全局变量
+function getCurrentTopicIndex() {
+    const chat = chats.find(c => c.id == currentChatId);
+    return chat ? chat.currentTopicIndex : null;
+}
+
+function setCurrentTopicIndex(value) {
+    const chat = chats.find(c => c.id == currentChatId);
+    if (chat) chat.currentTopicIndex = value;
+}
+
+/** 获取当前对话的活跃话题（当前选中话题），可能为 null */
+function getActiveTopic(chat) {
+    if (!chat || !chat.topics) return null;
+    const idx = chat.currentTopicIndex;
+    if (idx === null || idx === undefined || idx < 0 || idx >= chat.topics.length) return null;
+    return chat.topics[idx];
+}
+
+// ==================== 引用消息管理 ====================
+
+function setQuoteRef(ref) {
+    currentQuoteRef = ref;
+    const indicator = document.getElementById('quote-indicator');
+    const roleSpan = document.getElementById('quote-indicator-role');
+    const textSpan = document.getElementById('quote-indicator-text');
+    if (indicator && roleSpan && textSpan) {
+        roleSpan.textContent = ref.role;
+        const maxLen = 60;
+        textSpan.textContent = ref.text.length > maxLen
+            ? ref.text.substring(0, maxLen) + '...'
+            : ref.text;
+        indicator.style.display = 'flex';
+    }
+}
+
+function clearQuoteRef() {
+    currentQuoteRef = null;
+    const indicator = document.getElementById('quote-indicator');
+    if (indicator) indicator.style.display = 'none';
+}
+
+function getQuoteRef() {
+    return currentQuoteRef;
+}
+
+function scrollToQuotedMessage(msgUid) {
+    const target = document.querySelector(`.message[data-msg-uid="${msgUid}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    target.style.transition = 'background 0.3s';
+    target.style.backgroundColor = 'rgba(95, 126, 255, 0.3)';
+    target.style.borderRadius = '8px';
+    setTimeout(() => {
+        target.style.backgroundColor = '';
+        target.style.borderRadius = '';
+    }, 2000);
+}
 
 // ==================== 快捷键管理器 ====================
 // 注意：先于 modalManager 构造，因为 modalManager 依赖 shortcutManager。
@@ -76,7 +136,7 @@ const shortcutManager = new ShortcutManager({
 const modalManager = new ModalManager({
     get chats() { return chats; },            // getter：initData 会重新赋值 chats，必须动态读取
     get currentChatId() { return currentChatId; },
-    get currentTopicIndex() { return currentTopicIndex; },
+    get currentTopicIndex() { return getCurrentTopicIndex(); },
     chatRepo,
     chatIO,
     ttsService,
@@ -100,7 +160,6 @@ const modalManager = new ModalManager({
     renderModelListUI: () => renderModelListUI(),
     saveModelListToStorage: () => saveModelListToStorage(),
     addModel: (name) => addModel(name),
-    getTopicsFromMessages: (msgs, summaries) => getTopicsFromMessages(msgs, summaries),
     generateTopicSummary: (idx, msgs) => generateTopicSummary(idx, msgs),
     focusChatInput: () => focusChatInput(),
     focusSearchInput: () => searchManager.focusSearchInput(),
@@ -123,8 +182,8 @@ function startVoiceInput() { voiceInput.start(); }
 const searchManager = new SearchManager({
     getChats: () => chats,
     getCurrentChatId: () => currentChatId,
-    getCurrentTopicIndex: () => currentTopicIndex,
-    setCurrentTopicIndex: (v) => { currentTopicIndex = v; },
+    getCurrentTopicIndex: () => getCurrentTopicIndex(),
+    setCurrentTopicIndex: (v) => setCurrentTopicIndex(v),
     switchChat,
     renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
 });
@@ -133,7 +192,7 @@ const searchManager = new SearchManager({
 const msgActions = new MessageActions({
     getChats: () => chats,
     getCurrentChatId: () => currentChatId,
-    getCurrentTopicIndex: () => currentTopicIndex,
+    getCurrentTopicIndex: () => getCurrentTopicIndex(),
     isProcessing: () => isProcessing,
     chatRepo,
     ttsService,
@@ -145,6 +204,9 @@ const msgActions = new MessageActions({
     simulateAIResponse,
     appendMessageToDOM,
     updateStatusIndicator,
+    setQuoteRef: (ref) => setQuoteRef(ref),
+    clearQuoteRef: () => clearQuoteRef(),
+    getQuoteRef: () => getQuoteRef(),
 });
 function showMessageActions(...args) { msgActions.showMessageActions(...args); }
 function showPictureActions(...args) { msgActions.showPictureActions(...args); }
@@ -408,7 +470,10 @@ async function loadFromStorage() {
             return storedChats.map(chat => ({
                 ...chat,
                 date: new Date(chat.date),
-                messages: chat.messages.map(msg => ({ ...msg })),
+                topics: (chat.topics || []).map(topic => ({
+                    ...topic,
+                    messages: topic.messages.map(msg => ({ ...msg }))
+                })),
                 settings: { ...Constants.DEFAULT_SETTINGS, ...(chat.settings || {}) }
             }));
         }
@@ -492,7 +557,7 @@ function renderHistoryList() {
 }
 
 // 追加消息到DOM
-async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null) {
+async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
     if (msgUid) messageDiv.dataset.msgUid = msgUid;
@@ -528,6 +593,16 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         bubbleContent = renderMessageWithThink(text);
     } else {
         bubbleContent = `<p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>`;
+    }
+    // 引用消息块（在文本前显示）
+    if (quoteRef) {
+        const quotedRole = escapeHtml(quoteRef.role || '');
+        const quotedText = escapeHtml(quoteRef.text || '');
+        const truncatedText = quotedText.length > 60 ? quotedText.substring(0, 60) + '...' : quotedText;
+        bubbleContent = `<div class="quoted-msg-ref" data-quote-msg-uid="${escapeHtml(quoteRef.msgUid || '')}">
+            <div class="quoted-msg-ref-role"><i class="fas fa-quote-right"></i> ${quotedRole}</div>
+            <div class="quoted-msg-ref-text">${truncatedText}</div>
+        </div>` + bubbleContent;
     }
     if (type === 'user' && fileAttachment) {
         // 添加可点击的文件链接
@@ -566,6 +641,17 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         });
     }
 
+    // 绑定引用块点击事件
+    if (quoteRef && quoteRef.msgUid) {
+        const quoteRefEl = messageDiv.querySelector('.quoted-msg-ref');
+        if (quoteRefEl) {
+            quoteRefEl.addEventListener('click', (e) => {
+                e.stopPropagation();
+                scrollToQuotedMessage(quoteRef.msgUid);
+            });
+        }
+    }
+
     chatMessages.appendChild(messageDiv);
     conditionalScrollToBottom();
     
@@ -582,13 +668,16 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         const targetChatId = chatIdForSave || currentChatId;
         const targetChat = chats.find(c => c.id == targetChatId);
         if (targetChat) {
-            const msgUid = genMsgUid(type, text, time || getCurrentTime());
-            targetChat.messages.push({ type, text, time: time || getCurrentTime(), uid: msgUid });
-            if (messageDiv) messageDiv.dataset.msgUid = msgUid;
-            if (type === 'user') {
-                targetChat.date = new Date();
-                renderHistoryList();
-                await chatRepo.saveChat(targetChat);  // 保存单个对话（注意不要传入整个数组）
+            const activeTopic = getActiveTopic(targetChat);
+            if (activeTopic) {
+                const msgUid = genMsgUid(type, text, time || getCurrentTime());
+                activeTopic.messages.push({ type, text, time: time || getCurrentTime(), uid: msgUid });
+                if (messageDiv) messageDiv.dataset.msgUid = msgUid;
+                if (type === 'user') {
+                    targetChat.date = new Date();
+                    renderHistoryList();
+                    await chatRepo.saveChat(targetChat);
+                }
             }
         }
     }
@@ -656,16 +745,19 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     if (saveToStorageFlag) {
         const targetChat = chats.find(c => c.id == currentChatId);
         if (targetChat) {
-            const msgUid = genMsgUid(type, imgSrc, time || getCurrentTime());
-            targetChat.messages.push({
-                type,
-                text: imgSrc,
-                isImage: true,
-                time: time || getCurrentTime(),
-                uid: msgUid,
-            });
-            targetChat.date = new Date();
-            renderHistoryList();
+            const activeTopic = getActiveTopic(targetChat);
+            if (activeTopic) {
+                const msgUid = genMsgUid(type, imgSrc, time || getCurrentTime());
+                activeTopic.messages.push({
+                    type,
+                    text: imgSrc,
+                    isImage: true,
+                    time: time || getCurrentTime(),
+                    uid: msgUid,
+                });
+                targetChat.date = new Date();
+                renderHistoryList();
+            }
             await chatRepo.saveChat(targetChat);
         }
     }
@@ -678,41 +770,45 @@ function renderMessages(chatId, topicIndex = null) {
     chatMessages.classList.remove('no-entry-animation');
     chatMessages.innerHTML = '';
     const currentAvatarUrl = chat.settings?.avatarUrl || null;
-    
-    // 获取所有消息
-    let messagesToRender = chat.messages;
-    
-    // 如果指定了话题索引，则过滤出该话题的消息
-    if (topicIndex !== null) {
-        const topics = getTopicsFromMessages(chat.messages);
-        if (topics[topicIndex]) {
-            messagesToRender = topics[topicIndex].messages;
+    const topics = chat.topics || [];
+
+    if (topicIndex !== null && topics[topicIndex]) {
+        // 单个话题视图：仅渲染该话题的消息
+        const topicMessages = topics[topicIndex].messages;
+        topicMessages.forEach(msg => {
+            if (msg.isImage) {
+                appendImageToDOM(msg.type, msg.text, msg.time, false, null);
+            } else {
+                const fileAttachment = msg.file || null;
+                appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null);
+            }
+        });
+        if (topicMessages.length === 0) {
+            const emptyDiv = document.createElement('div');
+            emptyDiv.className = 'topic-empty';
+            emptyDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#8e8eb3;">该话题暂无消息</div>';
+            chatMessages.appendChild(emptyDiv);
+        }
+    } else {
+        // 显示所有话题：话题间插入合成分隔线
+        for (let i = 0; i < topics.length; i++) {
+            if (i > 0) {
+                const divider = document.createElement('div');
+                divider.className = 'topic-divider';
+                divider.innerHTML = `<i class="fas fa-asterisk"></i> ${escapeHtml(topics[i].name)} <i class="fas fa-asterisk"></i>`;
+                chatMessages.appendChild(divider);
+            }
+            topics[i].messages.forEach(msg => {
+                if (msg.isImage) {
+                    appendImageToDOM(msg.type, msg.text, msg.time, false, null);
+                } else {
+                    const fileAttachment = msg.file || null;
+                    appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null);
+                }
+            });
         }
     }
-    
-    // 渲染消息
-    messagesToRender.forEach((msg, idx) => {
-        if (msg.isImage) {
-            appendImageToDOM(msg.type, msg.text, msg.time, false, null);
-        } else if (msg.type === 'divider') {
-            const divider = document.createElement('div');
-            divider.className = 'topic-divider';
-            divider.innerHTML = `<i class="fas fa-asterisk"></i> ${escapeHtml(msg.text)} <i class="fas fa-asterisk"></i>`;
-            chatMessages.appendChild(divider);
-        } else {
-            const fileAttachment = msg.file || null;
-            appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid);
-        }
-    });
-    
-    // 如果处于话题视图且没有消息（理论上不会），显示提示
-    if (topicIndex !== null && messagesToRender.length === 0) {
-        const emptyDiv = document.createElement('div');
-        emptyDiv.className = 'topic-empty';
-        emptyDiv.innerHTML = '<div style="text-align:center; padding:20px; color:#8e8eb3;">该话题暂无消息</div>';
-        chatMessages.appendChild(emptyDiv);
-    }
-    
+
     conditionalScrollToBottom();
 }
 
@@ -749,14 +845,16 @@ async function simulateAIResponse(userMsg) {
     try {
         // 获取对话历史（支持话题视图）
         let historyMessages = [];
-        if (currentTopicIndex !== null) {
-            const topics = getTopicsFromMessages(currentChat.messages);
-            if (topics[currentTopicIndex]) historyMessages = topics[currentTopicIndex].messages;
+        const topicIdx = getCurrentTopicIndex();
+        if (topicIdx !== null && currentChat.topics[topicIdx]) {
+            historyMessages = currentChat.topics[topicIdx].messages;
         } else {
-            historyMessages = currentChat.messages;
+            // "显示全部"模式：拍平所有话题的消息
+            for (const topic of (currentChat.topics || [])) {
+                historyMessages = historyMessages.concat(topic.messages);
+            }
         }
-        const filteredMessages = historyMessages.filter(msg => msg.type !== 'divider');
-        let messagesToUse = filteredMessages;
+        let messagesToUse = historyMessages;
         const contextLimit = currentChat.settings?.contextLimit ?? 10;
         if (contextLimit !== -1 && messagesToUse.length > contextLimit) {
             messagesToUse = messagesToUse.slice(-contextLimit);
@@ -864,12 +962,15 @@ async function simulateAIResponse(userMsg) {
         // 保存消息到存储
         const targetChat = chats.find(c => c.id == currentChatId);
         if (targetChat) {
-            const modelName = SettingsManager.getModelName();
-            const msgUid = genMsgUid('ai', fullReply, getCurrentTime());
-            targetChat.messages.push({ type: 'ai', text: fullReply, time: getCurrentTime(), modelName: modelName, uid: msgUid });
-            targetChat.date = new Date();
-            renderHistoryList();
-            await chatRepo.saveChat(targetChat);
+            const activeTopic = getActiveTopic(targetChat);
+            if (activeTopic) {
+                const modelName = SettingsManager.getModelName();
+                const msgUid = genMsgUid('ai', fullReply, getCurrentTime());
+                activeTopic.messages.push({ type: 'ai', text: fullReply, time: getCurrentTime(), modelName: modelName, uid: msgUid });
+                targetChat.date = new Date();
+                renderHistoryList();
+                await chatRepo.saveChat(targetChat);
+            }
         }
 
         if (currentChat.settings?.ttsEnabled) {
@@ -928,14 +1029,11 @@ async function sendUserMessage() {
         modalManager.showBriefToast('请等待当前回复完成后再发送');
         return;
     }
-    // 如果当前为“显示全部话题”模式，自动切换到最后一个话题
-    if (currentTopicIndex === null) {
+    // 如果当前为”显示全部话题”模式，自动切换到最后一个话题
+    if (getCurrentTopicIndex() === null) {
         const currentChat = chats.find(c => c.id == currentChatId);
-        if (currentChat) {
-            const topics = getTopicsFromMessages(currentChat.messages);
-            if (topics.length > 0) {
-                await setCurrentTopic(topics.length - 1, false);
-            }
+        if (currentChat && currentChat.topics.length > 0) {
+            await setCurrentTopic(currentChat.topics.length - 1, false);
         }
     }
 
@@ -945,7 +1043,11 @@ async function sendUserMessage() {
     if (fileAttachment) {
         fileUpload.clearFile();
     }
-    
+
+    // 捕获并清除引用状态
+    const quoteRef = getQuoteRef();
+    if (quoteRef) clearQuoteRef();
+
     if (text === '' && !fileAttachment) return;
 
     const sendButton = document.querySelector('.send-btn');
@@ -956,32 +1058,40 @@ async function sendUserMessage() {
             sendButton.removeEventListener('animationend', onAnimEnd);
         }, { once: true });
     }
-        
+
     // 存储消息时附带文件信息
     const userTime = getCurrentTime();
     const targetChat = chats.find(c => c.id == currentChatId);
+    // 发给 AI 的文本保持旧格式（引用前缀 + 用户输入）
     let modelUserMsg = text;
+    if (quoteRef) {
+        modelUserMsg = `引用消息> **${quoteRef.role}**：${quoteRef.text}\n\n` + text;
+    }
     // 构建发送给模型的内容（包含文件内容）
     if (fileAttachment) {
-        modelUserMsg = text + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
+        modelUserMsg = modelUserMsg + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
     }
     if (targetChat) {
-        const msgUid = genMsgUid('user', text, userTime);
-        targetChat.messages.push({
-            type: 'user',
-            text: text,
-            time: userTime,
-            file: fileAttachment,  // 附加文件信息
-            modelInputText: modelUserMsg,
-            uid: msgUid,
-        });
-        targetChat.date = new Date();
-        renderHistoryList();
-        await chatRepo.saveChat(targetChat);
+        const activeTopic = getActiveTopic(targetChat);
+        if (activeTopic) {
+            const msgUid = genMsgUid('user', text, userTime);
+            activeTopic.messages.push({
+                type: 'user',
+                text: text,
+                time: userTime,
+                file: fileAttachment,
+                modelInputText: modelUserMsg,
+                uid: msgUid,
+                quoteRef: quoteRef || undefined,
+            });
+            targetChat.date = new Date();
+            renderHistoryList();
+            await chatRepo.saveChat(targetChat);
+        }
     }
     forceScrollToBottom();
     // 渲染消息
-    await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment);
+    await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null);
     messageInput.value = '';
     if (messageInput) messageInput.style.height = 'auto';
     simulateAIResponse(modelUserMsg);
@@ -1000,16 +1110,23 @@ async function createNewChat() {
         id: newId,
         title: `新对话 ${chats.length+1}`,
         date: new Date(),
-        messages: [
-            { type: 'ai', text: newSettings.greeting, time: getCurrentTime() }
-        ],
+        topics: [{
+            id: Date.now(),
+            name: '话题 1',
+            createdAt: new Date().toISOString(),
+            summary: null,
+            messages: [
+                { type: 'ai', text: newSettings.greeting, time: getCurrentTime() }
+            ]
+        }],
+        currentTopicIndex: 0,
         settings: newSettings,
         pinned: false
     };
     chats.unshift(newChat);
     setCurrentChatId(newId);
     renderHistoryList();
-    renderMessages(currentChatId);
+    renderMessages(currentChatId, 0);
     applyCurrentChatSettings();   // 应用新对话的设置（背景、名称等）
     await chatRepo.saveAllChats(chats);
 
@@ -1045,16 +1162,15 @@ function switchChat(chatId) {
     closeSidebarOnMobile();
     if (currentChatId == chatId) return;
     setCurrentChatId(chatId);
-    // ✅ 自动切换到最后一个话题（如果存在）
+    // ✅ 使用 chat 自身存储的 currentTopicIndex，未设置时默认最后一个话题
     const chat = chats.find(c => c.id == chatId);
     if (chat) {
-        const topics = getTopicsFromMessages(chat.messages);
-        currentTopicIndex = topics.length > 0 ? topics.length - 1 : null;
-    } else {
-        currentTopicIndex = null;
+        if (chat.currentTopicIndex === undefined || chat.currentTopicIndex === null) {
+            chat.currentTopicIndex = chat.topics.length > 0 ? chat.topics.length - 1 : null;
+        }
     }
     renderHistoryList();
-    renderMessages(currentChatId, currentTopicIndex);
+    renderMessages(currentChatId, getCurrentTopicIndex());
     applyCurrentChatSettings();
 }
 
@@ -1107,7 +1223,8 @@ async function initData() {
             id: Date.now(),
             title: "✨ 与 Nova · 意识觉醒",
             date: new Date(),
-            messages: Constants.BASE_CHATS,
+            topics: JSON.parse(JSON.stringify(Constants.BASE_CHATS)),
+            currentTopicIndex: 0,
             settings: JSON.parse(JSON.stringify(Constants.DEFAULT_SETTINGS)),
             pinned: false
         };
@@ -1115,7 +1232,7 @@ async function initData() {
         setCurrentChatId(defaultChat.id);
     }
     renderHistoryList();
-    renderMessages(currentChatId);
+    renderMessages(currentChatId, getCurrentTopicIndex());
     applyCurrentChatSettings();
 }
 
@@ -1271,6 +1388,12 @@ function bindEvents() {
     // 搜索功能 UI 绑定（见 js/search.js）
     searchManager.setupUI();
 
+    // 引用消息关闭按钮
+    const quoteCloseBtn = document.getElementById('quote-indicator-close');
+    if (quoteCloseBtn) {
+        quoteCloseBtn.addEventListener('click', () => clearQuoteRef());
+    }
+
     const importBtn = document.querySelector('.import-chat-btn');
     if (importBtn) {
         importBtn.addEventListener('click', () => {
@@ -1287,7 +1410,7 @@ function bindEvents() {
                         const newChat = await chatIO.importFromJSON(importedData, chats);
                         chats.unshift(newChat);
                         setCurrentChatId(newChat.id);
-                        currentTopicIndex = null;
+                        setCurrentTopicIndex(null);
                         renderHistoryList();
                         renderMessages(currentChatId);
                         applyCurrentChatSettings();
@@ -1520,7 +1643,7 @@ function bindEvents() {
     }
 }
 
-// 开启新话题（插入分隔线 + 开场白）
+// 开启新话题（创建独立话题对象 + 开场白）
 async function startNewTopic() {
     const modelService = getModelService();
     if (modelService.isStreaming()) {
@@ -1537,28 +1660,27 @@ async function startNewTopic() {
     const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
     const greeting = settings.greeting || Constants.DEFAULT_SETTINGS.greeting;
 
-    // 添加分隔线消息（存储）
-    const dividerTime = getCurrentTime();
-    currentChat.messages.push({
-        type: 'divider',
-        text: '新话题',
-        time: dividerTime,
-        uid: genMsgUid('divider', '新话题', dividerTime)
-    });
-    // 立即在界面添加分隔线
-    const divider = document.createElement('div');
-    divider.className = 'topic-divider';
-    divider.innerHTML = `<i class="fas fa-asterisk"></i> 新话题 <i class="fas fa-asterisk"></i>`;
-    chatMessages.appendChild(divider);
-    scrollToBottom();
-    // 添加开场白消息（普通 AI 消息）
+    // 创建新话题对象（独立消息列表）
     const aiTime = getCurrentTime();
-    appendMessageToDOM('ai', greeting, aiTime, true);
-    // 自动切换到新话题视图（新话题的索引为话题总数-1）
-    const topics = getTopicsFromMessages(currentChat.messages);
-    const newTopicIndex = topics.length - 1;
-    setCurrentTopic(newTopicIndex, false);
-    // 刷新左侧历史列表（更新最后消息时间）
+    const newTopic = {
+        id: Date.now(),
+        name: `话题 ${currentChat.topics.length + 1}`,
+        createdAt: new Date().toISOString(),
+        summary: null,
+        messages: [{
+            type: 'ai',
+            text: greeting,
+            time: aiTime,
+            uid: genMsgUid('ai', greeting, aiTime)
+        }]
+    };
+    currentChat.topics.push(newTopic);
+    const newTopicIndex = currentChat.topics.length - 1;
+
+    // 切换到新话题视图
+    await setCurrentTopic(newTopicIndex, false);
+
+    // 刷新左侧历史列表
     currentChat.date = new Date();
     renderHistoryList();
     await chatRepo.saveChat(currentChat);
@@ -1724,7 +1846,7 @@ async function deleteChat(chatId) {
             chats.splice(index, 1);
             if (currentChatId === id) {
                 setCurrentChatId(chats[0].id);
-                currentTopicIndex = null;
+                setCurrentTopicIndex(null);
                 renderMessages(currentChatId);
                 applyCurrentChatSettings();
             }
@@ -1757,42 +1879,6 @@ function bindAutoResize(textarea) {
     textarea._autoResizeHandler = handler;
     textarea.addEventListener('input', handler);
     handler(); // 初始化
-}
-
-function getTopicsFromMessages(messages, topicSummaries = {}) {
-    const topics = [];
-    let currentTopicMessages = [];
-    for (let i = 0; i < messages.length; i++) {
-        const msg = messages[i];
-        if (msg.type === 'divider') {
-            if (currentTopicMessages.length > 0) {
-                const idx = topics.length;
-                topics.push({
-                    startIndex: idx === 0 ? 0 : (topics[idx-1].endIndex + 1),
-                    endIndex: i - 1,
-                    messages: currentTopicMessages,
-                    dividerText: msg.text,
-                    dividerTime: msg.time,
-                    summary: topicSummaries[idx] || null
-                });
-                currentTopicMessages = [];
-            }
-        } else {
-            currentTopicMessages.push(msg);
-        }
-    }
-    if (currentTopicMessages.length > 0) {
-        const idx = topics.length;
-        topics.push({
-            startIndex: idx === 0 ? 0 : (topics[idx-1].endIndex + 1),
-            endIndex: messages.length - 1,
-            messages: currentTopicMessages,
-            dividerText: null,
-            dividerTime: null,
-            summary: topicSummaries[idx] || null
-        });
-    }
-    return topics;
 }
 
 async function generateTopicSummary(topicIndex, topicMessages) {
@@ -1836,7 +1922,10 @@ async function setCurrentTopic(topicIndex) {
         child => child.classList && (child.classList.contains('message') || child.classList.contains('topic-divider'))
     );
     if (oldMessages.length > 0) {
-        oldMessages.forEach(msg => msg.classList.add('fade-out'));
+        oldMessages.forEach(msg => {
+            msg.classList.remove('no-animation'); // 移除旧的无动画标记，让 fade-out 生效
+            msg.classList.add('fade-out');
+        });
         await new Promise(resolve => setTimeout(resolve, 300));
     }
 
@@ -1844,8 +1933,8 @@ async function setCurrentTopic(topicIndex) {
     messagesContainer.classList.add('no-entry-animation');
 
     // 3. 更新话题索引并重新渲染
-    currentTopicIndex = topicIndex;
-    renderMessages(currentChatId, currentTopicIndex);
+    setCurrentTopicIndex(topicIndex);
+    renderMessages(currentChatId, topicIndex);
 
     // 4. 为新消息添加跌落动画（错开延迟）
     const newMessages = Array.from(messagesContainer.children).filter(
@@ -1857,9 +1946,11 @@ async function setCurrentTopic(topicIndex) {
     });
 
     // 6. 动画结束后清理样式
+    // 先给当前消息加上 no-animation 防止移除 no-entry-animation 时重新触发入场动画
     setTimeout(() => {
         newMessages.forEach(msg => {
             msg.classList.remove('topic-drop-in');
+            msg.classList.add('no-animation');
             msg.style.animationDelay = '';
         });
         messagesContainer.classList.remove('no-entry-animation');
@@ -1997,14 +2088,11 @@ async function sendMessageWithoutAI() {
         modalManager.customAlert('AI 正在回复中，请稍候...', 'warning');
         return;
     }
-    // 如果当前为“显示全部话题”模式，自动切换到最后一个话题
-    if (currentTopicIndex === null) {
+    // 如果当前为”显示全部话题”模式，自动切换到最后一个话题
+    if (getCurrentTopicIndex() === null) {
         const currentChat = chats.find(c => c.id == currentChatId);
-        if (currentChat) {
-            const topics = getTopicsFromMessages(currentChat.messages);
-            if (topics.length > 0) {
-                await setCurrentTopic(topics.length - 1, false);
-            }
+        if (currentChat && currentChat.topics.length > 0) {
+            await setCurrentTopic(currentChat.topics.length - 1, false);
         }
     }
     let text = messageInput.value.trim();
@@ -2013,28 +2101,41 @@ async function sendMessageWithoutAI() {
     if (fileAttachment) {
         fileUpload.clearFile();  // 立即清除，避免重复使用
     }
+
+    // 捕获并清除引用状态
+    const quoteRef = getQuoteRef();
+    if (quoteRef) clearQuoteRef();
+
     if (text === '' && !fileAttachment) return;
 
     const userTime = getCurrentTime();
+    // 发给 AI 的文本保持旧格式（引用前缀 + 用户输入）
     let modelUserMsg = text;
+    if (quoteRef) {
+        modelUserMsg = `引用消息> **${quoteRef.role}**：${quoteRef.text}\n\n` + text;
+    }
     if (fileAttachment) {
-        modelUserMsg = text + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
+        modelUserMsg = modelUserMsg + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
     }
     const targetChat = chats.find(c => c.id == currentChatId);
     if (targetChat) {
-        targetChat.messages.push({
-            type: 'user',
-            text: text,
-            time: userTime,
-            file: fileAttachment,
-            modelInputText: modelUserMsg,
-            uid: genMsgUid('user', text, userTime)
-        });
-        targetChat.date = new Date();
-        renderHistoryList();
-        await chatRepo.saveChat(targetChat);
+        const activeTopic = getActiveTopic(targetChat);
+        if (activeTopic) {
+            activeTopic.messages.push({
+                type: 'user',
+                text: text,
+                time: userTime,
+                file: fileAttachment,
+                modelInputText: modelUserMsg,
+                uid: genMsgUid('user', text, userTime),
+                quoteRef: quoteRef || undefined,
+            });
+            targetChat.date = new Date();
+            renderHistoryList();
+            await chatRepo.saveChat(targetChat);
+        }
     }
-    await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment);
+    await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null);
     messageInput.value = '';
     messageInput.style.height = 'auto';
     forceScrollToBottom();

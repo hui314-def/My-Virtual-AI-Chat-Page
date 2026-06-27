@@ -143,10 +143,12 @@ export class MessageActions {
         const chats = ctx.getChats();
         const currentChatId = ctx.getCurrentChatId();
         const currentChat = chats.find(c => c.id == currentChatId);
+        const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];
+        const topicMessages = activeTopic ? activeTopic.messages : [];
 
         // 是否为最新 AI 消息
-        const isLatestAi = (type === 'ai' && currentChat && currentChat.messages.length > 0 &&
-            currentChat.messages[currentChat.messages.length - 1].text === text);
+        const isLatestAi = (type === 'ai' && topicMessages.length > 0 &&
+            topicMessages[topicMessages.length - 1].text === text);
 
         let buttonsHtml = `<button class="quote-btn"><i class="fas fa-quote-right"></i> 引用</button><button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除消息</button>`;
         if (type === 'ai') {
@@ -158,10 +160,10 @@ export class MessageActions {
                 <button class="continue-btn"><i class="fas fa-forward"></i> 继续说</button>
             `;
         }
-        const isLatestUser = (type === 'user' && currentChat && currentChat.messages.length > 0 &&
-            currentChat.messages[currentChat.messages.length - 1].type === 'user' &&
-            currentChat.messages[currentChat.messages.length - 1].text === text &&
-            currentChat.messages[currentChat.messages.length - 1].time === time);
+        const isLatestUser = (type === 'user' && topicMessages.length > 0 &&
+            topicMessages[topicMessages.length - 1].type === 'user' &&
+            topicMessages[topicMessages.length - 1].text === text &&
+            topicMessages[topicMessages.length - 1].time === time);
         if (isLatestUser) {
             buttonsHtml += `<button class="generate-reply-btn"><i class="fas fa-comment-dots"></i> 生成回复</button>`;
         }
@@ -266,13 +268,12 @@ export class MessageActions {
             if (!chat) return;
             const settings = chat.settings || Constants.DEFAULT_SETTINGS;
             const role = type === 'ai' ? settings.roleName : '用户';
-            const quoteText = `引用消息> **${role}**：${text}\n\n`;
-            const textarea = document.querySelector('.auto-expand-textarea');
-            if (textarea) {
-                textarea.value = textarea.value ? textarea.value + '\n' + quoteText : quoteText;
-                textarea.dispatchEvent(new Event('input'));
-                textarea.focus();
-            }
+            const msgUid = msgElement.dataset.msgUid || null;
+            ctx.setQuoteRef({
+                msgUid: msgUid,
+                role: role,
+                text: text,
+            });
             closeActionMenu();
         });
 
@@ -297,17 +298,19 @@ export class MessageActions {
         const ctx = this.ctx;
         const currentChat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
         if (!currentChat) return;
+        const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];
+        if (!activeTopic) return;
 
         let index = -1;
-        if (msgUid) index = currentChat.messages.findIndex(msg => msg.uid === msgUid);
+        if (msgUid) index = activeTopic.messages.findIndex(msg => msg.uid === msgUid);
         if (index === -1 && type && text && time) {
-            index = currentChat.messages.findIndex(msg => msg.type === type && msg.text === text && msg.time === time);
+            index = activeTopic.messages.findIndex(msg => msg.type === type && msg.text === text && msg.time === time);
         }
         if (index !== -1) {
-            currentChat.messages.splice(index, 1);
+            activeTopic.messages.splice(index, 1);
             ctx.renderMessages(ctx.getCurrentChatId(), ctx.getCurrentTopicIndex());
             await ctx.chatRepo.saveChat(currentChat);
-            if (currentChat.messages.length > 0) {
+            if (activeTopic.messages.length > 0) {
                 currentChat.date = new Date();
                 ctx.renderHistoryList();
             }
@@ -320,10 +323,12 @@ export class MessageActions {
         const ctx = this.ctx;
         const currentChat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
         if (!currentChat) return;
+        const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];
+        if (!activeTopic) return;
 
-        const index = currentChat.messages.findIndex(m => m.isImage && m.time === msgData.time && m.text === msgData.src);
+        const index = activeTopic.messages.findIndex(m => m.isImage && m.time === msgData.time && m.text === msgData.src);
         if (index !== -1) {
-            currentChat.messages.splice(index, 1);
+            activeTopic.messages.splice(index, 1);
             await ctx.chatRepo.saveChat(currentChat);
             msgElement.remove();
             ctx.renderHistoryList();
@@ -338,14 +343,16 @@ export class MessageActions {
         }
         const currentChat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
         if (!currentChat) return;
+        const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];
+        if (!activeTopic) return;
 
-        const lastIndex = currentChat.messages.length - 1;
-        if (lastIndex < 0 || currentChat.messages[lastIndex].type !== 'ai') return;
+        const lastIndex = activeTopic.messages.length - 1;
+        if (lastIndex < 0 || activeTopic.messages[lastIndex].type !== 'ai') return;
 
         let userMsg = '';
         for (let i = lastIndex - 1; i >= 0; i--) {
-            if (currentChat.messages[i].type === 'user') {
-                userMsg = currentChat.messages[i].modelInputText || currentChat.messages[i].text;
+            if (activeTopic.messages[i].type === 'user') {
+                userMsg = activeTopic.messages[i].modelInputText || activeTopic.messages[i].text;
                 break;
             }
         }
@@ -354,7 +361,7 @@ export class MessageActions {
             return;
         }
 
-        currentChat.messages.splice(lastIndex, 1);
+        activeTopic.messages.splice(lastIndex, 1);
         await ctx.chatRepo.saveChat(currentChat);
         ctx.renderMessages(ctx.getCurrentChatId(), ctx.getCurrentTopicIndex());
         await ctx.simulateAIResponse(userMsg);
@@ -364,13 +371,15 @@ export class MessageActions {
         const ctx = this.ctx;
         const currentChat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
         if (!currentChat) return;
+        const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];
+        if (!activeTopic) return;
 
-        const lastMsg = currentChat.messages[currentChat.messages.length - 1];
+        const lastMsg = activeTopic.messages[activeTopic.messages.length - 1];
         if (!lastMsg || lastMsg.type !== 'ai') return;
 
         const continuePrompt = '请继续刚才的话题，接着上面的内容继续说。';
         const userTime = getCurrentTime();
-        currentChat.messages.push({
+        activeTopic.messages.push({
             type: 'user',
             text: continuePrompt,
             time: userTime,

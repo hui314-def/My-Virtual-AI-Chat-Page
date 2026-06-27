@@ -47,21 +47,24 @@ export class SearchManager {
                 });
             }
 
-            // 匹配消息内容
-            let msgIndex = 0;
-            for (const msg of chat.messages) {
-                if (msg.type === 'divider') continue;
-                if (msg.text.toLowerCase().includes(lowerKeyword)) {
-                    results.push({
-                        type: 'message',
-                        chatId: chat.id,
-                        messageIndex: msgIndex,
-                        title: roleName,
-                        preview: msg.text.length > 60 ? msg.text.substring(0, 60) + '...' : msg.text,
-                        time: msg.time
-                    });
+            // 匹配消息内容（遍历话题 → 消息）
+            const topics = chat.topics || [];
+            for (let topicIdx = 0; topicIdx < topics.length; topicIdx++) {
+                const topic = topics[topicIdx];
+                for (let msgIdx = 0; msgIdx < topic.messages.length; msgIdx++) {
+                    const msg = topic.messages[msgIdx];
+                    if (msg.text.toLowerCase().includes(lowerKeyword)) {
+                        results.push({
+                            type: 'message',
+                            chatId: chat.id,
+                            topicIndex: topicIdx,
+                            messageIndex: msgIdx,
+                            title: roleName,
+                            preview: msg.text.length > 60 ? msg.text.substring(0, 60) + '...' : msg.text,
+                            time: msg.time
+                        });
+                    }
                 }
-                msgIndex++;
             }
         }
         this.#renderResults(results.slice(0, 20));
@@ -84,7 +87,7 @@ export class SearchManager {
                     <div class="search-dropdown-preview">${escapedPreview}</div>
                 </div>`;
             }
-            return `<div class="search-dropdown-item" data-chat-id="${result.chatId}" data-type="message" data-message-index="${result.messageIndex}">
+            return `<div class="search-dropdown-item" data-chat-id="${result.chatId}" data-type="message" data-topic-index="${result.topicIndex}" data-message-index="${result.messageIndex}">
                 <div class="search-dropdown-title"><i class="fas fa-comment-dots"></i> ${escapedTitle}<span class="search-dropdown-badge">消息</span></div>
                 <div class="search-dropdown-preview">${escapedPreview}</div>
                 <div style="font-size:0.65rem;color:#8e8eb3;margin-top:4px;">${escapeHtml(result.time)}</div>
@@ -98,18 +101,19 @@ export class SearchManager {
                 e.stopPropagation();
                 const chatId = parseInt(item.getAttribute('data-chat-id'));
                 const type = item.getAttribute('data-type');
+                const topicIndex = item.getAttribute('data-topic-index');
                 const messageIndex = item.getAttribute('data-message-index');
 
                 if (this.ctx.getCurrentChatId() !== chatId) {
                     this.ctx.switchChat(chatId);
                     setTimeout(() => {
-                        if (type === 'message' && messageIndex !== null) {
-                            this.scrollToMessage(parseInt(messageIndex));
+                        if (type === 'message' && topicIndex !== null && messageIndex !== null) {
+                            this.scrollToMessage(parseInt(topicIndex), parseInt(messageIndex));
                         }
                     }, 100);
                 } else {
-                    if (type === 'message' && messageIndex !== null) {
-                        this.scrollToMessage(parseInt(messageIndex));
+                    if (type === 'message' && topicIndex !== null && messageIndex !== null) {
+                        this.scrollToMessage(parseInt(topicIndex), parseInt(messageIndex));
                     }
                 }
                 dropdown.style.display = 'none';
@@ -119,23 +123,24 @@ export class SearchManager {
     }
 
     /**
-     * 滚动到指定消息索引并高亮
-     * @param {number} index
+     * 滚动到指定话题的消息并高亮
+     * @param {number} topicIndex
+     * @param {number} messageIndex
      */
-    scrollToMessage(index) {
+    scrollToMessage(topicIndex, messageIndex) {
+        // 如果当前话题不匹配，先切换到正确的话题
+        if (this.ctx.getCurrentTopicIndex() !== topicIndex) {
+            this.ctx.setCurrentTopicIndex(topicIndex);
+            this.ctx.renderMessages(this.ctx.getCurrentChatId(), topicIndex);
+            setTimeout(() => this.scrollToMessage(topicIndex, messageIndex), 100);
+            return;
+        }
         const messages = document.querySelectorAll('.chat-messages .message');
-        if (messages[index]) {
-            messages[index].scrollIntoView({ behavior: 'smooth', block: 'center' });
-            messages[index].style.transition = 'background 0.3s';
-            messages[index].style.backgroundColor = 'rgba(95, 126, 255, 0.3)';
-            setTimeout(() => { messages[index].style.backgroundColor = ''; }, 1500);
-        } else {
-            // 如果消息未渲染（话题视图），先重置
-            if (this.ctx.getCurrentTopicIndex() !== null) {
-                this.ctx.setCurrentTopicIndex(null);
-                this.ctx.renderMessages(this.ctx.getCurrentChatId());
-                setTimeout(() => this.scrollToMessage(index), 100);
-            }
+        if (messages[messageIndex]) {
+            messages[messageIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
+            messages[messageIndex].style.transition = 'background 0.3s';
+            messages[messageIndex].style.backgroundColor = 'rgba(95, 126, 255, 0.3)';
+            setTimeout(() => { messages[messageIndex].style.backgroundColor = ''; }, 1500);
         }
     }
 

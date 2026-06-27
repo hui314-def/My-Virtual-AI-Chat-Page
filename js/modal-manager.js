@@ -431,7 +431,7 @@ export class ModalManager {
         currentChat.settings.ttsVoice = ttsVoice;
 
         ctx.applyCurrentChatSettings();
-        ctx.renderMessages(ctx.currentChatId);
+        ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
         ctx.renderHistoryList();
         await ctx.chatRepo.saveChat(currentChat);
         if (oldGreeting !== newGreeting) {
@@ -668,7 +668,7 @@ export class ModalManager {
 
         ctx.applyTheme(globalSettings.theme);
         ctx.applyFontSize(fontSize);
-        if (ctx.currentChatId) ctx.renderMessages(ctx.currentChatId);
+        if (ctx.currentChatId) ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
         this.closeGlobalModal();
     }
 
@@ -678,7 +678,7 @@ export class ModalManager {
         const ctx = this.ctx;
         const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
         if (!currentChat) return;
-        const topics = ctx.getTopicsFromMessages(currentChat.messages, currentChat.settings?.topicSummaries);
+        const topics = currentChat.topics || [];
         const container = document.getElementById('topics-list-container');
         if (!container) return;
 
@@ -722,8 +722,7 @@ export class ModalManager {
                     const saveEdit = () => {
                         const newText = input.value.trim();
                         if (newText && newText !== oldText) {
-                            if (!currentChat.settings.topicSummaries) currentChat.settings.topicSummaries = {};
-                            currentChat.settings.topicSummaries[topicIdx] = newText;
+                            currentChat.topics[topicIdx].summary = newText;
                             ctx.chatRepo.saveAllChats(ctx.chats);
                             elem.innerText = newText;
                             elem.setAttribute('data-original', newText);
@@ -752,8 +751,7 @@ export class ModalManager {
                     if (summaryElem) summaryElem.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
                     const summary = await ctx.generateTopicSummary(idx, topic.messages);
                     if (summary && summaryElem) {
-                        if (!currentChat.settings.topicSummaries) currentChat.settings.topicSummaries = {};
-                        currentChat.settings.topicSummaries[idx] = summary;
+                        currentChat.topics[idx].summary = summary;
                         await ctx.chatRepo.saveAllChats(ctx.chats);
                         summaryElem.innerHTML = escapeHtml(summary);
                         summaryElem.setAttribute('data-original', summary);
@@ -777,7 +775,7 @@ export class ModalManager {
             container.querySelectorAll('.topic-export-btn').forEach(btn => {
                 btn.addEventListener('click', (e) => {
                     const idx = parseInt(btn.getAttribute('data-topic-index'));
-                    ctx.chatIO.exportTopic(idx, topics, currentChat);
+                    ctx.chatIO.exportTopic(idx, currentChat);
                 });
             });
 
@@ -809,16 +807,21 @@ export class ModalManager {
 
                     const topic = topics[idx];
                     if (!topic) return;
-                    let start = topic.startIndex, end = topic.endIndex;
-                    if (start > 0 && currentChat.messages[start - 1].type === 'divider') start = start - 1;
-                    currentChat.messages.splice(start, end - start + 1);
+                    // 直接从 topics 数组中删除
+                    currentChat.topics.splice(idx, 1);
+                    // 调整 currentTopicIndex
+                    if (currentChat.currentTopicIndex === idx) {
+                        currentChat.currentTopicIndex = null;
+                    } else if (currentChat.currentTopicIndex > idx) {
+                        currentChat.currentTopicIndex--;
+                    }
                     currentChat.date = new Date();
 
-                    ctx.renderMessages(ctx.currentChatId);
+                    ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
                     ctx.renderHistoryList();
                     await ctx.chatRepo.saveAllChats(ctx.chats);
 
-                    if (!currentChat.messages.some(msg => msg.type !== 'divider')) {
+                    if (currentChat.topics.length === 0) {
                         ctx.startNewTopic();
                     }
                     self.openTopicsModal(); // 刷新列表
