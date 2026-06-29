@@ -2212,10 +2212,9 @@ body.light-theme .chat-header select {
     border-color: #cdd9ff !important;
 }
 
-/* ========= 气泡透明毛玻璃效果 ========= */
+/* ========= 气泡透明效果 ========= */
 body.light-theme .bubble {
     background: rgba(255, 255, 255, 0.4) !important;
-    backdrop-filter: blur(16px) !important;
     border: 1px solid rgba(100, 130, 255, 0.3) !important;
     box-shadow: 0 2px 8px rgba(0, 0, 0, 0.05) !important;
 }

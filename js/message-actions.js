@@ -37,6 +37,47 @@ export class MessageActions {
         this.currentPictureMsgElement = null;
     }
 
+    #currentQuoteRef = null;
+    
+    /** 设置引用状态并更新 UI */
+    setQuoteRef(ref) {
+        this.#currentQuoteRef = ref;
+        const indicator = document.getElementById('quote-indicator');
+        const roleSpan = document.getElementById('quote-indicator-role');
+        const textSpan = document.getElementById('quote-indicator-text');
+        if (indicator && roleSpan && textSpan) {
+            roleSpan.textContent = ref.role;
+            const maxLen = 60;
+            textSpan.textContent = ref.text.length > maxLen
+                ? ref.text.substring(0, maxLen) + '...'
+                : ref.text;
+            indicator.style.display = 'flex';
+        }
+    }
+
+    /** 清除引用状态并隐藏 UI */
+    clearQuoteRef() {
+        this.#currentQuoteRef = null;
+        const indicator = document.getElementById('quote-indicator');
+        if (indicator) indicator.style.display = 'none';
+    }
+
+    /** 获取当前引用状态 */
+    getQuoteRef() { return this.#currentQuoteRef; }
+
+    /** 滚动到被引用的原始消息并高亮 */
+    scrollToQuotedMessage(msgUid) {
+        const target = document.querySelector(`.message[data-msg-uid="${msgUid}"]`);
+        if (!target) return;
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        target.style.transition = 'background 0.3s';
+        target.style.backgroundColor = 'rgba(95, 126, 255, 0.3)';
+        target.style.borderRadius = '8px';
+        setTimeout(() => {
+            target.style.backgroundColor = '';
+            target.style.borderRadius = '';
+        }, 2000);
+    }
     // ==================== 图片消息操作栏 ====================
 
     showPictureActions(msgElement, msgData) {
@@ -269,7 +310,7 @@ export class MessageActions {
             const settings = chat.settings || Constants.DEFAULT_SETTINGS;
             const role = type === 'ai' ? settings.roleName : '用户';
             const msgUid = msgElement.dataset.msgUid || null;
-            ctx.setQuoteRef({
+            this.setQuoteRef({
                 msgUid: msgUid,
                 role: role,
                 text: text,
@@ -296,6 +337,10 @@ export class MessageActions {
 
     async #deleteMessageFromChat(msgUid, type, text, time) {
         const ctx = this.ctx;
+        if (ctx.isProcessing()) {
+            ctx.showBriefToast('请等待当前请求完成');
+            return;
+        }
         const currentChat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
         if (!currentChat) return;
         const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];

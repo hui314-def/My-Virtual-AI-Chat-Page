@@ -16,6 +16,15 @@ export class TTsService {
     /** @type {HTMLElement|null} 最后被禁用的播放按钮 */
     #lastDisabledPlayBtn = null;
     static #voiceCache = null;// 静态私有音色缓存
+    onFallback = null; // 降级回调
+    /**
+     * 设置降级回调（由外部注入，用于显示提示）
+     * @param {Function} callback - (message: string) => void
+     */
+    setOnFallback(callback) {
+        this.onFallback = callback;
+    }
+    
     /**
      * 获取音色列表（自动缓存）
      * @param {boolean} forceRefresh - 是否强制刷新缓存，默认 false
@@ -158,6 +167,9 @@ export class TTsService {
                 console.log('TTS 请求被取消');
             } else {
                 console.error('后端 TTS 失败，降级到浏览器语音', err);
+                if (this.onFallback) {
+                    this.onFallback('语音合成服务连接失败，已切换至浏览器默认语音');
+                }
                 this.#fallbackSpeak(text);
             }
         } finally {
@@ -208,6 +220,14 @@ export class TTsService {
                 reject(e);
             };
         });
+    }
+
+    /**
+     * 设置降级回调（由外部注入，用于显示提示）
+     * @param {Function} callback - (message: string) => void
+     */
+    setOnFallback(callback) {
+        this.onFallback = callback;
     }
 
     // 降级：使用浏览器内置语音合成

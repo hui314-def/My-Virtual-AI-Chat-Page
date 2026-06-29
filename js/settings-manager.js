@@ -1,13 +1,9 @@
-// 全局设置管理器
-// 负责从 localStorage 读取/写入/更新 global_settings，
-// 统一默认值与错误处理，避免各处散落的 JSON.parse 调用。
+// 全局设置管理器负责从 localStorage 读取/写入/更新 global_settings，统一默认值与错误处理。
 import Constants from './constants.js';
 
 const STORAGE_KEY = 'global_settings';
 
 // 字段默认值表。所有读操作都从这张表取默认值，写操作不会写入默认值。
-// 注意：username 字段在两处默认值不同（'访客' 用于设置面板，'用户' 用于 AI 系统提示），
-// 为保持向后兼容，SettingsManager.getUsername() 返回 '访客'，调用方自行决定是否覆盖。
 const DEFAULTS = Object.freeze({
     // 模型相关
     modelHost: Constants.DEFAULT_MODEL_HOST,
@@ -38,6 +34,8 @@ const DEFAULTS = Object.freeze({
 
     // 快捷键（由 saveGlobalSettings 整体序列化）
     shortcuts: {},
+    //自动滚动开关
+    autoScrollAfterSend: true,
 });
 
 export class SettingsManager {
@@ -153,6 +151,7 @@ export class SettingsManager {
     static getImgApiKey()   { return this._read().imgApiKey ?? DEFAULTS.imgApiKey; }
 
     static getShortcuts()   { return this._read().shortcuts ?? DEFAULTS.shortcuts; }
+    static getAutoScrollAfterSend() {return this._read().autoScrollAfterSend ?? DEFAULTS.autoScrollAfterSend;}
 }
 
 export default SettingsManager;

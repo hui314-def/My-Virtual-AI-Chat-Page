@@ -78,7 +78,7 @@ export class ModalManager {
         toast.textContent = message;
         toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 2000);
+        setTimeout(() => toast.remove(), 3000);
     }
 
     // ==================== 通用弹窗 ====================
@@ -441,7 +441,6 @@ export class ModalManager {
     }
 
     // ==================== 全局设置弹窗 ====================
-
     openGlobalSettings() {
         const ctx = this.ctx;
         const modelHostInput = document.getElementById('model-host');
@@ -586,6 +585,11 @@ export class ModalManager {
         const modal = document.getElementById('global-settings-modal');
         if (modal) modal.style.display = 'flex';
         ctx.renderShortcutsPanel();
+
+        const autoScrollCheck = document.getElementById('global-auto-scroll');
+        if (autoScrollCheck) {
+            autoScrollCheck.checked = SettingsManager.getAutoScrollAfterSend();
+        }
     }
 
     closeGlobalModal() {
@@ -646,6 +650,7 @@ export class ModalManager {
             ttsApiKey: document.getElementById('tts-api-key').value,
             imgApiKey: document.getElementById('img-api-key').value,
             typingSpeed: parseFloat(document.getElementById('global-typing-speed').value),
+            autoScrollAfterSend: document.getElementById('global-auto-scroll').checked,
         };
 
         if (ctx.modelServiceInstanceRef.value) {

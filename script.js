@@ -71,46 +71,6 @@ function getActiveTopic(chat) {
     return chat.topics[idx];
 }
 
-// ==================== 引用消息管理 ====================
-
-function setQuoteRef(ref) {
-    currentQuoteRef = ref;
-    const indicator = document.getElementById('quote-indicator');
-    const roleSpan = document.getElementById('quote-indicator-role');
-    const textSpan = document.getElementById('quote-indicator-text');
-    if (indicator && roleSpan && textSpan) {
-        roleSpan.textContent = ref.role;
-        const maxLen = 60;
-        textSpan.textContent = ref.text.length > maxLen
-            ? ref.text.substring(0, maxLen) + '...'
-            : ref.text;
-        indicator.style.display = 'flex';
-    }
-}
-
-function clearQuoteRef() {
-    currentQuoteRef = null;
-    const indicator = document.getElementById('quote-indicator');
-    if (indicator) indicator.style.display = 'none';
-}
-
-function getQuoteRef() {
-    return currentQuoteRef;
-}
-
-function scrollToQuotedMessage(msgUid) {
-    const target = document.querySelector(`.message[data-msg-uid="${msgUid}"]`);
-    if (!target) return;
-    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    target.style.transition = 'background 0.3s';
-    target.style.backgroundColor = 'rgba(95, 126, 255, 0.3)';
-    target.style.borderRadius = '8px';
-    setTimeout(() => {
-        target.style.backgroundColor = '';
-        target.style.borderRadius = '';
-    }, 2000);
-}
-
 // ==================== 快捷键管理器 ====================
 // 注意：先于 modalManager 构造，因为 modalManager 依赖 shortcutManager。
 // customAlert 在 modalManager 创建后注入。
@@ -173,6 +133,7 @@ const modalManager = new ModalManager({
 
 // 注入 customAlert（modalManager 创建后才能引用）
 shortcutManager._customAlert = (msg, type) => modalManager.customAlert(msg, type);
+ttsService.setOnFallback((msg) => modalManager.showBriefToast(msg));
 
 // ==================== 语音输入 ====================
 const voiceInput = new VoiceInput({ customAlert: (msg, type) => modalManager.customAlert(msg, type) });
@@ -204,9 +165,6 @@ const msgActions = new MessageActions({
     simulateAIResponse,
     appendMessageToDOM,
     updateStatusIndicator,
-    setQuoteRef: (ref) => setQuoteRef(ref),
-    clearQuoteRef: () => clearQuoteRef(),
-    getQuoteRef: () => getQuoteRef(),
 });
 function showMessageActions(...args) { msgActions.showMessageActions(...args); }
 function showPictureActions(...args) { msgActions.showPictureActions(...args); }
@@ -278,9 +236,7 @@ function forceScrollToBottom() {
     scrollToBottom();
 }
 
-function scrollToBottom() {
-    if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;
-}
+function scrollToBottom() {if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;}
 
 function renderModelListUI() {
     const models = ModelService.getModels();
@@ -365,12 +321,8 @@ function bindQuickModelSwitch() {
         // 同步更新全局设置弹窗中的输入框
         const modelNameInput = document.getElementById('global-model-name');
         if (modelNameInput) modelNameInput.value = newModel;
-        // 可选：显示提示
-        const toast = document.createElement('div');
-        toast.textContent = `已切换到模型：${newModel}`;
-        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 2000);
+        // 显示提示
+        modalManager.showBriefToast(`已切换到模型：${newModel}`)
     });
 }
 
@@ -647,7 +599,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         if (quoteRefEl) {
             quoteRefEl.addEventListener('click', (e) => {
                 e.stopPropagation();
-                scrollToQuotedMessage(quoteRef.msgUid);
+                msgActions.scrollToQuotedMessage(quoteRef.msgUid);
             });
         }
     }
@@ -840,7 +792,7 @@ async function simulateAIResponse(userMsg) {
     typingDiv.className = 'message ai';
     typingDiv.innerHTML = `<div class="avatar-msg"><i class="fas fa-robot"></i></div><div class="bubble typing-bubble"><div class="typing-indicator"><i class="fas fa-ellipsis-h"></i> ${roleName} 正在思考...</div></div>`;
     chatMessages.appendChild(typingDiv);
-    scrollToBottom();
+    if (SettingsManager.getAutoScrollAfterSend()) scrollToBottom();
 
     try {
         // 获取对话历史（支持话题视图）
@@ -919,7 +871,7 @@ async function simulateAIResponse(userMsg) {
                 bubbleP = messageDiv.querySelector('.bubble p');
                 bubbleP.innerHTML = '';  // 清空占位
                 chatMessages.appendChild(messageDiv);
-                scrollToBottom();
+                if (SettingsManager.getAutoScrollAfterSend()) scrollToBottom();
                 isFirstChunk = false;
             }
             fullReply += chunk;
@@ -957,7 +909,7 @@ async function simulateAIResponse(userMsg) {
                 showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
             });
         }
-        scrollToBottom();
+        if (SettingsManager.getAutoScrollAfterSend()) scrollToBottom();
         updateStatusIndicator('online');
         // 保存消息到存储
         const targetChat = chats.find(c => c.id == currentChatId);
@@ -1045,8 +997,8 @@ async function sendUserMessage() {
     }
 
     // 捕获并清除引用状态
-    const quoteRef = getQuoteRef();
-    if (quoteRef) clearQuoteRef();
+    const quoteRef = msgActions.getQuoteRef();
+    if (quoteRef) msgActions.clearQuoteRef();
 
     if (text === '' && !fileAttachment) return;
 
@@ -1089,7 +1041,7 @@ async function sendUserMessage() {
             await chatRepo.saveChat(targetChat);
         }
     }
-    forceScrollToBottom();
+    if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
     // 渲染消息
     await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null);
     messageInput.value = '';
@@ -1391,7 +1343,7 @@ function bindEvents() {
     // 引用消息关闭按钮
     const quoteCloseBtn = document.getElementById('quote-indicator-close');
     if (quoteCloseBtn) {
-        quoteCloseBtn.addEventListener('click', () => clearQuoteRef());
+        quoteCloseBtn.addEventListener('click', () => msgActions.clearQuoteRef());
     }
 
     const importBtn = document.querySelector('.import-chat-btn');
@@ -1600,6 +1552,10 @@ function bindEvents() {
     const startImageGenBtn = document.getElementById('start-image-gen-btn');
     if (startImageGenBtn) {
         startImageGenBtn.addEventListener('click', async () => {
+            if (isProcessing) {
+                modalManager.customAlert('AI 正在回复中，请等待完成后再生成图片。', 'warning');
+                return;
+            }
             const prompt = document.getElementById('image-gen-prompt').value;
             if (!prompt) {
                 modalManager.customAlert('请输入图片描述');
@@ -1619,7 +1575,7 @@ function bindEvents() {
 
             // 发送提示消息
             await appendMessageToDOM('ai', `🎨 正在生成 ${count} 张图片...`, getCurrentTime(), false);
-            forceScrollToBottom();
+            if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
             try {
                 const response = await fetch(`${imgApiUrl}/generate_image`, {
                     method: 'POST',
@@ -1798,11 +1754,7 @@ async function togglePinChat(chat) {
     // 重新排序并渲染列表
     renderHistoryList();
     await chatRepo.saveChat(chat);
-    const toast = document.createElement('div');
-    toast.textContent = chat.pinned ? '📌 已置顶该会话' : '📍 已取消置顶';
-    toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
+    modalManager.showBriefToast(chat.pinned ? '📌 已置顶该会话' : '📍 已取消置顶')
 }
 
 // 删除会话
@@ -1855,11 +1807,7 @@ async function deleteChat(chatId) {
         await chatRepo.saveAllChats(chats);
 
         // 提示
-        const toast = document.createElement('div');
-        toast.textContent = '🗑️ 会话已删除';
-        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
-        document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 2000);
+        modalManager.showBriefToast('🗑️ 会话已删除')
     }
 }
 
@@ -1956,10 +1904,6 @@ async function setCurrentTopic(topicIndex) {
         messagesContainer.classList.remove('no-entry-animation');
     }, 500);
 }
-
-// startVoiceInput 已提取到 js/voice-input.js（通过包装函数调用）
-
-// openGlobalSettings 已提取到 js/modal-manager.js（通过包装函数调用）
 
 // 应用主题（明亮/暗黑）
 function applyTheme(theme) {
@@ -2102,16 +2046,14 @@ async function sendMessageWithoutAI() {
         fileUpload.clearFile();  // 立即清除，避免重复使用
     }
 
-    // 捕获并清除引用状态
-    const quoteRef = getQuoteRef();
-    if (quoteRef) clearQuoteRef();
-
     if (text === '' && !fileAttachment) return;
 
     const userTime = getCurrentTime();
     // 发给 AI 的文本保持旧格式（引用前缀 + 用户输入）
     let modelUserMsg = text;
+    const quoteRef = msgActions.getQuoteRef();
     if (quoteRef) {
+        msgActions.clearQuoteRef(); // 捕获并清除引用状态
         modelUserMsg = `引用消息> **${quoteRef.role}**：${quoteRef.text}\n\n` + text;
     }
     if (fileAttachment) {
@@ -2138,7 +2080,7 @@ async function sendMessageWithoutAI() {
     await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null);
     messageInput.value = '';
     messageInput.style.height = 'auto';
-    forceScrollToBottom();
+    if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
 }
 
 // 沉浸模式切换
@@ -2153,18 +2095,13 @@ function toggleImmersiveMode() {
             sidebar.classList.remove('open');
         }
     }
-    
-    // 可选：显示提示（非必须，可取消注释）
-    const toast = document.createElement('div');
-    toast.textContent = isImmersive ? '🌙 沉浸模式已开启 (再次按快捷键退出)' : '✨ 已退出沉浸模式';
-    toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
-    document.body.appendChild(toast);
-    setTimeout(() => toast.remove(), 2000);
+
+    // 显示提示
+    modalManager.showBriefToast(isImmersive ? '🌙 沉浸模式已开启 (再次按快捷键退出)' : '✨ 已退出沉浸模式')
 }
 
 async function init() {
-    // 初始化 index.html 中以 src="" 占位的元素（默认头像等）。
-    // 这样做可以避免在 HTML 中硬编码超长 SVG base64 字符串。
+    // 初始化 index.html 中以 src="" 占位的元素（默认头像等）可以避免在 HTML 中硬编码超长 SVG base64 字符串。
     const defaultAvatarEl = document.getElementById('global-avatar-img');
     if (defaultAvatarEl && !defaultAvatarEl.src) {
         defaultAvatarEl.src = Constants.DEFAULT_USER_AVATAR;
