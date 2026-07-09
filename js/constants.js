@@ -46,6 +46,7 @@ class Constants {
     static get DEFAULT_TTS_API_URL() { return 'http://localhost:5000'; }
     static get DEFAULT_IMG_API_URL() { return 'http://127.0.0.1:5050'; }
     static get DEFAULT_MODEL_NAME() { return 'gemma2'; }
+    static get DEFAULT_KNOWLEDGE_API_URL() { return 'http://localhost:5051'; }
 
     // ==================== 语音识别语言 ====================
     static get SPEECH_RECOGNITION_LANG() { return 'zh-CN'; }

@@ -19,8 +19,6 @@ import ShortcutManager from './js/shortcut-manager.js';
 
 // ==================== DOM 元素绑定 ====================
 const historyList = document.querySelector('.history-list');
-const newChatBtn = document.querySelector('.new-chat-btn');
-const settingBtn = document.querySelector('.setting-btn');
 const chatMessages = document.querySelector('.chat-messages');
 const messageInput = document.querySelector('.auto-expand-textarea');
 const sendBtn = document.querySelector('.send-btn');
@@ -44,9 +42,7 @@ const fileUpload = new FileUploadService({
 let chats = [];
 let currentChatId = null;
 let autoScrollEnabled = true;     // 是否允许自动滚动
-let globalModal = null;
 let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
-let currentQuoteRef = null;  // 当前引用状态 { msgUid, role, text }
 let currentStatus = 'online';   // 记录当前指示器状态
 const cropperRef = { value: null };
 const modelServiceInstanceRef = { value: null };
@@ -401,17 +397,6 @@ function initResizer() {
         document.body.classList.add('dragging');
     });
 }
-
-// ==================== 动态注入弹窗样式 ====================
-const modalStyles = Constants.MODAL_STYLES;
-const styleSheet = document.createElement("style");
-styleSheet.textContent = modalStyles;
-document.head.appendChild(styleSheet);
-
-// ==================== 动态创建弹窗 HTML ====================
-const modalHTML = Constants.MODAL_HTML;
-document.body.insertAdjacentHTML('beforeend', modalHTML);
-
 
 // 从 IndexedDB 加载
 async function loadFromStorage() {
@@ -1143,18 +1128,6 @@ function historyClickHandler(e) {
     }
 }
 
-const bgUpload = document.getElementById('bg-upload');
-bgUpload.addEventListener('change', (e) => {
-    const file = e.target.files[0];
-    if (!file) return;
-    modalManager.showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
-        document.getElementById('bg-img').src = croppedDataUrl;
-        const mainChat = document.querySelector('.main-chat');
-        mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
-        mainChat.style.backgroundSize = 'cover';
-    });
-});
-
 // ==================== 初始化数据 ====================
 async function initData() {
     // 应用已保存的字体大小
@@ -1258,6 +1231,20 @@ function bindEvents() {
             // Shift+Enter 及其他组合键不拦截，默认行为（换行等）
         });
     }
+    // 背景图片上传预览
+    const bgUpload = document.getElementById('bg-upload');
+    bgUpload.addEventListener('change', (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+        modalManager.showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
+            document.getElementById('bg-img').src = croppedDataUrl;
+            const mainChat = document.querySelector('.main-chat');
+            mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
+            mainChat.style.backgroundSize = 'cover';
+        });
+    });
+
+    const newChatBtn = document.querySelector('.new-chat-btn');
     if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
     // 头像上传预览
     document.getElementById('global-avatar-upload').addEventListener('change', async (e) => {
@@ -1389,7 +1376,7 @@ function bindEvents() {
     }
 
     // 获取元素
-    globalModal = document.getElementById('global-settings-modal');
+    let globalModal = document.getElementById('global-settings-modal');
     const closeGlobalBtn = document.getElementById('close-global-settings');
     const cancelGlobalBtn = document.getElementById('cancel-global-settings');
     const saveGlobalBtn = document.getElementById('save-global-settings');
@@ -1433,6 +1420,7 @@ function bindEvents() {
 
     // 修改左下角设置按钮的点击事件
     const originalSettingBtn = document.querySelector('.setting-btn');
+    const settingBtn = document.querySelector('.setting-btn');
     if (originalSettingBtn) {
         // 移除原有监听（避免重复）
         const newBtn = originalSettingBtn.cloneNode(true);
@@ -2106,6 +2094,11 @@ async function init() {
     if (defaultAvatarEl && !defaultAvatarEl.src) {
         defaultAvatarEl.src = Constants.DEFAULT_USER_AVATAR;
     }
+    // ==================== 动态注入弹窗样式 ====================
+    const styleSheet = document.createElement("style");
+    styleSheet.textContent = Constants.MODAL_STYLES;
+    document.head.appendChild(styleSheet);
+    document.body.insertAdjacentHTML('beforeend', Constants.MODAL_HTML); // 动态创建弹窗 HTML 
 
     loadModelListAndInit();
     await initData();
@@ -2116,6 +2109,7 @@ async function init() {
     getModelService();
     renderModelListUI();      // 渲染模型列表弹窗
     updateModelSelector();    // 更新快速切换下拉框
+    
     // 初始化完成，移除遮罩并显示主界面
     const overlay = document.getElementById('loading-overlay');
     const chatApp = document.querySelector('.chat-app');

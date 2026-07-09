@@ -37,7 +37,7 @@ export class MessageActions {
         this.currentPictureMsgElement = null;
     }
 
-    #currentQuoteRef = null;
+    #currentQuoteRef = null;  // 当前引用状态 { msgUid, role, text }
     
     /** 设置引用状态并更新 UI */
     setQuoteRef(ref) {

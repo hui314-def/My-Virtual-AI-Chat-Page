@@ -259,6 +259,9 @@
                 <div class="settings-menu-item" data-tab="model">
                     <i class="fas fa-microchip"></i> 模型设置
                 </div>
+                <div class="settings-menu-item" data-tab="knowledge">
+                    <i class="fas fa-database"></i> 知识库
+                </div>
                 <div class="settings-menu-item" data-tab="general">
                     <i class="fas fa-globe"></i> 通用设置
                 </div>
@@ -384,6 +387,11 @@
                         <input type="password" id="img-api-key" placeholder="图片生成服务 API Key">
                         <small>如果图片生成服务需要鉴权，请填写对应的 API Key</small>
                     </div>
+                </div>
+                <!-- 知识库 -->
+                <div class="settings-tab-pane" id="tab-knowledge">
+                    <!-- 知识库内容由 JS 动态渲染 -->
+                    <div id="knowledge-base-container"></div>
                 </div>
                 <!-- 通用设置 -->
                 <div class="settings-tab-pane" id="tab-general">

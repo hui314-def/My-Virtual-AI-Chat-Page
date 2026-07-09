@@ -13,7 +13,7 @@
 ## ✨ 主要特性
 
 - 🎭 **角色定制** — 自定义 AI 角色的名称、性格设定、头像和开场白，打造专属灵魂伴侣。
-- 🖼️ **动态背景** — 上传自定义背景图，配合半透明毛玻璃气泡，营造沉浸式视觉氛围。
+- 🖼️ **动态背景** — 上传自定义背景图，配合透明玻璃消息气泡，营造沉浸式视觉氛围。
 - 🎙️ **语音交互** — 支持语音输入（Web Speech API）及语音合成（TTS），让对话更自然。
 - 🧠 **模型兼容** — 原生支持 Ollama 和 OpenAI 兼容 API（如 GPT、DeepSeek 等），可自由切换模型。
 - 📚 **话题管理** — 通过“新话题”分隔不同对话片段，便于回溯与切换，支持自动/手动生成话题简介。
@@ -21,7 +21,7 @@
 - 🔍 **全局搜索** — 快速搜索历史消息和会话，一键跳转定位。
 - 📤 **导入/导出** — 支持导出单会话为 JSON 或 HTML 文件，也可导入之前导出的 JSON 会话。
 - 🖼️ **AI 图片生成** — 集成 ComfyUI 后端，可根据描述生成图片并自动插入对话。
-- 🌓 **暗夜/明亮主题** — 支持深色、浅色及跟随系统主题，适配不同使用场景。
+- 🌓 **暗夜/明亮主题** — 原生支持深色、扩展支持浅色主题，适配不同使用场景。
 - ⌨️ **快捷键支持** — 内置常用快捷键（新建对话、新话题、聚焦输入等），且可自定义。
 
 ## 🔧 安装与配置
@@ -35,18 +35,22 @@
 ├── style.css
 ├── script.js
 ├── js/
+│   ├── chat-io.js
 │   ├── constants.js
+│   ├── file-upload.js
+│   ├── message-actions.js
+│   ├── modal-manager.js
 │   ├── model-service.js
 │   ├── repository.js
-│   ├── settings-manager.js
-│   ├── tts-service.js
-│   ├── chat-io.js
-│   ├── file-upload.js
-│   └── utils.js
+│   ├── search.js
+|   ├── settings-manager.js
+|   ├── shortcut-manager.js
+|   ├── tts-service.js
+|   ├── utils.js
+|   └── voice-input.js
 ├── image_gen_api.py
 ├── tts_api.py
 ├── requirements.txt
-├── .env.example (可选)
 └── README.md
 ```
 
@@ -82,7 +86,7 @@ export OLLAMA_ORIGINS=*
 
 ### 3. 语音合成服务（可选）
 
-若需要语音朗读功能，需启动 `tts_api.py`：
+若需要语音朗读功能，需启动 `tts_api.py`，建议安装python3.12：
 
 ```bash
 pip install -r requirements.txt
@@ -91,7 +95,7 @@ python tts_api.py
 
 默认监听端口 5000，支持音色克隆（通过上传参考音频）。
 
-首次启动会自动加载 Qwen3-TTS 模型（需提前下载模型权重，参考 Qwen3-TTS 官方文档）。
+首次启动会自动加载 Qwen3-TTS 模型（需提前下载模型权重，参考 [Qwen3-TTS 官方文档](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)）。
 
 ### 4. 图片生成服务（可选）
 
