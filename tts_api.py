@@ -192,11 +192,11 @@ def get_voices():
     return jsonify({"voices": voices})
 
 @app.route('/tts', methods=['POST'])
-@require_api_key
+# @require_api_key
 def tts_synthesis():
     data = request.get_json()
     text = data.get('text', '')
-    voice = data.get('voice', 'default')
+    voice = data.get('voiceId', 'default')
 
     if not text:
         return jsonify({"error": "text 参数不能为空"}), 400

@@ -4,6 +4,7 @@ import Constants from './constants.js';
 import { SettingsManager } from './settings-manager.js';
 import { TTsService } from './tts-service.js';
 import { ModelService } from './model-service.js';
+import { KnowledgeBaseManager } from './knowledge-base-manager.js';
 import { escapeHtml } from './utils.js';
 
 export class ModalManager {
@@ -36,8 +37,10 @@ export class ModalManager {
      */
     constructor(ctx) {
         this.ctx = ctx;
-        this.kbListCache = null;          // 缓存知识库文档列表
-        this.kbCustomName = localStorage.getItem('kb_name_default') || '默认知识库';
+        this.kbManager = new KnowledgeBaseManager({
+            customAlert: (msg, type) => this.customAlert(msg, type),
+            showCustomDialog: (opts) => this.showCustomDialog(opts),
+        });
     }
 
     // ==================== 工具方法 ====================
@@ -594,7 +597,7 @@ export class ModalManager {
         if (autoScrollCheck) {
             autoScrollCheck.checked = SettingsManager.getAutoScrollAfterSend();
         }
-        await this.renderKnowledgeBase();
+        await this.kbManager.renderKnowledgeBase();
     }
 
     closeGlobalModal() {
@@ -848,516 +851,186 @@ export class ModalManager {
         this.closeModalWithAnimation(modal);
     }
 
-    async renderKnowledgeBase() {
-        const container = document.getElementById('knowledge-base-container');
-        if (!container) return;
-        container.innerHTML = '<div style="text-align:center;padding:40px;"><i class="fas fa-spinner fa-spin"></i> 加载中...</div>';
+    // ==================== 知识库选择器 ====================
+
+    /** 打开知识库选择弹窗*/
+    async openKnowledgeBaseSelector() {
+        const modal = document.getElementById('kb-select-modal');
+        const body = document.getElementById('kb-select-body');
+        if (!modal || !body) return;
+
+        // 显示加载状态
+        body.innerHTML = `<div style="text-align:center;padding:40px;color:#8e8eb3;">
+            <i class="fas fa-spinner fa-spin"></i> 加载知识库列表...
+        </div>`;
+        modal.style.display = 'flex';
 
         try {
-            // 从后端获取知识库列表（使用缓存）
-            let kbList = [];
-            if (this.kbListCache !== null) {
-                kbList = this.kbListCache;
-            } else {
-                const response = await fetch('http://localhost:5051/knowledge_bases');
-                if (!response.ok) throw new Error('网络错误');
-                const data = await response.json();
-                kbList = data.knowledge_bases || [];
-                this.kbListCache = kbList;
-            }
-
-            let html = `
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                    <h4 style="margin:0; color:#ccd6ff;"><i class="fas fa-database" style="margin-right:8px;"></i>知识库</h4>
-                    <button class="action-btn" id="new-kb-btn"><i class="fas fa-plus"></i> 新建知识库</button>
-                </div>
-                <div style="display:grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap:16px;">
-            `;
-            if (kbList.length === 0) {
-                html += `<div style="grid-column:1/-1; text-align:center; padding:40px; color:#8e8eb3;">暂无知识库，点击“新建知识库”创建</div>`;
-            } else {
-                for (const kb of kbList) {
-                    html += `
-                        <div class="knowledge-card" data-kb-id="${kb.id}" style="background:rgba(30,34,55,0.6); border-radius:16px; padding:20px; border:1px solid rgba(100,130,255,0.3); cursor:pointer; transition:0.2s; position:relative;">
-                            <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                                <i class="fas fa-database" style="font-size:1.5rem; color:#5f7eff;"></i>
-                                <div>
-                                    <button class="edit-kb-btn" data-kb-id="${kb.id}" style="background:transparent; border:none; color:#b7c4ff; cursor:pointer; margin-right:8px;"><i class="fas fa-pencil-alt"></i></button>
-                                    <button class="delete-kb-btn" data-kb-id="${kb.id}" style="background:transparent; border:none; color:#ff8a7a; cursor:pointer;"><i class="fas fa-trash-alt"></i></button>
-                                </div>
-                            </div>
-                            <div class="kb-card-name" style="font-size:1.1rem; font-weight:500; margin:12px 0 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(kb.name)}</div>
-                            ${kb.description ? `<div class="kb-card-desc" style="font-size:0.8rem; color:#b7c4ff; margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word;">${escapeHtml(kb.description)}</div>` : ''}
-                            <div style="font-size:0.8rem; color:#8e8eb3;">文档数：${kb.document_count || 0}</div>
-                            <div style="font-size:0.7rem; color:#6c7b9e; margin-top:4px;">创建：${kb.created_at ? kb.created_at.substring(0,10) : '未知'}</div>
-                        </div>
-                    `;
-                }
-            }
-            html += `</div>`;
-            container.innerHTML = html;
-
-            // 绑定卡片点击进入详情
-            container.querySelectorAll('.knowledge-card').forEach(card => {
-                card.addEventListener('click', (e) => {
-                    if (e.target.closest('button')) return;
-                    const kbId = card.dataset.kbId;
-                    this.showKnowledgeDetail(kbId);
-                });
-            });
-
-            // 编辑按钮
-            container.querySelectorAll('.edit-kb-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    const kbId = btn.dataset.kbId;
-                    const card = btn.closest('.knowledge-card');
-                    const nameDiv = card.querySelector('.kb-card-name');
-                    const descDiv = card.querySelector('.kb-card-desc');
-                    const currentName = nameDiv ? nameDiv.textContent : '';
-                    const currentDesc = (descDiv && !descDiv.textContent.includes('文档数')) ? descDiv.textContent : '';
-                    this.editKnowledgeBase(kbId, currentName, currentDesc);
-                });
-            });
-
-            // 删除按钮
-            container.querySelectorAll('.delete-kb-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const kbId = btn.dataset.kbId;
-                    if (!confirm('确定要删除该知识库及其所有文档吗？')) return;
-                    try {
-                        const res = await fetch(`http://localhost:5051/knowledge_bases/${kbId}`, { method: 'DELETE' });
-                        if (res.ok) {
-                            this.kbListCache = null;
-                            this.customAlert('删除成功', 'success');
-                            this.renderKnowledgeBase();
-                        } else {
-                            const err = await res.json();
-                            this.customAlert('删除失败：' + err.error, 'error');
-                        }
-                    } catch (err) {
-                        this.customAlert('删除失败：' + err.message, 'error');
-                    }
-                });
-            });
-
-            // 新建知识库
-            document.getElementById('new-kb-btn').addEventListener('click', () => {
-                this.createKnowledgeBase();
-            });
-
-        } catch (err) {
-            container.innerHTML = `<div style="text-align:center;padding:40px;color:#ff7a5c;">加载失败：${err.message}</div>`;
-        }
-    }
-
-    async showKnowledgeDetail(kbId) {
-        const container = document.getElementById('knowledge-base-container');
-        if (!container) return;
-
-        // 获取知识库名称
-        let kbName = '知识库';
-        if (this.kbListCache) {
-            const found = this.kbListCache.find(kb => kb.id === kbId);
-            if (found) kbName = found.name;
-        } else {
-            // 如果缓存为空，则重新请求
-            try {
-                const response = await fetch('http://localhost:5051/knowledge_bases');
-                if (response.ok) {
-                    const data = await response.json();
-                    this.kbListCache = data.knowledge_bases || [];
-                    const found = this.kbListCache.find(kb => kb.id === kbId);
-                    if (found) kbName = found.name;
-                }
-            } catch (e) {
-                console.warn('获取知识库名称失败', e);
-            }
-        }
-        try {
-            const response = await fetch(`http://localhost:5051/knowledge_bases/${kbId}/documents`);
-            if (!response.ok) throw new Error('网络错误');
+            // 获取知识库列表
+            const apiBase = this.kbManager.apiBase;
+            const response = await fetch(`${apiBase}/knowledge_bases`);
+            if (!response.ok) throw new Error('获取知识库列表失败');
             const data = await response.json();
-            const docs = data.documents || [];
-            let html = `
-                <div id="upload-progress-container" style="display:none; margin-bottom:16px;">
-                    <div style="display:flex; justify-content:space-between; align-items:center;">
-                        <span id="upload-progress-label">上传中...</span>
-                        <span id="upload-progress-percent">0%</span>
-                    </div>
-                    <div style="width:100%; height:6px; background:rgba(30,34,55,0.6); border-radius:3px; overflow:hidden; margin-top:4px;">
-                        <div id="upload-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #5f7eff, #7f9eff); transition:width 0.3s;"></div>
-                    </div>
-                </div>
-                <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                    <div style="display:flex; align-items:center; gap:12px;">
-                        <button class="action-btn" id="back-to-kb-list"><i class="fas fa-arrow-left"></i> 返回</button>
-                        <h4 style="margin:0; color:#ccd6ff;">
-                            <span class="kb-detail-name" data-kb-id="${kbId}" style="cursor:text;">${kbName}</span>
-                        </h4>
-                    </div>
-                    <button class="action-btn" id="upload-doc-btn"><i class="fas fa-upload"></i> 上传文档</button>
-                </div>
-                <div style="background:rgba(20,24,45,0.5); border-radius:16px; padding:16px;">
-            `;
-            if (docs.length === 0) {
-                html += `<div style="text-align:center;padding:40px; color:#8e8eb3;">暂无文档，点击“上传文档”添加</div>`;
-            } else {
-                html += `<div style="display:flex; flex-direction:column; gap:12px;">`;
-                for (const doc of docs) {
-                    html += `
-                        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:rgba(30,34,55,0.4); border-radius:12px; border-left:3px solid #5f7eff;">
-                            <div>
-                                <i class="fas fa-file-alt" style="color:#5f7eff; margin-right:12px;"></i>
-                                <span>${doc.filename}</span>
-                                <span style="font-size:0.7rem; color:#8e8eb3; margin-left:12px;">块数：${doc.chunks}</span>
-                            </div>
-                            <button class="delete-doc-btn" data-doc-id="${doc.doc_id}" style="background:transparent; border:none; color:#ff8a7a; cursor:pointer;">
-                                <i class="fas fa-trash-alt"></i>
-                            </button>
-                        </div>
-                    `;
-                }
-                html += `</div>`;
-            }
-            html += `</div>`;
-            container.innerHTML = html;
+            const kbList = data.knowledge_bases || [];
 
-            // 返回列表
-            document.getElementById('back-to-kb-list').addEventListener('click', () => {
-                this.renderKnowledgeBase();
-            });
+            // 获取当前选中的知识库ID列表
+            const selectedIdsStr = localStorage.getItem('selected_kb_ids') || '';
+            const selectedIds = selectedIdsStr ? selectedIdsStr.split(',') : [];
 
-            // 删除文档
-            container.querySelectorAll('.delete-doc-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const docId = btn.dataset.docId;
-                    if (!confirm(`确定要删除该文档吗？`)) return;
-                    try {
-                        const res = await fetch(`http://localhost:5051/knowledge_bases/${kbId}/documents/${docId}`, { method: 'DELETE' });
-                        if (res.ok) {
-                            this.kbListCache = null; // 清除缓存，使列表页重新获取最新数据
-                            this.showKnowledgeDetail(kbId);
-                            this.customAlert('删除成功', 'success');
-                        } else {
-                            const err = await res.json();
-                            this.customAlert('删除失败：' + err.error, 'error');
-                        }
-                    } catch (err) {
-                        this.customAlert('删除失败：' + err.message, 'error');
-                    }
-                });
-            });
-
-            // 上传文档
-            document.getElementById('upload-doc-btn').addEventListener('click', () => {
-                const input = document.createElement('input');
-                input.type = 'file';
-                input.accept = '.txt,.pdf,.docx';
-                input.onchange = async (e) => {
-                    const file = e.target.files[0];
-                    if (!file) return;
-
-                    // 获取按钮元素并保存原始内容
-                    const uploadBtn = document.getElementById('upload-doc-btn');
-                    const originalHTML = uploadBtn.innerHTML;
-                    // 禁用按钮并显示加载状态
-                    uploadBtn.disabled = true;
-                    uploadBtn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 上传中...';
-                    uploadBtn.style.opacity = '0.7';
-
-                    // 显示进度条
-                    const progressContainer = document.getElementById('upload-progress-container');
-                    const progressBar = document.getElementById('upload-progress-bar');
-                    const progressPercent = document.getElementById('upload-progress-percent');
-                    const progressLabel = document.getElementById('upload-progress-label');
-                    progressContainer.style.display = 'block';
-                    progressBar.style.width = '0%';
-                    progressPercent.textContent = '0%';
-                    progressLabel.textContent = `正在上传 ${file.name} ...`;
-
-                    const formData = new FormData();
-                    formData.append('file', file);
-
-                    try {
-                        // 1. 上传文件
-                        const uploadRes = await fetch(`http://localhost:5051/knowledge_bases/${kbId}/documents`, {
-                            method: 'POST',
-                            body: formData
-                        });
-
-                        if (!uploadRes.ok) {
-                            const err = await uploadRes.json();
-                            throw new Error(err.error || '上传失败');
-                        }
-
-                        const uploadData = await uploadRes.json();
-                        const taskId = uploadData.doc_id;
-
-                        // 上传完成，开始轮询处理状态
-                        progressLabel.textContent = '上传完成，正在处理...';
-                        progressBar.style.width = '10%';
-                        progressPercent.textContent = '10%';
-
-                        // 轮询任务状态
-                        const pollInterval = setInterval(async () => {
-                            try {
-                                const statusRes = await fetch(`http://localhost:5051/task_status/${taskId}`);
-                                if (!statusRes.ok) {
-                                    throw new Error('状态查询失败');
-                                }
-                                const statusData = await statusRes.json();
-
-                                if (statusData.status === 'processing') {
-                                    const prog = statusData.progress || 0;
-                                    progressBar.style.width = prog + '%';
-                                    progressPercent.textContent = prog + '%';
-                                    progressLabel.textContent = `处理中 ${prog}%`;
-                                } else if (statusData.status === 'completed') {
-                                    clearInterval(pollInterval);
-                                    progressLabel.textContent = '处理完成 ✅';
-                                    progressBar.style.width = '100%';
-                                    progressPercent.textContent = '100%';
-                                    this.kbListCache = null;
-                                    await this.showKnowledgeDetail(kbId);
-                                    uploadBtn.disabled = false;
-                                    uploadBtn.innerHTML = originalHTML;
-                                    this.customAlert('上传成功', 'success');
-                                    setTimeout(() => {
-                                        progressContainer.style.display = 'none';
-                                    }, 2000);
-                                } else if (statusData.status === 'failed') {
-                                    clearInterval(pollInterval);
-                                    uploadBtn.disabled = false;
-                                    uploadBtn.innerHTML = originalHTML;
-                                    this.customAlert('处理失败：' + (statusData.error || '未知错误'), 'error');
-                                    setTimeout(() => {
-                                        progressContainer.style.display = 'none';
-                                    }, 3000);
-                                }
-                            } catch (err) {
-                                clearInterval(pollInterval);
-                                this.customAlert('状态查询异常：' + err.message, 'error');
-                            }
-                        }, 3000); // 每3秒轮询一次
-
-                        // 恢复按钮状态（但保持不可用直到处理完成？我们可以在完成后恢复）
-                        // 但为了不干扰，我们不恢复，等待完成或失败后恢复。
-                        // 在成功或失败的回调中恢复按钮
-                    } catch (err) {
-                        this.customAlert('上传失败：' + err.message, 'error');
-                        uploadBtn.disabled = false;
-                        uploadBtn.innerHTML = originalHTML;
-                        progressContainer.style.display = 'none';
-                    }
-                };
-                input.click();
-            });
-
-            // 恢复进行中的上传任务进度条（关闭页面重开后不丢失）
-            this._restoreUploadProgress(kbId);
+            // 渲染列表
+            this.#renderKbSelectorList(body, kbList, selectedIds);
         } catch (err) {
-            container.innerHTML = `<div style="text-align:center;padding:40px;color:#ff7a5c;">加载失败：${err.message}</div>`;
+            body.innerHTML = `<div style="text-align:center;padding:40px;color:#ff7a5c;">
+                <i class="fas fa-exclamation-circle" style="font-size:2rem;display:block;margin-bottom:12px;"></i>
+                加载失败：${err.message}
+                <div style="margin-top:12px;font-size:0.8rem;color:#8e8eb3;">请检查知识库服务是否正常运行</div>
+            </div>`;
         }
     }
 
-    async _restoreUploadProgress(kbId) {
-        try {
-            const res = await fetch(`http://localhost:5051/knowledge_bases/${kbId}/tasks`);
-            if (!res.ok) return;
-            const data = await res.json();
-            const tasks = data.tasks || {};
-
-            const progressContainer = document.getElementById('upload-progress-container');
-            const progressBar = document.getElementById('upload-progress-bar');
-            const progressPercent = document.getElementById('upload-progress-percent');
-            const progressLabel = document.getElementById('upload-progress-label');
-            if (!progressContainer || !progressBar || !progressPercent || !progressLabel) return;
-
-            for (const [taskId, task] of Object.entries(tasks)) {
-                if (task.status === 'processing') {
-                    progressContainer.style.display = 'block';
-                    progressBar.style.width = task.progress + '%';
-                    progressPercent.textContent = task.progress + '%';
-                    progressLabel.textContent = `处理中 ${task.progress}%`;
-
-                    const pollInterval = setInterval(async () => {
-                        try {
-                            const statusRes = await fetch(`http://localhost:5051/task_status/${taskId}`);
-                            if (!statusRes.ok) { clearInterval(pollInterval); return; }
-                            const s = await statusRes.json();
-                            if (s.status === 'processing') {
-                                progressBar.style.width = s.progress + '%';
-                                progressPercent.textContent = s.progress + '%';
-                                progressLabel.textContent = `处理中 ${s.progress}%`;
-                            } else if (s.status === 'completed') {
-                                clearInterval(pollInterval);
-                                progressLabel.textContent = '处理完成 ✅';
-                                progressBar.style.width = '100%';
-                                progressPercent.textContent = '100%';
-                                this.kbListCache = null;
-                                await this.showKnowledgeDetail(kbId);
-                            } else if (s.status === 'failed') {
-                                clearInterval(pollInterval);
-                                progressContainer.style.display = 'none';
-                                this.customAlert('处理失败：' + (s.error || '未知错误'), 'error');
-                            }
-                        } catch (e) {
-                            clearInterval(pollInterval);
-                        }
-                    }, 3000);
-                    return; // 只恢复第一个进行中的任务
-                }
+    /**
+     * 渲染知识库选择列表
+     * @param {HTMLElement} container - 容器元素
+     * @param {Array} kbList - 知识库列表
+     * @param {string|null} selectedId - 当前选中的知识库ID
+     */
+    #renderKbSelectorList(container, kbList, selectedIds = []) {
+        if (!kbList || kbList.length === 0) {
+            container.innerHTML = `
+                <div class="kb-select-empty">
+                    <i class="fas fa-database"></i>
+                    <div>暂无知识库</div>
+                    <div style="font-size:0.85rem;margin-top:4px;">请前往「个性化设置 → 知识库」创建</div>
+                    <span class="action-link" id="kb-select-goto-settings">前往创建 →</span>
+                </div>
+            `;
+            const goBtn = document.getElementById('kb-select-goto-settings');
+            if (goBtn) {
+                goBtn.addEventListener('click', () => {
+                    this.closeKnowledgeBaseSelector();
+                    this.openGlobalSettings();
+                    setTimeout(() => {
+                        document.querySelectorAll('.settings-menu-item').forEach(item => {
+                            if (item.getAttribute('data-tab') === 'knowledge') item.click();
+                        });
+                    }, 300);
+                });
             }
-        } catch (e) {
-            // 静默失败，不影响页面正常使用
+            return;
         }
-    }
 
-    async showCreateKbDialog() {
-        const result = await this.showCustomDialog({
-            title: '新建知识库',
-            message: `
-                <div class="form-group">
-                    <label>知识库名称</label>
-                    <input type="text" id="new-kb-name" placeholder="请输入名称" style="width:100%;">
+        let html = `<div class="kb-select-grid">`;
+        for (const kb of kbList) {
+            const isSelected = selectedIds.includes(kb.id);
+            const desc = kb.description || '暂无描述';
+            html += `
+                <div class="kb-select-card ${isSelected ? 'selected' : ''}" data-kb-id="${kb.id}">
+                    <div class="kb-select-check"><i class="fas fa-check"></i></div>
+                    <span class="kb-select-icon"><i class="fas fa-database"></i></span>
+                    <div class="kb-select-name">${escapeHtml(kb.name)}</div>
+                    <div class="kb-select-desc">${escapeHtml(desc)}</div>
                 </div>
-                <div class="form-group">
-                    <label>描述（可选）</label>
-                    <textarea id="new-kb-desc" rows="2" placeholder="请输入描述" style="width:100%;"></textarea>
-                </div>
-            `,
-            buttons: [
-                { text: '取消', value: null, className: 'cancel' },
-                { text: '创建', value: true, className: 'save' }
-            ],
-            closable: false
+            `;
+        }
+        html += `</div>`;
+        container.innerHTML = html;
+
+        // 添加清空选择按钮
+        const clearBtnHtml = `<div style="text-align:center; margin-top:16px;">
+            <button class="action-btn" id="kb-clear-selection" style="background:rgba(255,80,80,0.15); border-color:rgba(255,80,80,0.3); color:#ff8a7a; padding:6px 20px;">
+                <i class="fas fa-times-circle"></i> 清空所有选择
+            </button>
+        </div>`;
+        container.innerHTML += clearBtnHtml;
+
+        // 绑定清空按钮事件
+        const clearBtn = document.getElementById('kb-clear-selection');
+        if (clearBtn) {
+            clearBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                // 取消所有卡片选中
+                container.querySelectorAll('.kb-select-card').forEach(c => c.classList.remove('selected'));
+                // 更新提示
+                const hint = document.getElementById('kb-select-hint');
+                if (hint) hint.innerHTML = `💡 已清空选择，请点击卡片选择（可多选）`;
+            });
+        }
+        // 绑定卡片点击事件（多选切换）
+        const cards = container.querySelectorAll('.kb-select-card');
+        cards.forEach(card => {
+            card.addEventListener('click', () => {
+                card.classList.toggle('selected');
+                // 更新提示
+                const selected = container.querySelectorAll('.kb-select-card.selected');
+                const hint = document.getElementById('kb-select-hint');
+                if (hint) {
+                    const count = selected.length;
+                    if (count === 0) {
+                        hint.innerHTML = `不使用知识库`;
+                    } else {
+                        const names = Array.from(selected).map(c => c.querySelector('.kb-select-name')?.textContent || '').join('、');
+                        hint.innerHTML = `✅ 已选 <strong>${count}</strong> 个：${escapeHtml(names)}`;
+                    }
+                }
+            });
         });
 
-        if (result) {
-            const nameInput = document.getElementById('new-kb-name');
-            const descInput = document.getElementById('new-kb-desc');
-            const name = nameInput ? nameInput.value.trim() : '';
-            const description = descInput ? descInput.value.trim() : '';
-            if (!name) {
-                this.customAlert('请输入知识库名称', 'warning');
-                return;
-            }
-            try {
-                const res = await fetch('http://localhost:5051/knowledge_bases', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, description })
-                });
-                if (res.ok) {
-                    this.kbListCache = null; // 清除缓存
-                    await this.renderKnowledgeBase();
-                    this.customAlert('知识库创建成功', 'success');
-                } else {
-                    const err = await res.json();
-                    this.customAlert('创建失败：' + err.error, 'error');
-                }
-            } catch (err) {
-                this.customAlert('创建失败：' + err.message, 'error');
+        // 更新初始提示
+        const hint = document.getElementById('kb-select-hint');
+        if (hint) {
+            const selected = container.querySelectorAll('.kb-select-card.selected');
+            if (selected.length > 0) {
+                const names = Array.from(selected).map(c => c.querySelector('.kb-select-name')?.textContent || '').join('、');
+                hint.innerHTML = `✅ 已选 <strong>${selected.length}</strong> 个：${escapeHtml(names)}`;
+            } else {
+                hint.innerHTML = `💡 点击卡片选择知识库（可多选），确认后生效`;
             }
         }
     }
 
-    async createKnowledgeBase() {
-        const result = await this.showCustomDialog({
-            title: '新建知识库',
-            message: `
-                <div style="margin-bottom:12px;">
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">名称</label>
-                    <input type="text" id="new-kb-name" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none;">
-                </div>
-                <div>
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">描述</label>
-                    <textarea id="new-kb-desc" rows="2" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none; resize:vertical;"></textarea>
-                </div>
-            `,
-            buttons: [
-                { text: '取消', value: null, className: 'cancel' },
-                { text: '创建', value: 'create', className: 'save' }
-            ],
-            isHtml: true
-        });
-        if (result === 'create') {
-            const nameInput = document.getElementById('new-kb-name');
-            const descInput = document.getElementById('new-kb-desc');
-            const name = nameInput ? nameInput.value.trim() : '';
-            const description = descInput ? descInput.value.trim() : '';
-            if (!name) {
-                this.customAlert('请输入知识库名称', 'error');
-                return;
-            }
-            try {
-                const res = await fetch('http://localhost:5051/knowledge_bases', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, description })
-                });
-                if (res.ok) {
-                    this.kbListCache = null;
-                    this.customAlert('创建成功', 'success');
-                    this.renderKnowledgeBase();
-                } else {
-                    const err = await res.json();
-                    this.customAlert('创建失败：' + err.error, 'error');
-                }
-            } catch (err) {
-                this.customAlert('创建失败：' + err.message, 'error');
-            }
-        }
+    /** 关闭知识库选择弹窗 */
+    closeKnowledgeBaseSelector() {
+        const modal = document.getElementById('kb-select-modal');
+        this.closeModalWithAnimation(modal);
     }
 
-    async editKnowledgeBase(kbId, currentName, currentDesc) {
-        const result = await this.showCustomDialog({
-            title: '编辑知识库',
-            message: `
-                <div style="margin-bottom:12px;">
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">名称</label>
-                    <input type="text" id="edit-kb-name" value="${escapeHtml(currentName)}" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none;">
-                </div>
-                <div>
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">描述</label>
-                    <textarea id="edit-kb-desc" rows="2" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none; resize:vertical;">${escapeHtml(currentDesc || '')}</textarea>
-                </div>
-            `,
-            buttons: [
-                { text: '取消', value: null, className: 'cancel' },
-                { text: '保存', value: 'save', className: 'save' }
-            ],
-            isHtml: true
+    /** 确认选择知识库（多选）*/
+    confirmKnowledgeBaseSelection() {
+        const selectedCards = document.querySelectorAll('#kb-select-body .kb-select-card.selected');
+        const ids = [];
+        const names = [];
+        selectedCards.forEach(card => {
+            ids.push(card.dataset.kbId);
+            const nameEl = card.querySelector('.kb-select-name');
+            if (nameEl) names.push(nameEl.textContent);
         });
-        if (result === 'save') {
-            const nameInput = document.getElementById('edit-kb-name');
-            const descInput = document.getElementById('edit-kb-desc');
-            const name = nameInput ? nameInput.value.trim() : '';
-            const description = descInput ? descInput.value.trim() : '';
-            if (!name) {
-                this.customAlert('请输入知识库名称', 'error');
-                return;
+
+        // 保存到 localStorage（用逗号分隔ID，为空则保存空字符串）
+        localStorage.setItem('selected_kb_ids', ids.join(','));
+        localStorage.setItem('selected_kb_names', names.join(','));
+
+        // 更新按钮显示
+        this.#updateKbButtonLabel(names);
+
+        this.closeKnowledgeBaseSelector();
+    }
+
+    /** 更新知识库按钮标签 */
+    #updateKbButtonLabel(names) {
+        const label = document.getElementById('kb-btn-label');
+        if (!label) return;
+        if (names && names.length > 0) {
+            if (names.length === 1) {
+                const name = names[0];
+                label.textContent = name.length > 8 ? name.substring(0, 8) + '…' : name;
+                label.title = name;
+            } else {
+                label.textContent = `📚 ${names.length}个`;
+                label.title = names.join('、');
             }
-            try {
-                const res = await fetch(`http://localhost:5051/knowledge_bases/${kbId}`, {
-                    method: 'PUT',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name, description })
-                });
-                if (res.ok) {
-                    this.kbListCache = null;
-                    this.customAlert('更新成功', 'success');
-                    this.renderKnowledgeBase();
-                } else {
-                    const err = await res.json();
-                    this.customAlert('更新失败：' + err.error, 'error');
-                }
-            } catch (err) {
-                this.customAlert('更新失败：' + err.message, 'error');
-            }
+        } else {
+            label.textContent = '选择知识库';
+            label.title = '';
         }
     }
 }

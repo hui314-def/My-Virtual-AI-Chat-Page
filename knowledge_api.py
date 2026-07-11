@@ -9,6 +9,7 @@ from sentence_transformers import SentenceTransformer
 import PyPDF2
 import docx
 import threading
+from concurrent.futures import ProcessPoolExecutor
 
 app = Flask(__name__)
 CORS(app)
@@ -25,10 +26,31 @@ client = chromadb.PersistentClient(path=PERSIST_DIR, settings=Settings(anonymize
 # 元数据集合（存储知识库信息）
 meta_collection = client.get_or_create_collection("kb_meta")
 
-# 嵌入模型
+# 嵌入模型（主进程保留一份，用于检索接口的实时查询 embedding，单条很快不阻塞）
+MODEL_PATH = './local_model/all-MiniLM-L6-v2'
 print("正在加载嵌入模型 all-MiniLM-L6-v2 ...")
-embedder = SentenceTransformer('./local_model/all-MiniLM-L6-v2')
+embedder = SentenceTransformer(MODEL_PATH)
 print("嵌入模型加载完成。")
+
+# ========== 独立进程池：文档 embedding 在子进程中运行，绕过 GIL ==========
+_embedding_pool = None
+
+def _init_embedding_worker():
+    """子进程初始化：复用模块导入时已加载的模型实例"""
+    global _worker_embedder
+    _worker_embedder = embedder  # embedder 在子进程导入模块时已加载，直接复用引用
+
+def _encode_batch(batch_chunks: list) -> list:
+    """在子进程中执行 embedding，返回 list[list[float]]"""
+    global _worker_embedder
+    return _worker_embedder.encode(batch_chunks).tolist()
+
+def _get_embedding_pool():
+    """延迟创建进程池（避免 import 时在子进程中递归创建）"""
+    global _embedding_pool
+    if _embedding_pool is None:
+        _embedding_pool = ProcessPoolExecutor(max_workers=1, initializer=_init_embedding_worker)
+    return _embedding_pool
 
 # ========== 辅助函数 ==========
 def split_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) -> list:
@@ -78,7 +100,7 @@ def parse_file(file) -> str:
 
 def get_kb_collection(kb_id: str):
     """获取或创建知识库对应的 collection"""
-    return client.get_or_create_collection(f"kb_{kb_id}")
+    return client.get_or_create_collection(f"kb_{kb_id}", metadata={"hnsw:space": "cosine"})
 
 def get_doc_meta_collection(kb_id: str):
     """获取或创建知识库的文档元数据集合（每个文档一条记录）"""
@@ -112,8 +134,10 @@ def process_document_task(kb_id, filename, doc_id, chunks):
 
         for i in range(0, total, BATCH_SIZE):
             batch_chunks = chunks[i:i+BATCH_SIZE]
-            # 在后台线程中分批 embedding，不再阻塞请求线程
-            batch_embeddings = embedder.encode(batch_chunks).tolist()
+            # 在独立进程中执行 embedding，绕过 GIL，主进程不阻塞
+            pool = _get_embedding_pool()
+            future = pool.submit(_encode_batch, batch_chunks)
+            batch_embeddings = future.result()
             ids = [f"{doc_id}_{i+j}" for j in range(len(batch_chunks))]
             metadatas = [{"doc_id": doc_id, "filename": filename, "chunk_index": i+j} for j in range(len(batch_chunks))]
             kb_coll.add(
@@ -413,7 +437,7 @@ def search_knowledge(kb_id):
             items.append({
                 "content": doc,
                 "filename": meta.get('filename', '未知'),
-                "score": 1 - dist
+                "score": 1 - dist / 2
             })
         return jsonify({"results": items}), 200
     except Exception as e:

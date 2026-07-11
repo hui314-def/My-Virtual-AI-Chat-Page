@@ -23,6 +23,7 @@
 - 🖼️ **AI 图片生成** — 集成 ComfyUI 后端，可根据描述生成图片并自动插入对话。
 - 🌓 **暗夜/明亮主题** — 原生支持深色、扩展支持浅色主题，适配不同使用场景。
 - ⌨️ **快捷键支持** — 内置常用快捷键（新建对话、新话题、聚焦输入等），且可自定义。
+- 📖 **知识库搭建** — 支持docx，pdf，txt等格式的文档上传到知识库和多知识库管理操作。
 
 ## 🔧 安装与配置
 
@@ -38,6 +39,7 @@
 │   ├── chat-io.js
 │   ├── constants.js
 │   ├── file-upload.js
+|   ├── knowledge-base-manager.js
 │   ├── message-actions.js
 │   ├── modal-manager.js
 │   ├── model-service.js
@@ -50,6 +52,7 @@
 |   └── voice-input.js
 ├── image_gen_api.py
 ├── tts_api.py
+├── knowledge_api.py
 ├── requirements.txt
 └── README.md
 ```
@@ -146,6 +149,7 @@ IMG_API_KEY=your_img_api_key_here
 - Flask-CORS
 - Qwen3-TTS（语音合成，需 GPU 支持）
 - ComfyUI（图片生成，独立安装）
+- chromadb（向量数据库，知识库搭建必备）
 
 详见 `requirements.txt`。
 

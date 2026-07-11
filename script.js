@@ -494,7 +494,7 @@ function renderHistoryList() {
 }
 
 // 追加消息到DOM
-async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null) {
+async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
     if (msgUid) messageDiv.dataset.msgUid = msgUid;
@@ -554,7 +554,16 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     }
     timeHtml += `${escapeHtml(displayTime)}</div>`;
     bubbleContent += timeHtml;
-    
+
+    // ---- 知识库引用标志 ----
+    if (type === 'ai' && knowledgeSources && knowledgeSources.length > 0) {
+        const sourcesHtml = knowledgeSources.map(src =>
+            `<span class="kb-source-tag" title="相似度: ${src.score}">
+                <i class="fas fa-database"></i> ${escapeHtml(src.filename)}
+            </span>`
+        ).join('');
+        bubbleContent += `<div class="kb-sources">${sourcesHtml}</div>`;
+    }
     messageDiv.innerHTML = `
         <div class="avatar-msg">${avatarHtml}</div>
         <div class="bubble">${bubbleContent}</div>
@@ -717,7 +726,7 @@ function renderMessages(chatId, topicIndex = null) {
                 appendImageToDOM(msg.type, msg.text, msg.time, false, null);
             } else {
                 const fileAttachment = msg.file || null;
-                appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null);
+                appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null);
             }
         });
         if (topicMessages.length === 0) {
@@ -740,7 +749,7 @@ function renderMessages(chatId, topicIndex = null) {
                     appendImageToDOM(msg.type, msg.text, msg.time, false, null);
                 } else {
                     const fileAttachment = msg.file || null;
-                    appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null);
+                    appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null);
                 }
             });
         }
@@ -803,13 +812,10 @@ async function simulateAIResponse(userMsg) {
         const userName = SettingsManager.getUsername() === '访客' ? '用户' : SettingsManager.getUsername();
         const userBio = SettingsManager.getBio();
 
-        let systemPrompt = `你的角色名称是：${roleName}。${rolePersona ? rolePersona : ''}\n\n`;
-        if (userBio) {
-            systemPrompt += `关于当前用户的名称是：${userName}，简介：${userBio}`;
-        } else {
-            systemPrompt += `当前用户名称叫：${userName}`;
-        }
-        systemPrompt += '\n\n重要：请严格根据上述角色设定进行角色扮演，不要打破角色，不要以助手或AI的身份回答。必须始终以角色的身份和语气回复。\n\n回复格式规则：当你的回复中包含人物动作、环境描写、情绪描述等非语言表达的内容时，请使用括号（）将这些内容包裹起来。例如：（轻轻叹气）我相信你能做到。或（窗外的雨声淅沥）今天的任务完成得不错。';
+        let systemPrompt = `你是一位角色扮演者，你的姓名是“ ${roleName} ”。关于你的角色简介是：\n\n${rolePersona ? rolePersona : ''}\n\n总之你需要始终以“ ${roleName} ”的身份和口吻回应\n\n`;
+        if (userBio) systemPrompt += `关于和你对话的当前用户的名称是：${userName}，简介：${userBio}`;
+        else systemPrompt += `关于和你对话的当前用户名称叫：${userName}。`;
+        systemPrompt += '\n\n重要：请严格根据上述角色设定进行角色扮演，不要打破角色，不要以助手或AI的身份回答。必须始终以角色的身份和语气回复。\n\n回复格式规则：你的回复可以包含人物动作、环境描写、情绪描述等非语言表达内容，当你的回复中包含这样的的内容时，请使用括号（）将这些内容包裹起来。例如：“（轻轻叹气）我相信你能做到”。或“（窗外的雨声淅沥）今天的任务完成得不错。”';
         messages.push({ role: 'system', content: systemPrompt });
         let lastUserMsgContent = '';
         for (const msg of messagesToUse) {
@@ -822,6 +828,38 @@ async function simulateAIResponse(userMsg) {
             messages.push({ role: 'user', content: userMsg });
         }
 
+        const SIMILARITY_THRESHOLD = Constants.SIMILARITY_THRESHOLD; // 相似度分数阈值（0~1）
+        let finalUserMsg = null;
+        let knowledgeSources = null;
+
+        const selectedIdsStr = localStorage.getItem('selected_kb_ids') || '';
+        if (selectedIdsStr.trim() !== '') {
+            const kbIds = selectedIdsStr.split(',').filter(id => id.trim());
+            if (kbIds.length > 0) {
+                try {
+                    const kbResults = await retrieveKnowledge(kbIds, userMsg);
+                    const relevant = kbResults.filter(item => (item.score || 0) >= SIMILARITY_THRESHOLD);
+                    if (relevant && relevant.length > 0) {
+                        const knowledgeText = relevant.map((item, idx) => 
+                            `[知识片段 ${idx+1}] 来源：${item.filename || '知识库'}\n${item.content}`
+                        ).join('\n\n');
+                        finalUserMsg = `【知识库参考信息】\n以下是知识库中与当前问题相关的参考信息，仅供你在需要事实细节时参考。但请你记住：如果参考资料中没有任何与用户消息有关的内容，则请你忽略以下所有资料信息，否则必须以当前的角色人设风格进行回答。\n\n${knowledgeText}\n`;
+                        // 保存知识库引用信息
+                        knowledgeSources = relevant.map(item => ({
+                            filename: item.filename || '知识库',
+                            score: Math.round((item.score || 0) * 100) + '%'
+                        }));
+                    } else {
+                        console.log('知识库检索结果分数过低，已过滤');
+                    }
+                } catch (err) {
+                    console.warn('知识库检索失败:', err);
+                }
+            }
+        }
+
+        // 然后 push 当前用户消息（使用 finalUserMsg）
+        messages.push({ role: 'user', content: finalUserMsg });
         // 创建模型服务实例（使用当前全局设置）
         const modelService = getModelService();
         // 确保配置最新（在调用前更新配置）
@@ -852,9 +890,10 @@ async function simulateAIResponse(userMsg) {
                 if (typingDiv.parentNode) typingDiv.remove();
                 // 创建消息气泡（复用原 createMessageBubble 或直接构建）
                 const modelNameForDisplay = SettingsManager.getModelName();
-                messageDiv = createMessageBubble('ai', '', getCurrentTime(), currentChat.settings?.avatarUrl, modelNameForDisplay);
+                messageDiv = createMessageBubble('ai', '', getCurrentTime(), currentChat.settings?.avatarUrl, modelNameForDisplay, knowledgeSources);
                 bubbleP = messageDiv.querySelector('.bubble p');
                 bubbleP.innerHTML = '';  // 清空占位
+                bubbleP.style.whiteSpace = 'pre-wrap';
                 chatMessages.appendChild(messageDiv);
                 if (SettingsManager.getAutoScrollAfterSend()) scrollToBottom();
                 isFirstChunk = false;
@@ -866,7 +905,7 @@ async function simulateAIResponse(userMsg) {
             bubbleP.appendChild(span);
             conditionalScrollToBottom();
             
-            // 可选：控制打字速度（原逻辑有速度调节，可以保留）
+            // 控制打字速度
             const speed = getTypingSpeed();
             if (speed < 1) {
                 await new Promise(resolve => setTimeout(resolve, (1 - speed) * 150));
@@ -885,7 +924,23 @@ async function simulateAIResponse(userMsg) {
             }
         }
         const newTimeHtml = `<div class="msg-time">${modelNameSpan}${getCurrentTime()}</div>`;
-        bubble.innerHTML = newHtml + newTimeHtml;
+
+        const oldKbSources = bubble.querySelector('.kb-sources');
+        let kbSourcesHtml = '';
+        if (oldKbSources) {
+            kbSourcesHtml = oldKbSources.outerHTML;
+        } else if (knowledgeSources && knowledgeSources.length > 0) {
+            // 如果当前消息有知识库引用但尚未渲染，则重新生成
+            kbSourcesHtml = `<div class="kb-sources">` +
+                knowledgeSources.map(src =>
+                    `<span class="kb-source-tag" title="相似度: ${src.score}">
+                        <i class="fas fa-database"></i> ${escapeHtml(src.filename)}
+                    </span>`
+                ).join('') +
+                `</div>`;
+        }
+
+        bubble.innerHTML = newHtml + newTimeHtml + kbSourcesHtml;
         // 重新绑定气泡点击事件（因为 innerHTML 会清除原有监听）
         const newBubble = messageDiv.querySelector('.bubble');
         if (newBubble) {
@@ -903,7 +958,18 @@ async function simulateAIResponse(userMsg) {
             if (activeTopic) {
                 const modelName = SettingsManager.getModelName();
                 const msgUid = genMsgUid('ai', fullReply, getCurrentTime());
-                activeTopic.messages.push({ type: 'ai', text: fullReply, time: getCurrentTime(), modelName: modelName, uid: msgUid });
+                const msgData = {
+                    type: 'ai',
+                    text: fullReply,
+                    time: getCurrentTime(),
+                    modelName: modelName,
+                    uid: msgUid
+                };
+                // 如果有知识库引用，添加该字段
+                if (knowledgeSources && knowledgeSources.length > 0) {
+                    msgData.knowledgeSources = knowledgeSources;
+                }
+                activeTopic.messages.push(msgData);
                 targetChat.date = new Date();
                 renderHistoryList();
                 await chatRepo.saveChat(targetChat);
@@ -941,7 +1007,7 @@ async function simulateAIResponse(userMsg) {
 }
 
 // 辅助函数：创建消息气泡（复用）
-function createMessageBubble(type, text, time, avatarUrl, modelName = null) {
+function createMessageBubble(type, text, time, avatarUrl, modelName = null, knowledgeSources = null) {
     const div = document.createElement('div');
     div.className = `message ${type}`;
     const avatarHtml = avatarUrl ? `<img src="${avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>';
@@ -951,11 +1017,23 @@ function createMessageBubble(type, text, time, avatarUrl, modelName = null) {
     }
     timeHtml += `${escapeHtml(time)}</div>`;
 
+    // 知识库引用
+    let sourcesHtml = '';
+    if (type === 'ai' && knowledgeSources && knowledgeSources.length > 0) {
+        sourcesHtml = `<div class="kb-sources">` +
+            knowledgeSources.map(src =>
+                `<span class="kb-source-tag" title="相似度: ${src.score}">
+                    <i class="fas fa-database"></i> ${escapeHtml(src.filename)}
+                </span>`
+            ).join('') +
+            `</div>`;
+    }
     div.innerHTML = `
         <div class="avatar-msg">${avatarHtml}</div>
         <div class="bubble">
             <p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>
             ${timeHtml}
+            ${sourcesHtml}
         </div>
     `;
     return div;
@@ -1171,168 +1249,447 @@ function closeSidebarOnMobile() {
 }
 
 // ==================== 事件绑定 ====================
-function bindEvents() {
-    // 移动端菜单开关
+
+// —— 移动端侧边栏开关 ——
+function bindMobileSidebar() {
     const menuToggle = document.getElementById('mobile-menu-toggle');
     const sidebarElem = document.querySelector('.sidebar');
-    if (menuToggle && sidebarElem) {
-        menuToggle.addEventListener('click', (e) => {
-            e.stopPropagation();
-            sidebarElem.classList.toggle('open');
-        });
-        // 点击外部关闭侧边栏
-        document.addEventListener('click', (e) => {
-            if (sidebarElem.classList.contains('open') && 
-                !sidebarElem.contains(e.target) && 
-                !menuToggle.contains(e.target)) {
-                sidebarElem.classList.remove('open');
-            }
-        });
-        // 点击聊天区域关闭侧边栏
-        const mainChat = document.querySelector('.main-chat');
-        if (mainChat) {
-            mainChat.addEventListener('click', () => {
-                sidebarElem.classList.remove('open');
-            });
+    if (!menuToggle || !sidebarElem) return;
+
+    menuToggle.addEventListener('click', (e) => {
+        e.stopPropagation();
+        sidebarElem.classList.toggle('open');
+    });
+    // 点击外部关闭侧边栏
+    document.addEventListener('click', (e) => {
+        if (sidebarElem.classList.contains('open') &&
+            !sidebarElem.contains(e.target) &&
+            !menuToggle.contains(e.target)) {
+            sidebarElem.classList.remove('open');
         }
+    });
+    // 点击聊天区域关闭侧边栏
+    const mainChat = document.querySelector('.main-chat');
+    if (mainChat) {
+        mainChat.addEventListener('click', () => {
+            sidebarElem.classList.remove('open');
+        });
     }
-    // PC端代码
+}
+
+// —— 输入框：自动伸缩 + 发送 + 键盘快捷键 ——
+function bindMessageInput() {
     const textarea = messageInput;
-    if (textarea) {
-        const autoResize = () => {
-            textarea.style.height = 'auto';
-            textarea.style.height = textarea.scrollHeight + 'px';
-        };
-        textarea.addEventListener('input', autoResize);
-        autoResize();
-        const newSend = function() {
-            if (textarea.value.trim() === '') return;
+    if (!textarea) return;
+
+    const autoResize = () => {
+        textarea.style.height = 'auto';
+        textarea.style.height = textarea.scrollHeight + 'px';
+    };
+    textarea.addEventListener('input', autoResize);
+    autoResize();
+
+    sendBtn.onclick = function () {
+        if (textarea.value.trim() === '') return;
+        sendUserMessage();
+        setTimeout(() => { textarea.style.height = 'auto'; }, 0);
+    };
+
+    textarea.addEventListener('keydown', (e) => {
+        const pressed = eventToShortcutString(e);
+        if (!pressed) return;
+
+        if (shortcutManager.matchesAction(e, 'send-no-ai')) {
+            e.preventDefault();
+            sendMessageWithoutAI();
+            return;
+        }
+        if (pressed === 'enter') {
+            e.preventDefault();
             sendUserMessage();
             setTimeout(() => { textarea.style.height = 'auto'; }, 0);
-        };
-        sendBtn.onclick = newSend;
-        textarea.addEventListener('keydown', (e) => {
-            const pressed = eventToShortcutString(e);
-            if (!pressed) return; // 纯修饰键，忽略
+        }
+    });
+}
 
-            // 优先匹配「发送但不生成回复」快捷方式（默认 ctrl+enter）
-            if (shortcutManager.matchesAction(e, 'send-no-ai')) {
-                e.preventDefault();
-                sendMessageWithoutAI();
-                return;
-            }
-
-            // 普通 Enter（无修饰键）：发送并生成 AI 回复
-            if (pressed === 'enter') {
-                e.preventDefault();
-                sendUserMessage();
-                setTimeout(() => { textarea.style.height = 'auto'; }, 0);
-            }
-            // Shift+Enter 及其他组合键不拦截，默认行为（换行等）
+// —— 工具栏按钮：上传 / 语音 / 知识库 / 折叠菜单 / 图片生成 ——
+function bindToolbarButtons() {
+    // 背景图片上传
+    const bgUpload = document.getElementById('bg-upload');
+    if (bgUpload) {
+        bgUpload.addEventListener('change', (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
+            modalManager.showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
+                document.getElementById('bg-img').src = croppedDataUrl;
+                const mainChat = document.querySelector('.main-chat');
+                mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
+                mainChat.style.backgroundSize = 'cover';
+            });
         });
     }
-    // 背景图片上传预览
-    const bgUpload = document.getElementById('bg-upload');
-    bgUpload.addEventListener('change', (e) => {
-        const file = e.target.files[0];
-        if (!file) return;
-        modalManager.showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
-            document.getElementById('bg-img').src = croppedDataUrl;
-            const mainChat = document.querySelector('.main-chat');
-            mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
-            mainChat.style.backgroundSize = 'cover';
-        });
-    });
 
-    const newChatBtn = document.querySelector('.new-chat-btn');
-    if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
-    // 头像上传预览
-    document.getElementById('global-avatar-upload').addEventListener('change', async (e) => {
-        const file = e.target.files[0];
-        if (file) {
+    // 头像上传
+    const avatarUpload = document.getElementById('global-avatar-upload');
+    if (avatarUpload) {
+        avatarUpload.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
             try {
-                // 压缩图片：最大宽度 150px，质量 0.6，大幅减小 Base64 大小
                 const compressedUrl = await compressImage(file, 150, 0.6);
                 document.getElementById('global-avatar-img').src = compressedUrl;
             } catch (err) {
                 console.error('头像压缩失败', err);
                 modalManager.customAlert('头像处理失败，请重试', 'error');
             }
+        });
+    }
+
+    // 文件上传 / 清除 / 语音
+    const uploadBtn = document.getElementById('upload-file-btn');
+    if (uploadBtn) uploadBtn.addEventListener('click', () => fileUpload.selectFile());
+    const removeFileBtn = document.getElementById('remove-file-btn');
+    if (removeFileBtn) removeFileBtn.addEventListener('click', () => fileUpload.clearFile());
+    const voiceBtn = document.getElementById('voice-input-btn');
+    if (voiceBtn) voiceBtn.addEventListener('click', startVoiceInput);
+
+    // 拖拽上传
+    const dropZone = document.querySelector('.chat-messages');
+    if (dropZone) fileUpload.setupDragAndDrop(dropZone);
+
+    // 知识库选择
+    const kbSelectBtn = document.getElementById('kb-select-btn');
+    if (kbSelectBtn) kbSelectBtn.addEventListener('click', () => modalManager.openKnowledgeBaseSelector());
+
+    // 折叠按钮（PC 展开/收起 + 移动端弹出菜单）
+    bindCollapseToggle();
+
+    // 图片生成
+    bindImageGeneration();
+}
+
+// —— 折叠按钮逻辑（从 bindToolbarButtons 中抽出） ——
+function bindCollapseToggle() {
+    const collapseToggle = document.getElementById('collapse-toggle-btn');
+    const collapsibleButtons = document.getElementById('collapsible-buttons');
+    const collapseIcon = document.getElementById('collapse-icon');
+    if (!collapseToggle || !collapsibleButtons) return;
+
+    collapseToggle.addEventListener('click', () => {
+        if (window.innerWidth <= 768) {
+            showMobileCollapseMenu();
+        } else {
+            const isOpen = collapsibleButtons.classList.toggle('open');
+            collapseToggle.classList.toggle('expanded');
+            collapseIcon.className = isOpen ? 'fas fa-chevron-left' : 'fas fa-chevron-right';
         }
     });
-    // 文件上传、语音输入按钮
-    const uploadBtn = document.getElementById('upload-file-btn');
-    if (uploadBtn) {
-        uploadBtn.addEventListener('click', () => fileUpload.selectFile());
+}
+
+function showMobileCollapseMenu() {
+    let existing = document.querySelector('.mobile-collapse-menu');
+    if (existing) { existing.remove(); return; }
+
+    const btns = [
+        { id: 'kb-select-btn', label: document.getElementById('kb-select-btn')?.innerHTML || '<i class="fas fa-database"></i> 选择知识库' },
+        { id: 'upload-file-btn', label: document.getElementById('upload-file-btn')?.innerHTML || '<i class="fas fa-file-upload"></i> 文件上传' },
+        { id: 'generate-image-btn', label: document.getElementById('generate-image-btn')?.innerHTML || '<i class="fas fa-image"></i> 生成图片' }
+    ];
+
+    const overlay = document.createElement('div');
+    overlay.className = 'mobile-collapse-overlay';
+    overlay.style.cssText = `
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        background: rgba(0,0,0,0.4); z-index: 9999;
+        display: flex; align-items: flex-end; justify-content: center;
+        animation: fadeIn 0.2s ease;
+    `;
+
+    const menu = document.createElement('div');
+    menu.className = 'mobile-collapse-menu';
+    menu.style.cssText = `
+        background: rgba(20,24,45,0.95); backdrop-filter: blur(12px);
+        border-radius: 20px 20px 0 0; padding: 20px 16px 30px;
+        width: 100%; max-width: 500px;
+        box-shadow: 0 -8px 30px rgba(0,0,0,0.5);
+        animation: slideUp 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+        display: flex; flex-direction: column; gap: 12px;
+    `;
+
+    btns.forEach((btnData) => {
+        const btn = document.createElement('button');
+        btn.className = 'action-btn mobile-collapse-item';
+        btn.style.cssText = `
+            width: 100%; padding: 14px 16px; justify-content: center;
+            font-size: 1rem; border-radius: 16px;
+            background: rgba(30,34,55,0.6);
+            border: 1px solid rgba(100,130,255,0.3);
+            color: #f0f3ff; cursor: pointer; transition: 0.2s;
+        `;
+        btn.innerHTML = btnData.label;
+        btn.addEventListener('click', () => {
+            const originalBtn = document.getElementById(btnData.id);
+            if (originalBtn) originalBtn.click();
+            closeMobileMenu();
+        });
+        menu.appendChild(btn);
+    });
+
+    const closeBtn = document.createElement('button');
+    closeBtn.className = 'action-btn';
+    closeBtn.style.cssText = `
+        width: 100%; padding: 12px; justify-content: center;
+        background: rgba(255,80,80,0.15);
+        border: 1px solid rgba(255,80,80,0.3);
+        border-radius: 16px; color: #ff8a7a;
+        cursor: pointer; font-size: 0.9rem; margin-top: 8px;
+    `;
+    closeBtn.innerHTML = '<i class="fas fa-times"></i> 取消';
+    closeBtn.addEventListener('click', closeMobileMenu);
+    menu.appendChild(closeBtn);
+
+    overlay.appendChild(menu);
+    document.body.appendChild(overlay);
+    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeMobileMenu(); });
+
+    function closeMobileMenu() {
+        if (overlay.parentNode) overlay.remove();
     }
-    const removeFileBtn = document.getElementById('remove-file-btn');
-    if (removeFileBtn) {
-        removeFileBtn.addEventListener('click', () => fileUpload.clearFile());
+
+    if (!document.getElementById('mobile-collapse-styles')) {
+        const style = document.createElement('style');
+        style.id = 'mobile-collapse-styles';
+        style.textContent = `
+            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+            @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
+        `;
+        document.head.appendChild(style);
     }
-    const voiceBtn = document.getElementById('voice-input-btn');
-    if (voiceBtn) {
-        voiceBtn.addEventListener('click', startVoiceInput);
+}
+
+// —— 图片生成弹窗及生成逻辑 ——
+function bindImageGeneration() {
+    const genImgBtn = document.getElementById('generate-image-btn');
+    if (genImgBtn) {
+        genImgBtn.addEventListener('click', () => {
+            const modal = document.getElementById('image-gen-modal');
+            if (modal) modal.style.display = 'flex';
+        });
     }
-    // 对话设置按钮（输入框下方）
+
+    const closeBtn = document.getElementById('close-image-gen-modal');
+    const cancelBtn = document.getElementById('cancel-image-gen-btn');
+    if (closeBtn) closeBtn.addEventListener('click', () => { document.getElementById('image-gen-modal').style.display = 'none'; });
+    if (cancelBtn) cancelBtn.addEventListener('click', () => { document.getElementById('image-gen-modal').style.display = 'none'; });
+
+    const imageGenModal = document.getElementById('image-gen-modal');
+    if (imageGenModal) {
+        imageGenModal.addEventListener('click', (e) => { if (e.target === imageGenModal) imageGenModal.style.display = 'none'; });
+    }
+
+    const startBtn = document.getElementById('start-image-gen-btn');
+    if (startBtn) startBtn.addEventListener('click', onStartImageGen);
+}
+
+async function onStartImageGen() {
+    if (isProcessing) {
+        modalManager.customAlert('AI 正在回复中，请等待完成后再生成图片。', 'warning');
+        return;
+    }
+    const prompt = document.getElementById('image-gen-prompt').value;
+    if (!prompt) { modalManager.customAlert('请输入图片描述'); return; }
+
+    const negative = document.getElementById('image-gen-negative').value;
+    const size = document.getElementById('image-gen-ratio').value;
+    const count = parseInt(document.getElementById('image-gen-count').value);
+    const model = document.getElementById('image-gen-model').value;
+    const imgApiUrl = SettingsManager.getImgApiUrl();
+    const imgApiKey = SettingsManager.getImgApiKey();
+    const headers = { 'Content-Type': 'application/json' };
+    if (imgApiKey) headers['X-API-Key'] = imgApiKey;
+
+    document.getElementById('image-gen-modal').style.display = 'none';
+    await appendMessageToDOM('ai', `🎨 正在生成 ${count} 张图片...`, getCurrentTime(), false);
+    if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
+
+    try {
+        const response = await fetch(`${imgApiUrl}/generate_image`, {
+            method: 'POST', headers,
+            body: JSON.stringify({ prompt, negative, size, count, model })
+        });
+        const data = await response.json();
+        if (!response.ok) throw new Error(data.error || '生成失败');
+        for (const imgB64 of data.images) {
+            const imgSrc = imgB64.startsWith('data:') ? imgB64 : `data:image/png;base64,${imgB64}`;
+            await appendImageToDOM('ai', imgSrc, getCurrentTime(), true);
+        }
+    } catch (error) {
+        appendMessageToDOM('ai', `❌ 图片生成失败: ${error.message}`, getCurrentTime(), true);
+    }
+}
+
+// —— 所有弹窗控件（设置 / 全局设置 / 话题 / 知识库选择） ——
+function bindModalControls() {
+    // —— 对话设置弹窗 (settings-modal) ——
+    const modal = document.getElementById('settings-modal');
+    const closeModalBtn = document.getElementById('close-modal-btn');
+    const cancelBtn = document.getElementById('cancel-settings-btn');
+    const saveBtn = document.getElementById('save-settings-btn');
+    if (closeModalBtn) closeModalBtn.addEventListener('click', () => modalManager.closeSettingsModal());
+    if (cancelBtn) cancelBtn.addEventListener('click', () => modalManager.closeSettingsModal());
+    if (saveBtn) saveBtn.addEventListener('click', () => modalManager.saveSettings());
+    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modalManager.closeModalWithAnimation(modal); });
+
+    // 对话设置入口按钮
     const chatSettingsBtn = document.getElementById('chat-settings-btn');
     if (chatSettingsBtn) chatSettingsBtn.addEventListener('click', () => modalManager.openSettingsModal());
 
+    // —— 全局设置弹窗 (global-settings-modal) ——
+    const globalModal = document.getElementById('global-settings-modal');
+    const closeGlobalBtn = document.getElementById('close-global-settings');
+    const cancelGlobalBtn = document.getElementById('cancel-global-settings');
+    const saveGlobalBtn = document.getElementById('save-global-settings');
+    if (closeGlobalBtn) closeGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
+    if (cancelGlobalBtn) cancelGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
+    if (saveGlobalBtn) saveGlobalBtn.addEventListener('click', () => modalManager.saveGlobalSettings());
+    if (globalModal) globalModal.addEventListener('click', (e) => { if (e.target === globalModal) modalManager.closeGlobalModal(); });
+
+    // —— 话题管理弹窗 (topics-modal) ——
     const topicsBtn = document.getElementById('topics-manage-btn');
-    if (topicsBtn) {
-        topicsBtn.addEventListener('click', () => modalManager.openTopicsModal());
-    }
+    if (topicsBtn) topicsBtn.addEventListener('click', () => modalManager.openTopicsModal());
+    const closeTopicsBtn = document.getElementById('close-topics-modal');
+    const cancelTopicsBtn = document.getElementById('cancel-topics-btn');
+    if (closeTopicsBtn) closeTopicsBtn.addEventListener('click', () => modalManager.closeTopicsModal());
+    if (cancelTopicsBtn) cancelTopicsBtn.addEventListener('click', () => modalManager.closeTopicsModal());
+    const topicsModal = document.getElementById('topics-modal');
+    if (topicsModal) topicsModal.addEventListener('click', (e) => { if (e.target === topicsModal) modalManager.closeTopicsModal(); });
 
     const newTopicModalBtn = document.getElementById('new-topic-modal-btn');
-    if (newTopicModalBtn) {
-        newTopicModalBtn.addEventListener('click', () => {
-            startNewTopic();
-            modalManager.closeTopicsModal();
-        });
-    }
+    if (newTopicModalBtn) newTopicModalBtn.addEventListener('click', () => { startNewTopic(); modalManager.closeTopicsModal(); });
 
-    // 话题管理弹窗关闭按钮
-    const closeTopicsModalBtn = document.getElementById('close-topics-modal');
-    if (closeTopicsModalBtn) closeTopicsModalBtn.addEventListener('click', () => modalManager.closeTopicsModal());
-    const cancelTopicsBtn = document.getElementById('cancel-topics-btn');
-    if (cancelTopicsBtn) cancelTopicsBtn.addEventListener('click', () => modalManager.closeTopicsModal());
-    // 点击遮罩关闭
-    const topicsModal = document.getElementById('topics-modal');
-    if (topicsModal) {
-        topicsModal.addEventListener('click', (e) => {
-            if (e.target === topicsModal) modalManager.closeTopicsModal();
-        });
-    }
     const showAllTopicsBtn = document.getElementById('show-all-topics-btn');
-    if (showAllTopicsBtn) {
-        showAllTopicsBtn.addEventListener('click', async () => {
-            await setCurrentTopic(null);
-            modalManager.closeTopicsModal();
+    if (showAllTopicsBtn) showAllTopicsBtn.addEventListener('click', async () => { await setCurrentTopic(null); modalManager.closeTopicsModal(); });
+
+    // —— 知识库选择弹窗 (kb-select-modal) ——
+    const closeKbModal = document.getElementById('close-kb-select-modal');
+    const cancelKbBtn = document.getElementById('cancel-kb-select-btn');
+    const confirmKbBtn = document.getElementById('confirm-kb-select-btn');
+    if (closeKbModal) closeKbModal.addEventListener('click', () => modalManager.closeKnowledgeBaseSelector());
+    if (cancelKbBtn) cancelKbBtn.addEventListener('click', () => modalManager.closeKnowledgeBaseSelector());
+    if (confirmKbBtn) confirmKbBtn.addEventListener('click', () => modalManager.confirmKnowledgeBaseSelection());
+    const kbModal = document.getElementById('kb-select-modal');
+    if (kbModal) kbModal.addEventListener('click', (e) => { if (e.target === kbModal) modalManager.closeKnowledgeBaseSelector(); });
+
+    // —— Escape 关闭最上层弹窗 ——
+    document.addEventListener('keydown', function (e) {
+        if (e.key !== 'Escape') return;
+        const openModals = document.querySelectorAll('.settings-modal[style*="display: flex"]');
+        if (openModals.length > 0) {
+            const topModal = openModals[openModals.length - 1];
+            const closeBtn = topModal.querySelector('.modal-close');
+            if (closeBtn) { closeBtn.click(); e.preventDefault(); e.stopPropagation(); }
+            return;
+        }
+        const fileModal = document.querySelector('.file-content-modal');
+        if (fileModal && fileModal.style.display === 'flex') {
+            fileModal.remove();
+            e.preventDefault();
+            e.stopPropagation();
+        }
+    }, true);
+}
+
+// —— 全局设置面板内部：标签页 / 连接测试 / 头像 / 快捷键 / TTS / 模型切换 ——
+function bindSettingsPanel() {
+    // 标签页切换
+    const menuItems = document.querySelectorAll('.settings-menu-item');
+    const panes = document.querySelectorAll('.settings-tab-pane');
+    menuItems.forEach(item => {
+        item.addEventListener('click', () => {
+            const tabId = item.getAttribute('data-tab');
+            menuItems.forEach(mi => mi.classList.remove('active'));
+            item.classList.add('active');
+            panes.forEach(pane => pane.classList.remove('active'));
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+        });
+    });
+
+    // 模型连接测试
+    document.getElementById('test-model-connection-btn')?.addEventListener('click', async () => {
+        const statusEl = document.getElementById('test-connection-status');
+        if (!statusEl) return;
+        statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
+        const modelService = new ModelService({
+            modelHost: SettingsManager.getModelHost(),
+            apiKey: SettingsManager.getApiKey(),
+            modelName: SettingsManager.getModelName(),
+        });
+        const result = await modelService.testConnection();
+        statusEl.innerHTML = result.success
+            ? `<span style="color: #2effb0;">✅ ${result.message}</span>`
+            : `<span style="color: #ff7a5c;">❌ ${result.message}</span>`;
+    });
+
+    // 左下角设置按钮（打开全局设置）
+    const settingBtn = document.querySelector('.setting-btn');
+    if (settingBtn) {
+        const newBtn = settingBtn.cloneNode(true);
+        settingBtn.parentNode.replaceChild(newBtn, settingBtn);
+        newBtn.addEventListener('click', () => modalManager.openGlobalSettings());
+    }
+
+    // 头像点击 → 裁剪上传
+    const avatarImg = document.getElementById('avatar-img');
+    if (avatarImg) {
+        avatarImg.addEventListener('click', () => {
+            const fileInput = document.createElement('input');
+            fileInput.type = 'file';
+            fileInput.accept = 'image/*';
+            fileInput.onchange = (e) => {
+                const file = e.target.files[0];
+                if (!file) return;
+                modalManager.showCropModal(file, 1, { maxWidth: 1024, mimeType: 'image/jpeg', quality: 0.9 }, (croppedDataUrl) => {
+                    avatarImg.src = croppedDataUrl;
+                });
+            };
+            fileInput.click();
         });
     }
-    const addModelBtn = document.getElementById('add-model-btn');
-    if (addModelBtn) {
-        addModelBtn.addEventListener('click', () => {
-            const newModel = document.getElementById('new-model-name').value;
-            if (addModel(newModel)) {
-                document.getElementById('new-model-name').value = '';
+
+    // 重置快捷键
+    document.getElementById('reset-shortcuts-btn')?.addEventListener('click', () => shortcutManager.reset());
+
+    // 获取 TTS 音色列表
+    document.getElementById('fetch-voices-btn')?.addEventListener('click', async () => {
+        const apiUrl = document.getElementById('tts-api-url').value;
+        if (!apiUrl) { modalManager.customAlert('请先填写 TTS API 地址'); return; }
+        try {
+            const response = await fetch(`${apiUrl}/voices`);
+            if (!response.ok) throw new Error('获取失败');
+            const data = await response.json();
+            const voiceList = data.voices || [];
+            const displaySpan = document.getElementById('voice-list-display');
+            if (voiceList.length === 0) {
+                displaySpan.innerText = '无可用音色';
+            } else {
+                displaySpan.innerHTML = voiceList.join(', ');
             }
-        });
-    }
-    // // 获取拖拽目标区域（聊天消息区域）
-    const dropZone = document.querySelector('.chat-messages');
-    if (dropZone) {
-        fileUpload.setupDragAndDrop(dropZone);
-    }
+        } catch (err) {
+            console.error(err);
+            document.getElementById('voice-list-display').innerText = '获取失败，请检查服务地址';
+        }
+    });
 
-    // 搜索功能 UI 绑定（见 js/search.js）
-    searchManager.setupUI();
+    // 快速模型切换下拉框
+    bindQuickModelSwitch();
+}
 
-    // 引用消息关闭按钮
-    const quoteCloseBtn = document.getElementById('quote-indicator-close');
-    if (quoteCloseBtn) {
-        quoteCloseBtn.addEventListener('click', () => msgActions.clearQuoteRef());
-    }
+// —— 对话操作：新建 / 导入 / 滚动 / 返回全部 / 引用关闭 / 搜索 / 添加模型 ——
+function bindChatActions() {
+    const newChatBtn = document.querySelector('.new-chat-btn');
+    if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
 
+    // 导入 JSON
     const importBtn = document.querySelector('.import-chat-btn');
     if (importBtn) {
         importBtn.addEventListener('click', () => {
@@ -1364,227 +1721,39 @@ function bindEvents() {
             fileInput.click();
         });
     }
-    if (chatMessages) {
-        chatMessages.addEventListener('scroll', updateAutoScrollFlag);
-    }
-    // 绑定“返回全部对话”按钮
+
+    // 聊天区滚动
+    if (chatMessages) chatMessages.addEventListener('scroll', updateAutoScrollFlag);
+
+    // 返回全部话题
     const backBtn = document.getElementById('back-to-all-topics');
-    if (backBtn) {
-        backBtn.addEventListener('click', async () => {
-            await setCurrentTopic(null, false);
+    if (backBtn) backBtn.addEventListener('click', async () => { await setCurrentTopic(null, false); });
+
+    // 引用消息关闭
+    const quoteCloseBtn = document.getElementById('quote-indicator-close');
+    if (quoteCloseBtn) quoteCloseBtn.addEventListener('click', () => msgActions.clearQuoteRef());
+
+    // 添加模型
+    const addModelBtn = document.getElementById('add-model-btn');
+    if (addModelBtn) {
+        addModelBtn.addEventListener('click', () => {
+            const newModel = document.getElementById('new-model-name').value;
+            if (addModel(newModel)) document.getElementById('new-model-name').value = '';
         });
     }
 
-    // 获取元素
-    let globalModal = document.getElementById('global-settings-modal');
-    const closeGlobalBtn = document.getElementById('close-global-settings');
-    const cancelGlobalBtn = document.getElementById('cancel-global-settings');
-    const saveGlobalBtn = document.getElementById('save-global-settings');
+    // 搜索 UI
+    searchManager.setupUI();
+}
 
-    // 菜单切换
-    const menuItems = document.querySelectorAll('.settings-menu-item');
-    const panes = document.querySelectorAll('.settings-tab-pane');
-
-    menuItems.forEach(item => {
-        item.addEventListener('click', () => {
-            const tabId = item.getAttribute('data-tab');
-            // 更新菜单激活状态
-            menuItems.forEach(mi => mi.classList.remove('active'));
-            item.classList.add('active');
-            // 显示对应面板
-            panes.forEach(pane => pane.classList.remove('active'));
-            document.getElementById(`tab-${tabId}`).classList.add('active');
-        });
-    });
-
-    // 绑定按钮事件
-    closeGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
-    cancelGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
-    saveGlobalBtn.addEventListener('click', () => modalManager.saveGlobalSettings());
-    globalModal.addEventListener('click', (e) => { if (e.target === globalModal) modalManager.closeGlobalModal(); });
-    document.getElementById('test-model-connection-btn')?.addEventListener('click', async () => {
-        const statusEl = document.getElementById('test-connection-status');
-        if (!statusEl) return;
-        statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
-
-        const modelService = new ModelService({  // 临时创建或使用单例均可，这里为了配置最新，临时创建
-            modelHost: SettingsManager.getModelHost(),
-            apiKey: SettingsManager.getApiKey(),
-            modelName: SettingsManager.getModelName(),
-        });
-        const result = await modelService.testConnection();
-        statusEl.innerHTML = result.success
-            ? `<span style="color: #2effb0;">✅ ${result.message}</span>`
-            : `<span style="color: #ff7a5c;">❌ ${result.message}</span>`;
-    });
-
-    // 修改左下角设置按钮的点击事件
-    const originalSettingBtn = document.querySelector('.setting-btn');
-    const settingBtn = document.querySelector('.setting-btn');
-    if (originalSettingBtn) {
-        // 移除原有监听（避免重复）
-        const newBtn = originalSettingBtn.cloneNode(true);
-        originalSettingBtn.parentNode.replaceChild(newBtn, originalSettingBtn);
-        newBtn.addEventListener('click', () => modalManager.openGlobalSettings());
-    } else if (settingBtn) {
-        settingBtn.addEventListener('click', () => modalManager.openGlobalSettings());
-    }
-    // 点击头像图片触发文件选择
-    const avatarImgElement = document.getElementById('avatar-img');
-    if (avatarImgElement) {
-        avatarImgElement.addEventListener('click', () => {
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = 'image/*';
-            fileInput.onchange = (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
-                modalManager.showCropModal(file, 1, { maxWidth: 1024, mimeType: 'image/jpeg', quality: 0.9 }, (croppedDataUrl) => {
-                    avatarImgElement.src = croppedDataUrl;
-                });
-            };
-            fileInput.click();
-        });
-    }
-    const modal = document.getElementById('settings-modal');
-    const closeModalBtn = document.getElementById('close-modal-btn');
-    const cancelBtn = document.getElementById('cancel-settings-btn');
-    const saveBtn = document.getElementById('save-settings-btn');
-    if (closeModalBtn) closeModalBtn.addEventListener('click', () => modalManager.closeSettingsModal());
-    if (cancelBtn) cancelBtn.addEventListener('click', () => modalManager.closeSettingsModal());
-    if (saveBtn) saveBtn.addEventListener('click', () => modalManager.saveSettings());
-    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modalManager.closeModalWithAnimation(modal); });
-    bindQuickModelSwitch();
-    document.addEventListener('keydown', function(e) {
-        if (e.key === 'Escape') {
-            // 查找所有当前可见的模态框（display: flex）
-            const openModals = document.querySelectorAll('.settings-modal[style*="display: flex"]');
-            if (openModals.length > 0) {
-                // 取最后一个（最后打开的，通常在最上层）
-                const topModal = openModals[openModals.length - 1];
-                const closeBtn = topModal.querySelector('.modal-close');
-                if (closeBtn) {
-                    closeBtn.click();   // 触发原有关闭逻辑（含裁剪清理等）
-                    e.preventDefault();
-                    e.stopPropagation();
-                }
-                return;
-            }
-            
-            // 处理文件内容预览弹窗（没有 settings-modal 类）
-            const fileModal = document.querySelector('.file-content-modal');
-            if (fileModal && fileModal.style.display === 'flex') {
-                fileModal.remove();
-                e.preventDefault();
-                e.stopPropagation();
-            }
-        }
-    }, true);
-    document.getElementById('reset-shortcuts-btn').addEventListener('click', () => {
-        shortcutManager.reset();
-    });
-
-    const fetchVoicesBtn = document.getElementById('fetch-voices-btn');
-    if (fetchVoicesBtn) {
-        fetchVoicesBtn.addEventListener('click', async () => {
-            const apiUrl = document.getElementById('tts-api-url').value;
-            if (!apiUrl) {
-                modalManager.customAlert('请先填写 TTS API 地址');
-                return;
-            }
-            try {
-                const response = await fetch(`${apiUrl}/voices`);
-                if (!response.ok) throw new Error('获取失败');
-                const data = await response.json();
-                const voiceList = data.voices || [];
-                const displaySpan = document.getElementById('voice-list-display');
-                if (voiceList.length === 0) {
-                    displaySpan.innerText = '无可用音色';
-                } else {
-                    displaySpan.innerHTML = voiceList.join(', ');
-                }
-            } catch (err) {
-                console.error(err);
-                document.getElementById('voice-list-display').innerText = '获取失败，请检查服务地址';
-            }
-        });
-    }
-    // 打开生成图片弹窗
-    const genImgBtn = document.getElementById('generate-image-btn');
-    if (genImgBtn) {
-        genImgBtn.addEventListener('click', () => {
-            const modal = document.getElementById('image-gen-modal');
-            if (modal) modal.style.display = 'flex';
-        });
-    }
-
-    // 关闭按钮
-    const closeImageGenBtn = document.getElementById('close-image-gen-modal');
-    const cancelImageGenBtn = document.getElementById('cancel-image-gen-btn');
-    if (closeImageGenBtn) closeImageGenBtn.addEventListener('click', () => {
-        document.getElementById('image-gen-modal').style.display = 'none';
-    });
-    if (cancelImageGenBtn) cancelImageGenBtn.addEventListener('click', () => {
-        document.getElementById('image-gen-modal').style.display = 'none';
-    });
-
-    // 点击遮罩关闭
-    const imageGenModal = document.getElementById('image-gen-modal');
-    if (imageGenModal) {
-        imageGenModal.addEventListener('click', (e) => {
-            if (e.target === imageGenModal) imageGenModal.style.display = 'none';
-        });
-    }
-
-    // 开始生成按钮（当前仅关闭弹窗，可在此实现）
-    const startImageGenBtn = document.getElementById('start-image-gen-btn');
-    if (startImageGenBtn) {
-        startImageGenBtn.addEventListener('click', async () => {
-            if (isProcessing) {
-                modalManager.customAlert('AI 正在回复中，请等待完成后再生成图片。', 'warning');
-                return;
-            }
-            const prompt = document.getElementById('image-gen-prompt').value;
-            if (!prompt) {
-                modalManager.customAlert('请输入图片描述');
-                return;
-            }
-            const negative = document.getElementById('image-gen-negative').value;
-            const size = document.getElementById('image-gen-ratio').value;
-            const count = parseInt(document.getElementById('image-gen-count').value);
-            const model = document.getElementById('image-gen-model').value;
-            const imgApiUrl = SettingsManager.getImgApiUrl();
-            const imgApiKey = SettingsManager.getImgApiKey();
-            const headers = { 'Content-Type': 'application/json' };
-            if (imgApiKey) headers['X-API-Key'] = imgApiKey;
-
-            // 关闭弹窗
-            document.getElementById('image-gen-modal').style.display = 'none';
-
-            // 发送提示消息
-            await appendMessageToDOM('ai', `🎨 正在生成 ${count} 张图片...`, getCurrentTime(), false);
-            if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
-            try {
-                const response = await fetch(`${imgApiUrl}/generate_image`, {
-                    method: 'POST',
-                    headers: headers,
-                    body: JSON.stringify({ prompt, negative, size, count, model })
-                });
-                const data = await response.json();
-                if (!response.ok) {
-                    throw new Error(data.error || '生成失败');
-                }
-                const genParams = { prompt, negative, size, count, model };
-                // 显示生成的图片
-                for (const imgB64 of data.images) {
-                    const imgSrc = imgB64.startsWith('data:') ? imgB64 : `data:image/png;base64,${imgB64}`;
-                    await appendImageToDOM('ai', imgSrc, getCurrentTime(), true, genParams);  // 持久化
-                }
-            } catch (error) {
-                appendMessageToDOM('ai', `❌ 图片生成失败: ${error.message}`, getCurrentTime(), true);
-            }
-        });
-    }
+// 主入口：依次调用各子模块
+function bindEvents() {
+    bindMobileSidebar();
+    bindMessageInput();
+    bindToolbarButtons();
+    bindModalControls();
+    bindSettingsPanel();
+    bindChatActions();
 }
 
 // 开启新话题（创建独立话题对象 + 开场白）
@@ -2088,6 +2257,60 @@ function toggleImmersiveMode() {
     modalManager.showBriefToast(isImmersive ? '🌙 沉浸模式已开启 (再次按快捷键退出)' : '✨ 已退出沉浸模式')
 }
 
+// 恢复上次选中的知识库
+function restoreSelectedKnowledgeBase() {
+    const namesStr = localStorage.getItem('selected_kb_names');
+    const label = document.getElementById('kb-btn-label');
+    if (!label) return;
+    if (namesStr && namesStr.trim() !== '') {
+        const names = namesStr.split(',');
+        if (names.length === 1) {
+            const name = names[0];
+            label.textContent = name.length > 8 ? name.substring(0, 8) + '…' : name;
+            label.title = name;
+        } else {
+            label.textContent = `📚 ${names.length}个`;
+            label.title = names.join('、');
+        }
+    } else {
+        label.textContent = '选择知识库';
+        label.title = '';
+    }
+}
+
+/**
+ * 从多个知识库中检索与查询相关的文档片段
+ * @param {string[]} kbIds - 知识库ID列表
+ * @param {string} query - 用户查询文本
+ * @returns {Promise<Array<{content: string, filename: string, score: number}>>}
+ */
+async function retrieveKnowledge(kbIds, query) {
+    const base = modalManager.kbManager.apiBase;
+    const promises = kbIds.map(async (kbId) => {
+        try {
+            const response = await fetch(`${base}/knowledge_bases/${kbId}/search`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ query, top_k: 3 })
+            });
+            if (!response.ok) throw new Error(`HTTP ${response.status}`);
+            const data = await response.json();
+            return (data.results || []).map(item => ({
+                content: item.content,
+                filename: item.filename || '未知',
+                score: item.score || 0
+            }));
+        } catch (err) {
+            console.warn(`知识库 ${kbId} 检索失败:`, err);
+            return [];
+        }
+    });
+    const allResults = await Promise.all(promises);
+    const merged = allResults.flat();
+    merged.sort((a, b) => (b.score || 0) - (a.score || 0));
+    return merged.slice(0, 5); // 最多取5条
+}
+
 async function init() {
     // 初始化 index.html 中以 src="" 占位的元素（默认头像等）可以避免在 HTML 中硬编码超长 SVG base64 字符串。
     const defaultAvatarEl = document.getElementById('global-avatar-img');
@@ -2109,7 +2332,8 @@ async function init() {
     getModelService();
     renderModelListUI();      // 渲染模型列表弹窗
     updateModelSelector();    // 更新快速切换下拉框
-    
+    restoreSelectedKnowledgeBase();
+
     // 初始化完成，移除遮罩并显示主界面
     const overlay = document.getElementById('loading-overlay');
     const chatApp = document.querySelector('.chat-app');

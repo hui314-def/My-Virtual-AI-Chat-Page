@@ -213,11 +213,19 @@
 
             <!-- 2. 按钮栏（靠左显示） -->
             <div class="action-buttons">
-                <button class="action-btn" id="upload-file-btn"><i class="fas fa-file-upload"></i> 文件上传</button>
                 <button class="action-btn" id="voice-input-btn"><i class="fas fa-microphone"></i> 语音输入</button>
                 <button class="action-btn" id="chat-settings-btn"><i class="fas fa-sliders-h"></i> 对话设置</button>
-                <button class="action-btn" id="topics-manage-btn"><i class="fas fa-list-ul"></i> 话题管理</button>
-                <button class="action-btn" id="generate-image-btn"><i class="fas fa-image"></i> 生成图片</button>
+                <button class="action-btn" id="topics-manage-btn"><i class="fas fa-list-ul"></i> 话题管理</button>               
+                <!-- 可折叠按钮组（初始隐藏） -->
+                <div class="collapsible-buttons" id="collapsible-buttons">
+                    <button class="action-btn" id="kb-select-btn"><i class="fas fa-database"></i> <span id="kb-btn-label">选择知识库</span></button>
+                    <button class="action-btn" id="upload-file-btn"><i class="fas fa-file-upload"></i> 文件上传</button>
+                    <button class="action-btn" id="generate-image-btn"><i class="fas fa-image"></i> 生成图片</button>
+                </div>
+                <!-- 折叠切换按钮 -->
+                <button class="action-btn collapse-toggle" id="collapse-toggle-btn" title="展开/收缩更多工具">
+                    <i class="fas fa-chevron-right" id="collapse-icon"></i>
+                </button>
             </div>
         </div>
     </main>
@@ -523,6 +531,30 @@
         </div>
         <div class="modal-footer" id="custom-dialog-footer">
             <!-- 动态生成按钮 -->
+        </div>
+    </div>
+</div>
+<!-- 知识库选择弹窗（放在 </body> 前） -->
+<div id="kb-select-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 620px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-database"></i> 选择知识库</h3>
+            <button class="modal-close" id="close-kb-select-modal">&times;</button>
+        </div>
+        <div class="modal-body" id="kb-select-body" style="max-height: 60vh; overflow-y: auto; padding: 16px 20px;">
+            <!-- 知识库列表由 JS 动态渲染 -->
+            <div style="text-align:center;padding:40px;color:#8e8eb3;">
+                <i class="fas fa-spinner fa-spin"></i> 加载中...
+            </div>
+        </div>
+        <div class="modal-footer" style="justify-content: space-between;">
+            <div style="font-size:0.75rem; color:#8e8eb3;" id="kb-select-hint">
+                💡 点击卡片选择知识库，确认后将在对话中生效
+            </div>
+            <div style="display:flex; gap:12px;">
+                <button class="modal-btn cancel" id="cancel-kb-select-btn">取消</button>
+                <button class="modal-btn save" id="confirm-kb-select-btn">确认使用</button>
+            </div>
         </div>
     </div>
 </div>

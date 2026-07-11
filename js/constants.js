@@ -1,4 +1,6 @@
 class Constants {
+    // ==================== 知识库相似度阈值 ====================
+    static get SIMILARITY_THRESHOLD() { return 0.4; }  
     // ==================== UI 行为常量 ====================
     static get SCROLL_THRESHOLD() { return 20; }           // px，距离底部自动滚动的阈值
 

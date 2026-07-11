@@ -147,11 +147,11 @@ export class TTsService {
     /**
      * 播放语音（优先使用后端 API，失败时降级浏览器语音）
      * @param {string} text 要朗读的文本
-     * @param {string} voice 音色名称（后端 API 使用）
+     * @param {string} voiceId 音色名称（后端 API 使用）
      * @param {HTMLElement} [playButtonElement] 关联的播放按钮元素，播放期间禁用，结束后恢复
      * @returns {Promise<void>}
      */
-    async speak(text, voice, playButtonElement = null) {
+    async speak(text, voiceId, playButtonElement = null) {
         if (!text || text.trim() === '') return;
         // 停止当前正在播放的
         this.stop();
@@ -161,7 +161,7 @@ export class TTsService {
 
         try {
             // 尝试使用后端 API
-            await this.#speakWithBackend(text, voice);
+            await this.#speakWithBackend(text, voiceId);
         } catch (err) {
             if (err.name === 'AbortError') {
                 console.log('TTS 请求被取消');

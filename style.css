@@ -2076,11 +2076,11 @@ body.immersive-mode .chat-messages {
 /* 流式文字淡入 */
 .fade-in-text {
     animation: fadeInWord 0.3s ease forwards;
-    display: inline-block;
+    display: inline;           /* inline-block 会破坏中文文本的自然排版流 */
 }
 @keyframes fadeInWord {
-    from { opacity: 0; transform: translateY(2px); }
-    to   { opacity: 1; transform: translateY(0); }
+    from { opacity: 0; }
+    to   { opacity: 1; }
 }
 
 .topic-item.active {
@@ -2104,7 +2104,222 @@ body.immersive-mode .chat-messages {
     }
 }
 
+/* ========== 知识库选择弹窗 ========== */
+#kb-select-body {
+    padding: 12px 4px 4px 4px;
+}
+.kb-select-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+    gap: 16px;
+}
+.kb-select-card {
+    background: rgba(30, 34, 55, 0.6);
+    border-radius: 16px;
+    padding: 18px 16px 14px 16px;
+    border: 2px solid rgba(100, 130, 255, 0.2);
+    cursor: pointer;
+    transition: all 0.25s ease;
+    position: relative;
+    user-select: none;
+}
+.kb-select-card:hover {
+    background: rgba(40, 45, 75, 0.7);
+    border-color: rgba(100, 130, 255, 0.5);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.3);
+}
+.kb-select-card.selected {
+    border-color: #5f7eff;
+    background: rgba(60, 80, 160, 0.35);
+    box-shadow: 0 0 0 2px rgba(95, 126, 255, 0.3), 0 8px 24px rgba(0,0,0,0.3);
+}
+.kb-select-card.selected .kb-select-check {
+    display: flex;
+}
+.kb-select-check {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    width: 24px;
+    height: 24px;
+    background: #5f7eff;
+    border-radius: 50%;
+    display: none;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    color: #fff;
+    box-shadow: 0 2px 8px rgba(95,126,255,0.5);
+}
+.kb-select-icon {
+    font-size: 1.6rem;
+    color: #5f7eff;
+    margin-bottom: 8px;
+    display: block;
+}
+.kb-select-name {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #f0f3ff;
+    margin-bottom: 4px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.kb-select-desc {
+    font-size: 0.8rem;
+    color: #b7c4ff;
+    opacity: 0.8;
+    display: -webkit-box;
+    -webkit-line-clamp: 2;
+    -webkit-box-orient: vertical;
+    overflow: hidden;
+    min-height: 2.2em;
+}
+.kb-select-empty {
+    grid-column: 1 / -1;
+    text-align: center;
+    padding: 48px 20px;
+    color: #8e8eb3;
+}
+.kb-select-empty i {
+    font-size: 2.4rem;
+    display: block;
+    margin-bottom: 16px;
+    color: #5f7eff;
+    opacity: 0.5;
+}
+.kb-select-empty .action-link {
+    display: inline-block;
+    margin-top: 12px;
+    color: #5f7eff;
+    cursor: pointer;
+    text-decoration: underline;
+    font-weight: 500;
+}
+.kb-select-empty .action-link:hover {
+    color: #7f9eff;
+}
 
+/* 知识库按钮上的小标签 */
+#kb-btn-label {
+    max-width: 100px;
+    display: inline-block;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    vertical-align: middle;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .kb-select-grid {
+        grid-template-columns: 1fr 1fr;
+        gap: 12px;
+    }
+    .kb-select-card {
+        padding: 14px 12px 12px 12px;
+    }
+    .kb-select-name {
+        font-size: 0.9rem;
+    }
+}
+@media (max-width: 480px) {
+    .kb-select-grid {
+        grid-template-columns: 1fr;
+    }
+}
+/* 按钮栏整体 */
+.action-buttons {
+    display: flex;
+    gap: 16px;
+    margin-top: 12px;
+    justify-content: flex-start;
+    align-items: center;
+    flex-wrap: wrap;
+}
+
+/* 折叠切换按钮 - 靠右 */
+#collapse-toggle-btn {
+    margin-right: auto;
+    transition: transform 0.3s ease;
+    padding: 6px 12px;
+    min-width: 36px;
+    justify-content: center;
+}
+#collapse-toggle-btn .fa-chevron-right {
+    transition: transform 0.3s ease;
+}
+#collapse-toggle-btn.expanded .fa-chevron-right {
+    transform: rotate(90deg);
+}
+
+/* 可折叠按钮组容器 */
+.collapsible-buttons {
+    display: flex;
+    gap: 16px;
+    align-items: center;
+    overflow: hidden;
+    transition: max-width 0.4s cubic-bezier(0.25, 0.8, 0.25, 1),
+                opacity 0.3s ease,
+                margin 0.3s ease;
+    max-width: 0;
+    opacity: 0;
+    margin-left: 0;
+    white-space: nowrap;
+}
+.collapsible-buttons.open {
+    max-width: 600px;  /* 足够容纳所有按钮 */
+    opacity: 1;
+    margin-left: 8px;
+}
+
+/* 移动端适配 */
+@media (max-width: 768px) {
+    .action-buttons {
+        gap: 10px;
+    }
+    .collapsible-buttons {
+        gap: 10px;
+        display: none !important;
+    }
+    .collapsible-buttons.open {
+        max-width: 100%;
+        flex-wrap: wrap;
+    }
+    #collapse-toggle-btn {
+        margin-left: auto;
+    }
+}
+/* ========== 知识库引用标志 ========== */
+.kb-sources {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid rgba(100, 130, 255, 0.2);
+}
+.kb-source-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.65rem;
+    color: #9bb0ff;
+    background: rgba(95, 126, 255, 0.15);
+    padding: 2px 10px;
+    border-radius: 20px;
+    border: 1px solid rgba(95, 126, 255, 0.2);
+    cursor: default;
+    transition: background 0.2s;
+}
+.kb-source-tag i {
+    font-size: 0.6rem;
+}
+.kb-source-tag:hover {
+    background: rgba(95, 126, 255, 0.25);
+}
 
 
 
@@ -2575,4 +2790,44 @@ body.light-theme select {
     background: #f8faff !important;
     border-color: #cdd9ff !important;
     color: #1e3a8a !important;
+}
+
+body.light-theme .kb-select-card {
+    background: rgba(255, 255, 255, 0.7);
+    border-color: rgba(100, 130, 255, 0.2);
+}
+body.light-theme .kb-select-card:hover {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: rgba(100, 130, 255, 0.5);
+}
+body.light-theme .kb-select-card.selected {
+    border-color: #3b82f6;
+    background: rgba(59, 130, 246, 0.12);
+}
+body.light-theme .kb-select-name {
+    color: #1e3a8a;
+}
+body.light-theme .kb-select-desc {
+    color: #4b5563;
+}
+body.light-theme .kb-select-empty {
+    color: #6c7b9e;
+}
+body.light-theme .kb-select-empty i {
+    color: #3b82f6;
+}
+body.light-theme .kb-select-hint {
+    color: #6c7b9e !important;
+}
+/* 明亮主题适配 */
+body.light-theme .kb-source-tag {
+    color: #2563eb;
+    background: rgba(37, 99, 235, 0.12);
+    border-color: rgba(37, 99, 235, 0.2);
+}
+body.light-theme .kb-source-tag:hover {
+    background: rgba(37, 99, 235, 0.2);
+}
+body.light-theme .kb-sources {
+    border-top-color: rgba(37, 99, 235, 0.2);
 }
