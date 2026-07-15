@@ -1,0 +1,9 @@
+# Ignore Chroma database folder
+chroma_db/
+
+# Ignore audio cache folders
+audio_cache/
+*音频缓存*
+
+# Ignore vscode settings folders
+.vscode/

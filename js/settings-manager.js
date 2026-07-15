@@ -125,6 +125,10 @@ export class SettingsManager {
         }
     }
 
+    // 在 SettingsManager 类中新增
+    static getModelProvider() { 
+        return this._read().modelProvider ?? 'ollama'; 
+    }
     // ========== 便捷字段访问器 ==========
     // 命名规则：getXxx()，无 setXxx()（避免散落的写入导致数据不一致，统一通过 update() 修改）
 

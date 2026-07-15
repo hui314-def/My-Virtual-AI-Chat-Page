@@ -5,6 +5,7 @@ import { SettingsManager } from './settings-manager.js';
 import { TTsService } from './tts-service.js';
 import { ModelService } from './model-service.js';
 import { KnowledgeBaseManager } from './knowledge-base-manager.js';
+import { TokenTracker } from './token-tracker.js';
 import { escapeHtml } from './utils.js';
 
 export class ModalManager {
@@ -86,6 +87,33 @@ export class ModalManager {
         setTimeout(() => toast.remove(), 3000);
     }
 
+    /**
+     * 绑定弹窗遮罩点击关闭事件（防止拖选文本时误关闭）
+     * 只有当 mousedown 和 click 都发生在遮罩上时才关闭弹窗。
+     * @param {HTMLElement} modal - 弹窗元素
+     * @param {Function} closeCallback - 关闭回调
+     * @returns {{ unbind: Function }} 返回包含 unbind 方法的对象，用于解绑
+     */
+    bindModalOverlayClose(modal, closeCallback) {
+        let mousedownOnOverlay = false;
+        const onMouseDown = (e) => {
+            mousedownOnOverlay = (e.target === modal);
+        };
+        const onClick = (e) => {
+            if (e.target === modal && mousedownOnOverlay) {
+                closeCallback();
+            }
+        };
+        modal.addEventListener('mousedown', onMouseDown);
+        modal.addEventListener('click', onClick);
+        return {
+            unbind: () => {
+                modal.removeEventListener('mousedown', onMouseDown);
+                modal.removeEventListener('click', onClick);
+            }
+        };
+    }
+
     // ==================== 通用弹窗 ====================
 
     /**
@@ -136,7 +164,7 @@ export class ModalManager {
 
             const cleanup = () => {
                 closeBtn.removeEventListener('click', onClose);
-                modal.removeEventListener('click', onOverlayClick);
+                if (overlayBinding) overlayBinding.unbind();
                 document.removeEventListener('keydown', onEsc);
             };
 
@@ -147,16 +175,12 @@ export class ModalManager {
                 }
             };
 
-            const onOverlayClick = (e) => {
-                if (e.target === modal && closable) onClose();
-            };
-
             const onEsc = (e) => {
                 if (e.key === 'Escape' && closable) onClose();
             };
 
             closeBtn.addEventListener('click', onClose);
-            modal.addEventListener('click', onOverlayClick);
+            const overlayBinding = closable ? this.bindModalOverlayClose(modal, onClose) : null;
             document.addEventListener('keydown', onEsc);
             modal.style.display = 'flex';
         });
@@ -198,7 +222,7 @@ export class ModalManager {
         modal.style.display = 'flex';
         const closeBtn = modal.querySelector('.file-content-close');
         closeBtn.addEventListener('click', () => modal.remove());
-        modal.addEventListener('click', (e) => { if (e.target === modal) modal.remove(); });
+        this.bindModalOverlayClose(modal, () => modal.remove());
     }
 
     showFullscreenImage(src) {
@@ -233,9 +257,20 @@ export class ModalManager {
             this.ctx.cropperRef.value = null;
         }
 
+        // 解绑上次的遮罩点击事件，避免重复绑定
+        if (this._cropOverlayBinding) {
+            this._cropOverlayBinding.unbind();
+            this._cropOverlayBinding = null;
+        }
+
         let objectUrl = null;
 
         const closeCropModal = () => {
+            // 解绑遮罩点击事件
+            if (this._cropOverlayBinding) {
+                this._cropOverlayBinding.unbind();
+                this._cropOverlayBinding = null;
+            }
             if (this.ctx.cropperRef.value) {
                 this.ctx.cropperRef.value.destroy();
                 this.ctx.cropperRef.value = null;
@@ -282,9 +317,7 @@ export class ModalManager {
 
         cancelBtn.onclick = closeCropModal;
         closeBtn.onclick = closeCropModal;
-        modal.onclick = (e) => {
-            if (e.target === modal) closeCropModal();
-        };
+        this._cropOverlayBinding = this.bindModalOverlayClose(modal, closeCropModal);
     }
 
     // ==================== 对话设置弹窗（per-chat settings） ====================
@@ -454,6 +487,35 @@ export class ModalManager {
         const apiKeyInput = document.getElementById('api-key');
         if (modelHostInput) modelHostInput.value = SettingsManager.getModelHost();
         if (apiKeyInput) apiKeyInput.value = SettingsManager.getApiKey();
+        const providerSelect = document.getElementById('model-provider');
+        if (providerSelect) {
+            const providers = Constants.MODEL_PROVIDERS;
+            providerSelect.innerHTML = '';
+            for (const [key, val] of Object.entries(providers)) {
+                const option = document.createElement('option');
+                option.value = key;
+                option.textContent = val.label;
+                if (key === SettingsManager.getModelProvider()) option.selected = true;
+                providerSelect.appendChild(option);
+            }
+
+            // 移除旧监听，避免重复绑定
+            providerSelect.removeEventListener('change', providerSelect._changeHandler);
+            providerSelect._changeHandler = function() {
+                const key = this.value;
+                const provider = Constants.MODEL_PROVIDERS[key];
+                if (provider) {
+                    document.getElementById('model-host').value = provider.defaultHost;
+                    // 自动填充默认模型名称（可选）
+                    const modelNameInput = document.getElementById('global-model-name');
+                    if (modelNameInput) {
+                        modelNameInput.value = provider.defaultModel;
+                    }
+                    // 触发快速切换下拉更新（但这里还未保存，保存时会更新）
+                }
+            };
+            providerSelect.addEventListener('change', providerSelect._changeHandler);
+        }
 
         const usernameInput = document.getElementById('global-username');
         const bioInput = document.getElementById('global-bio');
@@ -598,6 +660,46 @@ export class ModalManager {
             autoScrollCheck.checked = SettingsManager.getAutoScrollAfterSend();
         }
         await this.kbManager.renderKnowledgeBase();
+
+        // 渲染 Token 用量统计
+        this.#renderTokenUsageTab();
+        // 绑定重置按钮
+        const resetTokenBtn = document.getElementById('reset-token-usage');
+        if (resetTokenBtn) {
+            const newBtn = resetTokenBtn.cloneNode(true);
+            resetTokenBtn.parentNode.replaceChild(newBtn, resetTokenBtn);
+            newBtn.addEventListener('click', async () => {
+                const confirmed = await this.showCustomDialog({
+                    title: '确认重置',
+                    message: '确定要清空所有累计 Token 用量统计吗？此操作不可撤销。',
+                    buttons: [
+                        { text: '取消', value: false, className: 'cancel' },
+                        { text: '确认重置', value: true, className: 'save' }
+                    ]
+                });
+                if (confirmed) {
+                    TokenTracker.reset();
+                    this.#renderTokenUsageTab();
+                    this.showBriefToast('Token 用量统计已重置');
+                }
+            });
+        }
+    }
+
+    /** 渲染 Token 用量统计标签页 */
+    #renderTokenUsageTab() {
+        const stats = TokenTracker.getStats();
+        const sessionTokens = TokenTracker.getSessionTokens();
+
+        const setStat = (id, value) => {
+            const el = document.getElementById(id);
+            if (el) el.textContent = value.toLocaleString();
+        };
+        setStat('token-prompt', stats.promptTokens);
+        setStat('token-completion', stats.completionTokens);
+        setStat('token-total', stats.totalTokens);
+        setStat('token-api-calls', stats.apiCalls);
+        setStat('token-session', sessionTokens);
     }
 
     closeGlobalModal() {
@@ -659,6 +761,7 @@ export class ModalManager {
             imgApiKey: document.getElementById('img-api-key').value,
             typingSpeed: parseFloat(document.getElementById('global-typing-speed').value),
             autoScrollAfterSend: document.getElementById('global-auto-scroll').checked,
+            modelProvider: document.getElementById('model-provider').value,
         };
 
         if (ctx.modelServiceInstanceRef.value) {

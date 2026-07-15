@@ -57,6 +57,13 @@
 └── README.md
 ```
 
+克隆仓库并通过命令行切换至当前目录下
+
+```bash
+git clone https://github.com/Playa-0v0/Cyrene-Agent.git
+cd My-Virtual-AI-Chat-Page
+```
+
 使用任意 HTTP 服务器启动前端（推荐 Python 内置）：
 
 ```bash

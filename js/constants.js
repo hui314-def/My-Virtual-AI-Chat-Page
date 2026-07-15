@@ -352,6 +352,60 @@ class Constants {
             ]
         }];
     }
+    
+    // 模型厂商api预设
+    static get MODEL_PROVIDERS() {
+        return {
+            ollama: {
+                label: 'Ollama (本地)',
+                defaultHost: 'http://localhost:11434',
+                defaultModel: 'gemma2',
+                apiType: 'ollama'
+            },
+            openai: {
+                label: 'OpenAI',
+                defaultHost: 'https://api.openai.com/v1',
+                defaultModel: 'gpt-4o-mini',
+                apiType: 'openai'
+            },
+            deepseek: {
+                label: 'DeepSeek',
+                defaultHost: 'https://api.deepseek.com/v1',
+                defaultModel: 'deepseek-chat',
+                apiType: 'openai'
+            },
+            kimi: {
+                label: 'Kimi (Moonshot)',
+                defaultHost: 'https://api.moonshot.cn/v1',
+                defaultModel: 'moonshot-v1-8k',
+                apiType: 'openai'
+            },
+            minimax: {
+                label: 'MiniMax',
+                defaultHost: 'https://api.minimax.chat/v1',
+                defaultModel: 'abab6.5-chat',
+                apiType: 'openai'
+            },
+            qwen: {
+                label: 'Qwen (通义千问)',
+                defaultHost: 'https://dashscope.aliyuncs.com/compatible-mode/v1',
+                defaultModel: 'qwen-turbo',
+                apiType: 'openai'
+            },
+            volc: {
+                label: '火山引擎 (豆包)',
+                defaultHost: 'https://ark.cn-beijing.volces.com/api/v3',
+                defaultModel: 'doubao-lite-32k',
+                apiType: 'openai'
+            },
+            glm: {
+                label: '智谱GLM',
+                defaultHost: 'https://open.bigmodel.cn/api/paas/v4',
+                defaultModel: 'glm-4-plus',
+                apiType: 'openai'
+            }
+        };
+    }
 }
 
 export default Constants;

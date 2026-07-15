@@ -27,6 +27,22 @@ export class ModelService {
         ModelService.#models = [...models];
     }
 
+    // ========== Token 用量回调 ==========
+    /** @type {Function|null} (promptTokens: number, completionTokens: number) => void */
+    static #onUsage = null;
+
+    /** 注册 Token 用量回调 */
+    static setUsageCallback(cb) {
+        ModelService.#onUsage = cb;
+    }
+
+    /** @param {number} promptTokens @param {number} completionTokens */
+    static #reportUsage(promptTokens, completionTokens) {
+        if (typeof ModelService.#onUsage === 'function') {
+            try { ModelService.#onUsage(promptTokens, completionTokens); } catch { /* ignore */ }
+        }
+    }
+
     // ========== 模型列表管理 ==========
     static getModels() { return [...this.#models]; }
 
@@ -35,7 +51,7 @@ export class ModelService {
         this.#models.push(modelName);
         return true;
     }
-    
+
     static removeModel(modelName) {
         if (this.#models.length === 1) return false;
         this.#models = this.#models.filter(m => m !== modelName);
@@ -100,11 +116,21 @@ export class ModelService {
                 const lines = buffer.split('\n');
                 buffer = lines.pop();
                 for (const line of lines) {
+                    // 先检查该行是否包含 Token 用量数据
+                    const usage = this.extractUsage(line);
+                    if (usage) {
+                        ModelService.#reportUsage(usage.promptTokens, usage.completionTokens);
+                    }
                     const chunk = this.parseChunk(line);
                     if (chunk) yield chunk;
                 }
             }
             if (buffer.trim()) {
+                // 最终缓冲行也可能包含用量数据
+                const usage = this.extractUsage(buffer);
+                if (usage) {
+                    ModelService.#reportUsage(usage.promptTokens, usage.completionTokens);
+                }
                 const chunk = this.parseChunk(buffer);
                 if (chunk) yield chunk;
             }
@@ -161,7 +187,9 @@ export class ModelService {
     // 获取请求的 URL
     getRequestUrl() {
         const base = this.config.modelHost.replace(/\/$/, '');
-        if (this.isOllama()) return `${base}/api/chat`; 
+        if (this.isOllama()) return `${base}/api/chat`;
+        // 避免重复拼接 /v1（如用户已填入 https://api.deepseek.com/v1）
+        if (base.endsWith('/v1')) return `${base}/chat/completions`;
         return `${base}/v1/chat/completions`;
     }
 
@@ -203,13 +231,53 @@ export class ModelService {
                 }
             };
         } else {
-            return {
+            const body = {
                 ...baseBody,
                 temperature,
                 top_p: topP,
                 max_tokens: maxTokens
             };
+            // OpenAI 兼容 API 需要此参数才能在流式响应中返回 token 用量
+            if (stream) {
+                body.stream_options = { include_usage: true };
+            }
+            return body;
         }
+    }
+    
+    /**
+     * 从 SSE 行中提取 Token 用量数据（不修改 parseChunk 的返回类型）
+     * @param {string} line - SSE 原始行
+     * @returns {{promptTokens: number, completionTokens: number}|null}
+     */
+    extractUsage(line) {
+        if (!line.trim()) return null;
+        try {
+            if (this.isOllama()) {
+                const data = JSON.parse(line.trim());
+                // Ollama 最终 chunk: {"done":true, "eval_count":N, "prompt_eval_count":M}
+                if (data.done && (data.eval_count !== undefined || data.prompt_eval_count !== undefined)) {
+                    return {
+                        promptTokens: data.prompt_eval_count || 0,
+                        completionTokens: data.eval_count || 0,
+                    };
+                }
+            } else {
+                // OpenAI 兼容格式: data: {"choices":[...], "usage":{...}}
+                const text = line.trim();
+                if (!text.startsWith('data: ')) return null;
+                const jsonStr = text.slice(6);
+                if (jsonStr === '[DONE]') return null;
+                const data = JSON.parse(jsonStr);
+                if (data.usage) {
+                    return {
+                        promptTokens: data.usage.prompt_tokens || 0,
+                        completionTokens: data.usage.completion_tokens || 0,
+                    };
+                }
+            }
+        } catch { /* ignore parse errors */ }
+        return null;
     }
 
     /**
@@ -260,9 +328,16 @@ export class ModelService {
             throw new Error(`HTTP ${response.status}`);
         }
         const data = await response.json();
+        // 提取并上报 Token 用量
         if (this.isOllama()) {
+            if (data.eval_count !== undefined || data.prompt_eval_count !== undefined) {
+                ModelService.#reportUsage(data.prompt_eval_count || 0, data.eval_count || 0);
+            }
             return data.message?.content || '';
         } else {
+            if (data.usage) {
+                ModelService.#reportUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
+            }
             return data.choices?.[0]?.message?.content || '';
         }
     }

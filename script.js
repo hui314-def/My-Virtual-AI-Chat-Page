@@ -11,6 +11,7 @@ import { ChatIO } from './js/chat-io.js';
 import { FileUploadService } from './js/file-upload.js';
 import { SettingsManager } from './js/settings-manager.js';
 import ModalManager from './js/modal-manager.js';
+import { TokenTracker } from './js/token-tracker.js';
 import VoiceInput from './js/voice-input.js';
 import SearchManager from './js/search.js';
 import MessageActions from './js/message-actions.js';
@@ -171,6 +172,10 @@ function getModelService() {
             modelHost: SettingsManager.getModelHost(),
             apiKey: SettingsManager.getApiKey(),
             modelName: SettingsManager.getModelName(),
+        });
+        // 注册 Token 用量回调（仅首次创建时）
+        ModelService.setUsageCallback((promptTokens, completionTokens) => {
+            TokenTracker.record(promptTokens, completionTokens);
         });
     }
     return modelServiceInstanceRef.value;
@@ -820,7 +825,8 @@ async function simulateAIResponse(userMsg) {
         let lastUserMsgContent = '';
         for (const msg of messagesToUse) {
             const role = msg.type === 'user' ? 'user' : 'assistant';
-            const content = (role === 'user' && msg.modelInputText) ? msg.modelInputText : msg.text;
+            const content = (role === 'user' && msg.modelInputText) ? msg.modelInputText : (msg.text || '');
+            if (!content) continue; // 跳过空消息，避免 API 报错
             messages.push({ role, content });
             if (role === 'user') lastUserMsgContent = content;
         }
@@ -858,8 +864,10 @@ async function simulateAIResponse(userMsg) {
             }
         }
 
-        // 然后 push 当前用户消息（使用 finalUserMsg）
-        messages.push({ role: 'user', content: finalUserMsg });
+        // 如果有知识库上下文，作为独立消息追加
+        if (finalUserMsg) {
+            messages.push({ role: 'user', content: finalUserMsg });
+        }
         // 创建模型服务实例（使用当前全局设置）
         const modelService = getModelService();
         // 确保配置最新（在调用前更新配置）
@@ -1450,7 +1458,10 @@ function showMobileCollapseMenu() {
 
     overlay.appendChild(menu);
     document.body.appendChild(overlay);
-    overlay.addEventListener('click', (e) => { if (e.target === overlay) closeMobileMenu(); });
+    // 防止拖选文本时误关闭：只有 mousedown 和 click 都在遮罩上时才关闭
+    let _mobileMenuMousedownOnOverlay = false;
+    overlay.addEventListener('mousedown', (e) => { _mobileMenuMousedownOnOverlay = (e.target === overlay); });
+    overlay.addEventListener('click', (e) => { if (e.target === overlay && _mobileMenuMousedownOnOverlay) closeMobileMenu(); });
 
     function closeMobileMenu() {
         if (overlay.parentNode) overlay.remove();
@@ -1484,7 +1495,10 @@ function bindImageGeneration() {
 
     const imageGenModal = document.getElementById('image-gen-modal');
     if (imageGenModal) {
-        imageGenModal.addEventListener('click', (e) => { if (e.target === imageGenModal) imageGenModal.style.display = 'none'; });
+        // 防止拖选文本时误关闭
+        let _imgGenMousedownOnOverlay = false;
+        imageGenModal.addEventListener('mousedown', (e) => { _imgGenMousedownOnOverlay = (e.target === imageGenModal); });
+        imageGenModal.addEventListener('click', (e) => { if (e.target === imageGenModal && _imgGenMousedownOnOverlay) imageGenModal.style.display = 'none'; });
     }
 
     const startBtn = document.getElementById('start-image-gen-btn');
@@ -1538,7 +1552,7 @@ function bindModalControls() {
     if (closeModalBtn) closeModalBtn.addEventListener('click', () => modalManager.closeSettingsModal());
     if (cancelBtn) cancelBtn.addEventListener('click', () => modalManager.closeSettingsModal());
     if (saveBtn) saveBtn.addEventListener('click', () => modalManager.saveSettings());
-    if (modal) modal.addEventListener('click', (e) => { if (e.target === modal) modalManager.closeModalWithAnimation(modal); });
+    if (modal) modalManager.bindModalOverlayClose(modal, () => modalManager.closeModalWithAnimation(modal));
 
     // 对话设置入口按钮
     const chatSettingsBtn = document.getElementById('chat-settings-btn');
@@ -1552,7 +1566,7 @@ function bindModalControls() {
     if (closeGlobalBtn) closeGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
     if (cancelGlobalBtn) cancelGlobalBtn.addEventListener('click', () => modalManager.closeGlobalModal());
     if (saveGlobalBtn) saveGlobalBtn.addEventListener('click', () => modalManager.saveGlobalSettings());
-    if (globalModal) globalModal.addEventListener('click', (e) => { if (e.target === globalModal) modalManager.closeGlobalModal(); });
+    if (globalModal) modalManager.bindModalOverlayClose(globalModal, () => modalManager.closeGlobalModal());
 
     // —— 话题管理弹窗 (topics-modal) ——
     const topicsBtn = document.getElementById('topics-manage-btn');
@@ -1562,7 +1576,7 @@ function bindModalControls() {
     if (closeTopicsBtn) closeTopicsBtn.addEventListener('click', () => modalManager.closeTopicsModal());
     if (cancelTopicsBtn) cancelTopicsBtn.addEventListener('click', () => modalManager.closeTopicsModal());
     const topicsModal = document.getElementById('topics-modal');
-    if (topicsModal) topicsModal.addEventListener('click', (e) => { if (e.target === topicsModal) modalManager.closeTopicsModal(); });
+    if (topicsModal) modalManager.bindModalOverlayClose(topicsModal, () => modalManager.closeTopicsModal());
 
     const newTopicModalBtn = document.getElementById('new-topic-modal-btn');
     if (newTopicModalBtn) newTopicModalBtn.addEventListener('click', () => { startNewTopic(); modalManager.closeTopicsModal(); });
@@ -1578,7 +1592,7 @@ function bindModalControls() {
     if (cancelKbBtn) cancelKbBtn.addEventListener('click', () => modalManager.closeKnowledgeBaseSelector());
     if (confirmKbBtn) confirmKbBtn.addEventListener('click', () => modalManager.confirmKnowledgeBaseSelection());
     const kbModal = document.getElementById('kb-select-modal');
-    if (kbModal) kbModal.addEventListener('click', (e) => { if (e.target === kbModal) modalManager.closeKnowledgeBaseSelector(); });
+    if (kbModal) modalManager.bindModalOverlayClose(kbModal, () => modalManager.closeKnowledgeBaseSelector());
 
     // —— Escape 关闭最上层弹窗 ——
     document.addEventListener('keydown', function (e) {
@@ -1614,21 +1628,51 @@ function bindSettingsPanel() {
         });
     });
 
-    // 模型连接测试
-    document.getElementById('test-model-connection-btn')?.addEventListener('click', async () => {
-        const statusEl = document.getElementById('test-connection-status');
-        if (!statusEl) return;
-        statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
-        const modelService = new ModelService({
-            modelHost: SettingsManager.getModelHost(),
-            apiKey: SettingsManager.getApiKey(),
-            modelName: SettingsManager.getModelName(),
-        });
-        const result = await modelService.testConnection();
-        statusEl.innerHTML = result.success
-            ? `<span style="color: #2effb0;">✅ ${result.message}</span>`
-            : `<span style="color: #ff7a5c;">❌ ${result.message}</span>`;
-    });
+    // 测试连接按钮（直接从输入框读取）
+    const testBtn = document.getElementById('test-model-connection-btn');
+    if (testBtn) {
+        // 移除旧监听，避免重复
+        testBtn.removeEventListener('click', testBtn._testHandler);
+        testBtn._testHandler = async function() {
+            const statusEl = document.getElementById('test-connection-status');
+            if (!statusEl) return;
+
+            // 直接从输入框读取地址和密钥
+            const hostInput = document.getElementById('model-host');
+            const keyInput = document.getElementById('api-key');
+            const providerSelect = document.getElementById('model-provider');
+            const modelInput = document.getElementById('global-model-name');
+
+            const host = hostInput ? hostInput.value.trim() : '';
+            const apiKey = keyInput ? keyInput.value.trim() : '';
+            const provider = providerSelect ? providerSelect.value : 'ollama';
+            const model = modelInput ? modelInput.value.trim() : '';
+
+            if (!host) {
+                statusEl.innerHTML = '<span style="color: #ff7a5c;">❌ 请先填写模型主机地址</span>';
+                return;
+            }
+
+            statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
+
+            // 创建临时 ModelService 实例进行测试
+            const tempService = new ModelService({
+                modelHost: host,
+                apiKey: apiKey,
+                modelName: model || 'test',
+            });
+
+            try {
+                const result = await tempService.testConnection();
+                statusEl.innerHTML = result.success
+                    ? `<span style="color: #2effb0;">✅ ${result.message}</span>`
+                    : `<span style="color: #ff7a5c;">❌ ${result.message}</span>`;
+            } catch (err) {
+                statusEl.innerHTML = `<span style="color: #ff7a5c;">❌ 连接失败：${err.message}</span>`;
+            }
+        };
+        testBtn.addEventListener('click', testBtn._testHandler);
+    }
 
     // 左下角设置按钮（打开全局设置）
     const settingBtn = document.querySelector('.setting-btn');

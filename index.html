@@ -276,6 +276,9 @@
                 <div class="settings-menu-item" data-tab="shortcuts">
                     <i class="fas fa-keyboard"></i> 快捷键
                 </div>
+                <div class="settings-menu-item" data-tab="usage">
+                    <i class="fas fa-chart-bar"></i> 用量统计
+                </div>
             </div>
             <!-- 右侧内容区域 -->
             <div class="settings-content">
@@ -302,8 +305,15 @@
                 <!-- 模型设置 -->
                 <div class="settings-tab-pane" id="tab-model">
                     <h4>模型连接</h4>
+                    <div class="form-group">
+                        <label>模型厂商</label>
+                        <select id="model-provider" style="width:100%;">
+                            <!-- 由 JS 动态填充 -->
+                        </select>
+                        <small>选择厂商后自动填充API地址，可手动修改</small>
+                    </div>
                     <div class="form-group"><label>模型主机地址</label><input type="text" id="model-host" placeholder="http://localhost:11434"></div>
-                    <div class="form-group"><label>API Key（可选）</label><input type="password" id="api-key" placeholder="sk-..."></div>
+                    <div class="form-group"><label>API Key</label><input type="password" id="api-key" placeholder="sk-..."></div>
                     <div class="form-group">
                         <label>连接测试</label>
                         <div style="display: flex; align-items: center; gap: 12px;">
@@ -444,6 +454,69 @@
                     <h4>自定义快捷键</h4>
                     <div id="shortcuts-list"></div>
                     <button class="modal-btn cancel" id="reset-shortcuts-btn" style="margin-top: 20px;">恢复默认</button>
+                </div>
+                <!-- 用量统计 -->
+                <div class="settings-tab-pane" id="tab-usage">
+                    <h4><i class="fas fa-chart-bar"></i> Token 用量统计</h4>
+                    <div class="token-stats-grid">
+                        <div class="token-stat-card">
+                            <div class="token-stat-icon" style="background: rgba(95,126,255,0.2);">
+                                <i class="fas fa-pen"></i>
+                            </div>
+                            <div class="token-stat-body">
+                                <span class="token-stat-label">Prompt Tokens</span>
+                                <span class="token-stat-value" id="token-prompt">0</span>
+                            </div>
+                        </div>
+                        <div class="token-stat-card">
+                            <div class="token-stat-icon" style="background: rgba(46,255,176,0.2);">
+                                <i class="fas fa-reply"></i>
+                            </div>
+                            <div class="token-stat-body">
+                                <span class="token-stat-label">Completion Tokens</span>
+                                <span class="token-stat-value" id="token-completion">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="token-stats-grid">
+                        <div class="token-stat-card">
+                            <div class="token-stat-icon" style="background: rgba(255,180,80,0.2);">
+                                <i class="fas fa-calculator"></i>
+                            </div>
+                            <div class="token-stat-body">
+                                <span class="token-stat-label">累计总 Token</span>
+                                <span class="token-stat-value" id="token-total">0</span>
+                            </div>
+                        </div>
+                        <div class="token-stat-card">
+                            <div class="token-stat-icon" style="background: rgba(200,150,255,0.2);">
+                                <i class="fas fa-phone"></i>
+                            </div>
+                            <div class="token-stat-body">
+                                <span class="token-stat-label">API 调用次数</span>
+                                <span class="token-stat-value" id="token-api-calls">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="token-stats-grid">
+                        <div class="token-stat-card token-stat-card-full">
+                            <div class="token-stat-icon" style="background: rgba(255,120,120,0.2);">
+                                <i class="fas fa-hourglass-half"></i>
+                            </div>
+                            <div class="token-stat-body">
+                                <span class="token-stat-label">本次会话 Token 用量</span>
+                                <span class="token-stat-value" id="token-session">0</span>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 24px; text-align: center;">
+                        <button class="modal-btn cancel" id="reset-token-usage" style="background: rgba(255,80,80,0.15); border: 1px solid rgba(255,80,80,0.3); color: #ff8a7a;">
+                            <i class="fas fa-undo"></i> 重置累计统计
+                        </button>
+                    </div>
+                    <small style="display: block; text-align: center; color: #8e8eb3; margin-top: 12px;">
+                        Token 数据来自 API 响应。Ollama 本地模型可能不提供 Token 计数（显示为 0）。
+                    </small>
                 </div>
             </div>
         </div>

@@ -1266,6 +1266,65 @@ body.dragging {
     color: #ccd6ff;
 }
 
+/* ===== Token 用量统计卡片 ===== */
+.token-stats-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+
+.token-stat-card {
+    background: rgba(30, 34, 55, 0.6);
+    border: 1px solid rgba(100, 130, 255, 0.25);
+    border-radius: 16px;
+    padding: 16px;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    transition: border-color 0.2s;
+}
+
+.token-stat-card:hover {
+    border-color: rgba(100, 130, 255, 0.5);
+}
+
+.token-stat-card-full {
+    grid-column: 1 / -1;
+}
+
+.token-stat-icon {
+    width: 44px;
+    height: 44px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+    font-size: 1.1rem;
+    color: #b7c4ff;
+}
+
+.token-stat-body {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    min-width: 0;
+}
+
+.token-stat-label {
+    font-size: 0.7rem;
+    color: #8e8eb3;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.token-stat-value {
+    font-size: 1.3rem;
+    font-weight: 700;
+    color: #f0f3ff;
+    font-variant-numeric: tabular-nums;
+}
 
 /* ========== 移动端适配 ========== */
 /* 默认桌面样式不变，移动端覆盖 */
@@ -2640,6 +2699,27 @@ body.light-theme #global-settings-modal .settings-menu-item.active {
     background: #e6edff !important;
     border-left: 3px solid #3b82f6 !important;
     color: #2563eb !important;
+}
+
+/* ========== 明亮主题 - Token 用量统计卡片 ========== */
+body.light-theme .token-stat-card {
+    background: rgba(240, 244, 255, 0.8) !important;
+    border-color: rgba(59, 130, 246, 0.25) !important;
+}
+body.light-theme .token-stat-card:hover {
+    border-color: rgba(59, 130, 246, 0.5) !important;
+}
+body.light-theme .token-stat-label {
+    color: #6b7280 !important;
+}
+body.light-theme .token-stat-value {
+    color: #1e3a8a !important;
+}
+body.light-theme .token-stat-icon {
+    color: #2563eb !important;
+}
+body.light-theme #tab-usage small {
+    color: #9ca3af !important;
 }
 
 .shortcut-row kbd {
