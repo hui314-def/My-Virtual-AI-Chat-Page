@@ -47,6 +47,7 @@
 │   ├── search.js
 |   ├── settings-manager.js
 |   ├── shortcut-manager.js
+|   ├── token-tracker.js
 |   ├── tts-service.js
 |   ├── utils.js
 |   └── voice-input.js
@@ -60,7 +61,7 @@
 克隆仓库并通过命令行切换至当前目录下
 
 ```bash
-git clone https://github.com/Playa-0v0/Cyrene-Agent.git
+git clone https://github.com/hui314-def/My-Virtual-AI-Chat-Page
 cd My-Virtual-AI-Chat-Page
 ```
 
