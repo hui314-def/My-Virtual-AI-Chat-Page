@@ -192,17 +192,17 @@ def get_voices():
     return jsonify({"voices": voices})
 
 @app.route('/tts', methods=['POST'])
-# @require_api_key
+@require_api_key
 def tts_synthesis():
     data = request.get_json()
     text = data.get('text', '')
-    voice = data.get('voiceId', 'default')
+    voiceId = data.get('voiceId', 'default')
 
     if not text:
         return jsonify({"error": "text 参数不能为空"}), 400
     
     # 生成缓存文件名（基于文本和音色的哈希）
-    cache_key = hashlib.md5(f"{text}_{voice}".encode('utf-8')).hexdigest()
+    cache_key = hashlib.md5(f"{text}_{voiceId}".encode('utf-8')).hexdigest()
     cache_path = os.path.join(AUDIO_CACHE_DIR, f"{cache_key}.wav")
 
     # 若缓存存在，直接返回文件
@@ -213,15 +213,15 @@ def tts_synthesis():
 
     try:
         # 1. 从内存映射获取
-        prompt = VOICE_PROMPT_MAP.get(voice)
+        prompt = VOICE_PROMPT_MAP.get(voiceId)
 
         # 2. 如果不存在，尝试从音色库文件夹加载
         if prompt is None:
-            pkl_path = os.path.join(VOICE_LIBRARY_DIR, f"{voice}.pkl")
+            pkl_path = os.path.join(VOICE_LIBRARY_DIR, f"{voiceId}.pkl")
             if os.path.exists(pkl_path):
                 with open(pkl_path, 'rb') as f:
                     prompt = pickle.load(f)
-                    VOICE_PROMPT_MAP[voice] = prompt
+                    VOICE_PROMPT_MAP[voiceId] = prompt
 
         # 3. 如果仍然没有，尝试使用 default 音色
         if prompt is None:
@@ -234,7 +234,7 @@ def tts_synthesis():
                         prompt = pickle.load(f)
                         VOICE_PROMPT_MAP["default"] = prompt
                 else:
-                    return jsonify({"error": f"未找到音色 '{voice}'，且没有默认音色可用"}), 400
+                    return jsonify({"error": f"未找到音色 '{voiceId}'，且没有默认音色可用"}), 400
 
         # 生成语音
         wavs, sr = model.generate_voice_clone(

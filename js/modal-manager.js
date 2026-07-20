@@ -7,6 +7,7 @@ import { ModelService } from './model-service.js';
 import { KnowledgeBaseManager } from './knowledge-base-manager.js';
 import { TokenTracker } from './token-tracker.js';
 import { escapeHtml } from './utils.js';
+import AssetStore from './asset-store.js';
 
 export class ModalManager {
     /**
@@ -391,10 +392,101 @@ export class ModalManager {
         roleNameInput.value = settings.roleName;
         rolePersona.value = settings.persona;
         roleGreeting.value = settings.greeting;
-        if (settings.avatarUrl) avatarImg.src = settings.avatarUrl;
-        else avatarImg.src = Constants.DEFAULT_AI_AVATAR;
-        if (settings.bgUrl) bgImg.src = settings.bgUrl;
-        else bgImg.src = Constants.DEFAULT_BG_PREVIEW;
+        if (settings.avatarUrl) { avatarImg.src = settings.avatarUrl; avatarImg.setAttribute('data-custom', 'true'); }
+        else { avatarImg.src = Constants.DEFAULT_AI_AVATAR; avatarImg.removeAttribute('data-custom'); }
+
+        // ---- 背景类型选择 ----
+        const bgTypeSelect = document.getElementById('bg-type');
+        const bgImageSection = document.getElementById('bg-image-section');
+        const bgVideoSection = document.getElementById('bg-video-section');
+        const currentBgType = settings.bgType || '';
+        if (bgTypeSelect) bgTypeSelect.value = currentBgType;
+
+        function showBgSection(type) {
+            if (bgImageSection) bgImageSection.style.display = type === 'image' ? 'block' : 'none';
+            if (bgVideoSection) bgVideoSection.style.display = type === 'video' ? 'block' : 'none';
+        }
+        showBgSection(currentBgType);
+        if (bgTypeSelect) {
+            bgTypeSelect.onchange = () => showBgSection(bgTypeSelect.value);
+        }
+
+        // 静态图片：恢复已保存的图片
+        if (bgImg) {
+            const savedImageUrl = settings.bgImageUrl || null;
+            if (savedImageUrl) {
+                bgImg.src = savedImageUrl;
+                bgImg.setAttribute('data-custom', 'true');
+            } else {
+                bgImg.src = Constants.DEFAULT_BG_PREVIEW;
+                bgImg.removeAttribute('data-custom');
+            }
+        }
+
+        // 视频背景：恢复已保存的设置
+        const chatBgVideoModeRadios = document.querySelectorAll('input[name="chat-bg-video-mode"]');
+        const chatBgVideoUrlRow = document.getElementById('chat-bg-video-url-row');
+        const chatBgVideoFileRow = document.getElementById('chat-bg-video-file-row');
+        const chatBgVideoUrlInput = document.getElementById('chat-bg-video-url');
+        const chatBgVideoFileName = document.getElementById('chat-bg-video-file-name');
+        const chatBgVideoPreview = document.getElementById('chat-bg-video-preview');
+        const chatBgVideoPreviewGroup = document.getElementById('chat-bg-video-preview-group');
+        const savedBgVideoMode = settings.bgVideoMode || 'url';
+
+        if (savedBgVideoMode === 'file') {
+            if (chatBgVideoUrlRow) chatBgVideoUrlRow.style.display = 'none';
+            if (chatBgVideoFileRow) chatBgVideoFileRow.style.display = 'block';
+        }
+        chatBgVideoModeRadios.forEach(r => {
+            if (r.value === savedBgVideoMode) r.checked = true;
+            r.addEventListener('change', () => {
+                const mode = document.querySelector('input[name="chat-bg-video-mode"]:checked')?.value;
+                if (chatBgVideoUrlRow) chatBgVideoUrlRow.style.display = mode === 'url' ? 'block' : 'none';
+                if (chatBgVideoFileRow) chatBgVideoFileRow.style.display = mode === 'file' ? 'block' : 'none';
+                if (chatBgVideoPreview) chatBgVideoPreview.src = '';
+                if (chatBgVideoPreviewGroup) chatBgVideoPreviewGroup.style.display = 'none';
+            });
+        });
+        if (chatBgVideoUrlInput) {
+            chatBgVideoUrlInput.value = (savedBgVideoMode === 'url') ? (settings.bgVideoUrl || '') : '';
+        }
+        if (chatBgVideoFileName) chatBgVideoFileName.textContent = settings.bgVideoName || '';
+
+        // 视频文件预览（挂实例上供 saveSettings 读取）
+        this._pendingVideoFile = null;
+        const chatBgVideoFileInput = document.getElementById('chat-bg-video-file');
+        if (chatBgVideoFileInput) {
+            chatBgVideoFileInput.value = '';
+            chatBgVideoFileInput.addEventListener('change', () => {
+                const file = chatBgVideoFileInput.files[0];
+                if (!file) return;
+                this._pendingVideoFile = file;
+                if (chatBgVideoFileName) chatBgVideoFileName.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`;
+                if (chatBgVideoPreview) {
+                    const previewUrl = URL.createObjectURL(file);
+                    chatBgVideoPreview.src = previewUrl;
+                    chatBgVideoPreview.onloadedmetadata = () => URL.revokeObjectURL(previewUrl);
+                }
+                if (chatBgVideoPreviewGroup) chatBgVideoPreviewGroup.style.display = 'block';
+            });
+        }
+        // URL 预览
+        if (chatBgVideoUrlInput) {
+            chatBgVideoUrlInput.addEventListener('blur', () => {
+                const url = chatBgVideoUrlInput.value.trim();
+                if (url && chatBgVideoPreview) {
+                    chatBgVideoPreview.src = url;
+                    if (chatBgVideoPreviewGroup) chatBgVideoPreviewGroup.style.display = 'block';
+                } else if (chatBgVideoPreviewGroup) {
+                    chatBgVideoPreviewGroup.style.display = 'none';
+                }
+            });
+            // 如果已保存 URL，显示预览
+            if (chatBgVideoUrlInput.value && chatBgVideoPreview) {
+                chatBgVideoPreview.src = chatBgVideoUrlInput.value;
+                if (chatBgVideoPreviewGroup) chatBgVideoPreviewGroup.style.display = 'block';
+            }
+        }
 
         if (ttsSwitch) {
             ttsSwitch.checked = settings.ttsEnabled || false;
@@ -459,11 +551,39 @@ export class ModalManager {
         currentChat.settings.greeting = newGreeting;
 
         const avatarImg = document.getElementById('avatar-img');
-        const bgImg = document.getElementById('bg-img');
-        const newAvatarUrl = Constants.isDefaultImage(avatarImg.src) ? null : avatarImg.src;
-        const newBgUrl = Constants.isDefaultImage(bgImg.src) ? null : bgImg.src;
+        const newAvatarUrl = avatarImg && avatarImg.hasAttribute('data-custom') ? avatarImg.src : null;
         currentChat.settings.avatarUrl = newAvatarUrl;
-        currentChat.settings.bgUrl = newBgUrl;
+
+        // ---- 背景类型 ----
+        const bgType = document.getElementById('bg-type')?.value || '';
+        currentChat.settings.bgType = bgType || null;  // null = 默认背景
+
+        if (bgType === 'image') {
+            const bgImg = document.getElementById('bg-img');
+            currentChat.settings.bgImageUrl = (bgImg && bgImg.hasAttribute('data-custom')) ? bgImg.src : null;
+        } else if (bgType === 'video') {
+            const videoMode = document.querySelector('input[name="chat-bg-video-mode"]:checked')?.value || 'url';
+            currentChat.settings.bgVideoMode = videoMode;
+            if (videoMode === 'url') {
+                currentChat.settings.bgVideoUrl = document.getElementById('chat-bg-video-url')?.value?.trim() || '';
+                currentChat.settings.bgVideoName = '';
+                // 切换到 URL 模式可清除旧的 IndexedDB 文件
+                AssetStore.deleteVideo(currentChat.id).catch(() => {});
+            } else {
+                // 文件模式：有新文件则存入 IndexedDB
+                if (this._pendingVideoFile) {
+                    await AssetStore.saveVideo(currentChat.id, this._pendingVideoFile);
+                    currentChat.settings.bgVideoName = this._pendingVideoFile.name;
+                    currentChat.settings.bgVideoUrl = '';  // 加载时从 IndexedDB 恢复
+                    this._pendingVideoFile = null;
+                }
+                // 无新文件 → 保持已有设置不变
+            }
+        } else {
+            // 默认背景：保留 image/video 数据不清空，方便切回来恢复
+            currentChat.settings.bgVideoMode = 'url';
+            currentChat.settings.bgVideoName = '';
+        }
 
         const ttsEnabled = document.getElementById('tts-switch').checked;
         const ttsVoice = document.getElementById('tts-voice-select').value;
@@ -487,6 +607,8 @@ export class ModalManager {
         const apiKeyInput = document.getElementById('api-key');
         if (modelHostInput) modelHostInput.value = SettingsManager.getModelHost();
         if (apiKeyInput) apiKeyInput.value = SettingsManager.getApiKey();
+        // 确保模型列表 UI 反映当前厂商的模型列表
+        if (ctx.renderModelListUI) ctx.renderModelListUI();
         const providerSelect = document.getElementById('model-provider');
         if (providerSelect) {
             const providers = Constants.MODEL_PROVIDERS;
@@ -502,17 +624,52 @@ export class ModalManager {
             // 移除旧监听，避免重复绑定
             providerSelect.removeEventListener('change', providerSelect._changeHandler);
             providerSelect._changeHandler = function() {
-                const key = this.value;
-                const provider = Constants.MODEL_PROVIDERS[key];
-                if (provider) {
-                    document.getElementById('model-host').value = provider.defaultHost;
-                    // 自动填充默认模型名称（可选）
-                    const modelNameInput = document.getElementById('global-model-name');
-                    if (modelNameInput) {
-                        modelNameInput.value = provider.defaultModel;
+                const newProvider = this.value;
+                const oldProvider = SettingsManager.getModelProvider();
+                const provider = Constants.MODEL_PROVIDERS[newProvider];
+                if (!provider) return;
+
+                // 1. 保存当前厂商的 apiKey / modelHost / 模型列表
+                const currentModels = ModelService.getModels();
+                const currentModelName = document.getElementById('global-model-name')?.value || SettingsManager.getModelName();
+                SettingsManager.saveProviderState(oldProvider, {
+                    apiKey: document.getElementById('api-key')?.value || '',
+                    modelHost: document.getElementById('model-host')?.value || '',
+                    models: currentModels,
+                    currentModel: currentModelName,
+                });
+
+                // 2. 切换厂商（暂存，尚未点「保存设置」）
+                SettingsManager.update({ modelProvider: newProvider });
+
+                // 3. 恢复新厂商之前保存的设置（否则使用默认值）
+                const savedState = SettingsManager.loadProviderState(newProvider);
+                const hostInput = document.getElementById('model-host');
+                const apiKeyInput = document.getElementById('api-key');
+                const modelNameInput = document.getElementById('global-model-name');
+
+                if (savedState) {
+                    if (hostInput) hostInput.value = savedState.modelHost || provider.defaultHost;
+                    if (apiKeyInput) apiKeyInput.value = savedState.apiKey || '';
+                    if (savedState.models && savedState.models.length > 0) {
+                        ModelService.setModels(savedState.models);
+                        if (modelNameInput) modelNameInput.value = savedState.currentModel || savedState.models[0];
+                    } else {
+                        ModelService.setModels([provider.defaultModel]);
+                        if (modelNameInput) modelNameInput.value = provider.defaultModel;
                     }
-                    // 触发快速切换下拉更新（但这里还未保存，保存时会更新）
+                } else {
+                    // 首次使用该厂商 — 使用 Constants 中的默认值
+                    if (hostInput) hostInput.value = provider.defaultHost;
+                    // 不清空 apiKey，用户可能已经填了
+                    ModelService.setModels([provider.defaultModel]);
+                    if (modelNameInput) modelNameInput.value = provider.defaultModel;
                 }
+
+                // 4. 刷新 UI
+                if (ctx.renderModelListUI) ctx.renderModelListUI();
+                if (ctx.updateModelSelector) ctx.updateModelSelector();
+                if (ctx.saveModelListToStorage) ctx.saveModelListToStorage();
             };
             providerSelect.addEventListener('change', providerSelect._changeHandler);
         }
@@ -659,6 +816,7 @@ export class ModalManager {
         if (autoScrollCheck) {
             autoScrollCheck.checked = SettingsManager.getAutoScrollAfterSend();
         }
+
         await this.kbManager.renderKnowledgeBase();
 
         // 渲染 Token 用量统计
@@ -781,6 +939,14 @@ export class ModalManager {
             }
             return;
         }
+
+        // 同步保存当前厂商状态（API Key、模型列表等），便于切换厂商后恢复
+        SettingsManager.saveProviderState(globalSettings.modelProvider, {
+            apiKey: globalSettings.apiKey,
+            modelHost: globalSettings.modelHost,
+            models: ModelService.getModels(),
+            currentModel: currentModel,
+        });
 
         ctx.applyTheme(globalSettings.theme);
         ctx.applyFontSize(fontSize);

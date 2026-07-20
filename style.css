@@ -2911,3 +2911,34 @@ body.light-theme .kb-source-tag:hover {
 body.light-theme .kb-sources {
     border-top-color: rgba(37, 99, 235, 0.2);
 }
+
+/* ========= 视频背景层 ========= */
+.bg-video-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 0;
+    pointer-events: none;
+}
+.bg-video-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 1;
+    pointer-events: none;
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)),
+                radial-gradient(circle at 70% 20%, rgba(70, 110, 255, 0.08), transparent 70%);
+}
+/* 视频模式下隐藏原有的 ::before 光晕（已由 overlay 层提供） */
+.main-chat.has-video-bg::before {
+    display: none;
+}
+/* 明亮主题下的叠加层 */
+body.light-theme .bg-video-overlay {
+    background: linear-gradient(0deg, rgba(255, 255, 255, 0.45), rgba(255, 255, 255, 0.35));
+}

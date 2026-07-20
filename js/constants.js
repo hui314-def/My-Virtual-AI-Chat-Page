@@ -31,7 +31,11 @@ class Constants {
     static get DEFAULT_SETTINGS() {
         return {
             avatarUrl: null,           // base64 或 null
-            bgUrl: null,
+            bgType: null,              // null | 'image' | 'video'
+            bgImageUrl: null,          // 静态图片 data URI
+            bgVideoUrl: '',            // 视频 URL（url 模式）或空（file 模式从 IndexedDB 加载）
+            bgVideoMode: 'url',        // 'url' | 'file'
+            bgVideoName: '',           // 文件模式的文件名（仅展示用）
             roleName: 'Nova',
             persona: 'Nova 是一位来自未来星系的AI助手，喜欢用诗意的语言回答问题。',
             greeting: '✨ 你好，我是你的虚拟AI伙伴Nova。背景中的灵境图腾，就是我意识映射的碎片。今晚想探索哪个维度？',
@@ -257,12 +261,46 @@ class Constants {
                         <small>点击头像图片即可更换</small>
                     </div>
                     <div class="form-group">
-                        <label>聊天背景图片</label>
+                        <label>聊天背景</label>
+                        <select id="bg-type" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 180px; cursor: pointer;">
+                            <option value="">默认背景</option>
+                            <option value="image">静态图片</option>
+                            <option value="video">视频背景</option>
+                        </select>
+                    </div>
+                    <!-- 静态图片区域 -->
+                    <div class="form-group" id="bg-image-section" style="display:none;">
+                        <label>选择图片</label>
                         <div class="image-preview" id="bg-preview">
                             <img id="bg-img" src="${Constants.DEFAULT_BG_PREVIEW}" alt="背景预览" style="width:100%; height:auto;">
                         </div>
                         <input type="file" id="bg-upload" accept="image/*">
                         <small>背景图将应用于右侧聊天区域</small>
+                    </div>
+                    <!-- 视频背景区域 -->
+                    <div class="form-group" id="bg-video-section" style="display:none;">
+                        <label>视频来源</label>
+                        <div style="display:flex; gap:16px; margin-bottom:8px;">
+                            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="radio" name="chat-bg-video-mode" value="url" checked> URL 链接
+                            </label>
+                            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="radio" name="chat-bg-video-mode" value="file"> 上传文件
+                            </label>
+                        </div>
+                        <div id="chat-bg-video-url-row">
+                            <input type="text" id="chat-bg-video-url" placeholder="https://example.com/bg.mp4">
+                        </div>
+                        <div id="chat-bg-video-file-row" style="display:none;">
+                            <input type="file" id="chat-bg-video-file" accept="video/mp4,video/webm">
+                            <span id="chat-bg-video-file-name" style="font-size:0.75rem;color:#8e8eb3;"></span>
+                        </div>
+                        <small>支持 mp4/webm，建议 720p、≤50MB，自动静音循环播放</small>
+                        <div class="form-group" id="chat-bg-video-preview-group" style="display:none;">
+                            <video id="chat-bg-video-preview" muted autoplay loop playsinline
+                                   style="width:100%;max-height:140px;border-radius:12px;border:1px solid rgba(100,130,255,0.4);object-fit:cover;background:#000;">
+                            </video>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label>角色名称</label>

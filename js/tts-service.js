@@ -179,7 +179,7 @@ export class TTsService {
     }
 
     // 调用后端 TTS API 生成并播放音频
-    async #speakWithBackend(text, voice) {
+    async #speakWithBackend(text, voiceId) {
         const controller = new AbortController();
         this.#currentController = controller;
 
@@ -194,7 +194,7 @@ export class TTsService {
         const response = await fetch(`${ttsApiUrl}/tts`, {
             method: 'POST',
             headers,
-            body: JSON.stringify({ text, voice }),
+            body: JSON.stringify({ text, voiceId: voiceId }),
             signal: controller.signal,
         });
 

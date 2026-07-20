@@ -125,10 +125,61 @@ export class SettingsManager {
         }
     }
 
-    // 在 SettingsManager 类中新增
-    static getModelProvider() { 
-        return this._read().modelProvider ?? 'ollama'; 
+    static getModelProvider() {
+        return this._read().modelProvider ?? 'ollama';
     }
+
+    // ========== 按厂商（provider）保存/恢复设置 ==========
+    // 每个厂商独立保存：apiKey、modelHost、models（模型列表）、currentModel
+    static #PROVIDER_KEY = 'provider_settings';
+
+    /** @returns {Object} 所有厂商的保存状态 */
+    static #_readProviderStates() {
+        try {
+            const raw = localStorage.getItem(this.#PROVIDER_KEY);
+            if (!raw) return {};
+            return JSON.parse(raw) || {};
+        } catch { return {}; }
+    }
+
+    static #_writeProviderStates(states) {
+        try {
+            localStorage.setItem(this.#PROVIDER_KEY, JSON.stringify(states));
+            return true;
+        } catch (err) {
+            console.warn('[SettingsManager] 保存厂商设置失败：', err);
+            return false;
+        }
+    }
+
+    /**
+     * 为指定厂商保存当前设置快照
+     * @param {string} providerId - 厂商标识（如 'ollama', 'deepseek'）
+     * @param {{apiKey?: string, modelHost?: string, models?: string[], currentModel?: string}} state
+     */
+    static saveProviderState(providerId, state) {
+        if (!providerId) return false;
+        const states = this.#_readProviderStates();
+        states[providerId] = {
+            apiKey: state.apiKey ?? '',
+            modelHost: state.modelHost ?? '',
+            models: state.models ?? [],
+            currentModel: state.currentModel ?? '',
+        };
+        return this.#_writeProviderStates(states);
+    }
+
+    /**
+     * 读取指定厂商之前保存的设置快照
+     * @param {string} providerId
+     * @returns {{apiKey: string, modelHost: string, models: string[], currentModel: string}|null}
+     */
+    static loadProviderState(providerId) {
+        if (!providerId) return null;
+        const states = this.#_readProviderStates();
+        return states[providerId] || null;
+    }
+
     // ========== 便捷字段访问器 ==========
     // 命名规则：getXxx()，无 setXxx()（避免散落的写入导致数据不一致，统一通过 update() 修改）
 

@@ -110,9 +110,9 @@ export class ChatIO {
         const title = `${roleName} · 对话记录`;
         const dateStr = chat.date.toLocaleString(Constants.SPEECH_RECOGNITION_LANG);
         const userAvatar = SettingsManager.getAvatar();
-        const bgUrl = chat.settings?.bgUrl;
-        const bodyBgStyle = bgUrl
-            ? `background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${bgUrl}) center/cover no-repeat fixed;`
+        const bgImageUrl = chat.settings?.bgImageUrl || chat.settings?.bgUrl; // 兼容旧数据
+        const bodyBgStyle = bgImageUrl
+            ? `background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${bgImageUrl}) center/cover no-repeat fixed;`
             : `background: #030305;`;
 
         const messagesHtml = (chat.topics || []).map((topic, idx) => {

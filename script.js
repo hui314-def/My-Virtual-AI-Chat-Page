@@ -13,6 +13,8 @@ import { SettingsManager } from './js/settings-manager.js';
 import ModalManager from './js/modal-manager.js';
 import { TokenTracker } from './js/token-tracker.js';
 import VoiceInput from './js/voice-input.js';
+import BackgroundManager from './js/background-manager.js';
+import AssetStore from './js/asset-store.js';
 import SearchManager from './js/search.js';
 import MessageActions from './js/message-actions.js';
 import ShortcutManager from './js/shortcut-manager.js';
@@ -342,17 +344,38 @@ function addModel(modelName) {
 function saveModelListToStorage() {
     const models = ModelService.getModels();
     localStorage.setItem('model_list', JSON.stringify(models));
+    // 同步更新当前厂商模型列表（保留已有的 apiKey / modelHost）
+    const currentProvider = SettingsManager.getModelProvider();
+    const existing = SettingsManager.loadProviderState(currentProvider) || {};
+    SettingsManager.saveProviderState(currentProvider, {
+        apiKey: existing.apiKey ?? SettingsManager.getApiKey(),
+        modelHost: existing.modelHost ?? SettingsManager.getModelHost(),
+        models: models,
+        currentModel: SettingsManager.getModelName(),
+    });
 }
 
 // 加载模型列表并初始化 ModelService 的静态列表
 function loadModelListAndInit() {
-    const stored = localStorage.getItem('model_list');
+    const currentProvider = SettingsManager.getModelProvider();
+    // 优先从厂商独立状态中恢复模型列表
+    const savedState = SettingsManager.loadProviderState(currentProvider);
     let models = [];
-    if (stored) {
-        models = JSON.parse(stored);
+    if (savedState && savedState.models && savedState.models.length > 0) {
+        models = savedState.models;
+        // 同时恢复该厂商的当前模型
+        if (savedState.currentModel) {
+            SettingsManager.update({ modelName: savedState.currentModel });
+        }
     } else {
-        models = [SettingsManager.getModelName()];
-        localStorage.setItem('model_list', JSON.stringify(models));
+        // 回退到旧的全局 model_list
+        const stored = localStorage.getItem('model_list');
+        if (stored) {
+            models = JSON.parse(stored);
+        } else {
+            models = [SettingsManager.getModelName()];
+            localStorage.setItem('model_list', JSON.stringify(models));
+        }
     }
     ModelService.setModels(models);
 }
@@ -431,16 +454,13 @@ function applyCurrentChatSettings() {
     const chat = chats.find(c => c.id == currentChatId);
     if (!chat) return;
     const settings = chat.settings || Constants.DEFAULT_SETTINGS;
-    // 更新聊天背景
-    const mainChat = document.querySelector('.main-chat');
-    if (settings.bgUrl) {
-        mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${settings.bgUrl})`;
-        mainChat.style.backgroundSize = 'cover';
-        mainChat.style.backgroundPosition = 'center';
-    } else {
-        // 恢复默认背景（见 Constants.DEFAULT_CHAT_BG_SVG）
-        mainChat.style.backgroundImage = Constants.getDefaultChatBackgroundImage();
-    }
+    BackgroundManager.apply({
+        chatId: chat.id,
+        bgType: settings.bgType || null,
+        bgImageUrl: settings.bgImageUrl || null,
+        bgVideoUrl: settings.bgVideoUrl || '',
+        bgVideoMode: settings.bgVideoMode || 'url',
+    });
 }
 
 // 渲染左侧历史列表
@@ -1329,10 +1349,14 @@ function bindToolbarButtons() {
             const file = e.target.files[0];
             if (!file) return;
             modalManager.showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
-                document.getElementById('bg-img').src = croppedDataUrl;
-                const mainChat = document.querySelector('.main-chat');
-                mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${croppedDataUrl})`;
-                mainChat.style.backgroundSize = 'cover';
+                const bgImgEl = document.getElementById('bg-img');
+                if (bgImgEl) { bgImgEl.src = croppedDataUrl; bgImgEl.setAttribute('data-custom', 'true'); }
+                // 确保 bg-type 切换到静态图片
+                const bgTypeSel = document.getElementById('bg-type');
+                if (bgTypeSel) bgTypeSel.value = 'image';
+                document.getElementById('bg-image-section').style.display = 'block';
+                // 实时预览
+                BackgroundManager.apply({ bgType: 'image', bgImageUrl: croppedDataUrl });
             });
         });
     }
@@ -1694,6 +1718,7 @@ function bindSettingsPanel() {
                 if (!file) return;
                 modalManager.showCropModal(file, 1, { maxWidth: 1024, mimeType: 'image/jpeg', quality: 0.9 }, (croppedDataUrl) => {
                     avatarImg.src = croppedDataUrl;
+                    avatarImg.setAttribute('data-custom', 'true');
                 });
             };
             fileInput.click();
@@ -2376,6 +2401,10 @@ async function init() {
     getModelService();
     renderModelListUI();      // 渲染模型列表弹窗
     updateModelSelector();    // 更新快速切换下拉框
+    // 初始化背景（自动判断全局视频 / 对话静态图 / 默认 SVG）
+    applyCurrentChatSettings();
+    // 清理旧版单 key 视频残留（之前用 'bg-video' 存的，现在已改为 'bg-video-{chatId}'）
+    AssetStore.cleanupOrphaned().catch(() => {});
     restoreSelectedKnowledgeBase();
 
     // 初始化完成，移除遮罩并显示主界面
