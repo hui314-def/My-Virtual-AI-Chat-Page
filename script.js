@@ -901,7 +901,8 @@ async function simulateAIResponse(userMsg) {
         const requestOptions = {
             temperature: currentChat.settings?.temperature ?? 0.7,
             topP: currentChat.settings?.topP ?? 0.9,
-            maxTokens: 500,
+            maxTokens: currentChat.settings?.maxTokens ?? 500,
+            thinkLevel: currentChat.settings?.thinkLevel ?? 0,
         };
 
         // 获取生成器
@@ -941,7 +942,8 @@ async function simulateAIResponse(userMsg) {
         }
         // 最终更新消息气泡内容（解析思考标签）
         const bubble = messageDiv.querySelector('.bubble');
-        const newHtml = renderMessageWithThink(fullReply);
+        const showThinking = (currentChat.settings?.thinkLevel ?? 0) > 0;
+        const newHtml = renderMessageWithThink(fullReply, showThinking);
         // 保留原有的模型名称（如果存在）
         const oldMsgTime = bubble.querySelector('.msg-time');
         let modelNameSpan = '';
@@ -1148,7 +1150,9 @@ async function createNewChat() {
     newSettings.contextLimit = SettingsManager.getContextLimit();
     newSettings.temperature = SettingsManager.getTemperature();
     newSettings.topP = SettingsManager.getTopP();
-    // 可选：也可以继承用户管理的用户名等，按需
+    newSettings.thinkLevel = SettingsManager.getThinkLevel();
+    newSettings.maxTokens = SettingsManager.getMaxTokens();
+    // 继承用户管理的用户名等
     const newChat = {
         id: newId,
         title: `新对话 ${chats.length+1}`,

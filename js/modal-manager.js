@@ -333,6 +333,8 @@ export class ModalManager {
         const contextUnlimited = (settings.contextLimit === -1);
         const temperature = settings.temperature !== undefined ? settings.temperature : 0.7;
         const topP = settings.topP !== undefined ? settings.topP : 0.9;
+        const thinkLevel = settings.thinkLevel !== undefined ? settings.thinkLevel : 0;
+        const maxTokens = settings.maxTokens !== undefined ? settings.maxTokens : 500;
 
         const modal = document.getElementById('settings-modal');
         const roleNameInput = document.getElementById('role-name');
@@ -347,6 +349,10 @@ export class ModalManager {
         const temperatureSpan = document.getElementById('temperature-value');
         const topPSlider = document.getElementById('top-p');
         const topPSpan = document.getElementById('top-p-value');
+        const thinkLevelSlider = document.getElementById('think-level');
+        const thinkLevelSpan = document.getElementById('think-level-value');
+        const maxTokensSlider = document.getElementById('max-tokens');
+        const maxTokensSpan = document.getElementById('max-tokens-value');
         const ttsSwitch = document.getElementById('tts-switch');
         const ttsVoiceSelect = document.getElementById('tts-voice-select');
         const ttsVoiceGroup = document.getElementById('tts-voice-group');
@@ -387,6 +393,19 @@ export class ModalManager {
             topPSlider.value = topP;
             topPSpan.innerText = topP;
             topPSlider.oninput = () => { topPSpan.innerText = topPSlider.value; };
+        }
+        if (thinkLevelSlider) {
+            thinkLevelSlider.value = thinkLevel;
+            thinkLevelSpan.innerText = Constants.THINK_LEVELS[thinkLevel];
+            thinkLevelSlider.oninput = () => {
+                const idx = parseInt(thinkLevelSlider.value);
+                thinkLevelSpan.innerText = Constants.THINK_LEVELS[idx];
+            };
+        }
+        if (maxTokensSlider) {
+            maxTokensSlider.value = maxTokens;
+            maxTokensSpan.innerText = maxTokens;
+            maxTokensSlider.oninput = () => { maxTokensSpan.innerText = maxTokensSlider.value; };
         }
 
         roleNameInput.value = settings.roleName;
@@ -541,11 +560,15 @@ export class ModalManager {
         if (contextUnlimited) contextLimit = -1;
         const temperature = parseFloat(document.getElementById('temperature').value);
         const topP = parseFloat(document.getElementById('top-p').value);
+        const thinkLevel = parseInt(document.getElementById('think-level').value);
+        const maxTokens = parseInt(document.getElementById('max-tokens').value);
 
         currentChat.settings = currentChat.settings || {};
         currentChat.settings.contextLimit = contextLimit;
         currentChat.settings.temperature = temperature;
         currentChat.settings.topP = topP;
+        currentChat.settings.thinkLevel = thinkLevel;
+        currentChat.settings.maxTokens = maxTokens;
         currentChat.settings.roleName = newRoleName;
         currentChat.settings.persona = newPersona;
         currentChat.settings.greeting = newGreeting;
@@ -685,6 +708,8 @@ export class ModalManager {
         const ctxUnlimitedCheck = document.getElementById('global-context-unlimited');
         const tempSlider = document.getElementById('global-temperature');
         const topPSlider = document.getElementById('global-top-p');
+        const thinkLevelSlider = document.getElementById('global-think-level');
+        const maxTokensSlider = document.getElementById('global-max-tokens');
 
         const imgApiUrlInput = document.getElementById('img-api-url');
         if (imgApiUrlInput) imgApiUrlInput.value = SettingsManager.getImgApiUrl();
@@ -751,6 +776,8 @@ export class ModalManager {
         const ctxLimit = SettingsManager.getContextLimit();
         const temp = SettingsManager.getTemperature();
         const topP = SettingsManager.getTopP();
+        const thinkLevel = SettingsManager.getThinkLevel();
+        const maxTokens = SettingsManager.getMaxTokens();
 
         if (ctxSlider) {
             if (SettingsManager.isContextUnlimited()) {
@@ -788,6 +815,19 @@ export class ModalManager {
             topPSlider.value = topP;
             document.getElementById('global-top-p-value').innerText = topP;
             topPSlider.oninput = () => document.getElementById('global-top-p-value').innerText = topPSlider.value;
+        }
+        if (thinkLevelSlider) {
+            thinkLevelSlider.value = thinkLevel;
+            document.getElementById('global-think-level-value').innerText = Constants.THINK_LEVELS[thinkLevel];
+            thinkLevelSlider.oninput = () => {
+                const idx = parseInt(thinkLevelSlider.value);
+                document.getElementById('global-think-level-value').innerText = Constants.THINK_LEVELS[idx];
+            };
+        }
+        if (maxTokensSlider) {
+            maxTokensSlider.value = maxTokens;
+            document.getElementById('global-max-tokens-value').innerText = maxTokens;
+            maxTokensSlider.oninput = () => document.getElementById('global-max-tokens-value').innerText = maxTokensSlider.value;
         }
 
         const themeSelect = document.getElementById('global-theme');
@@ -909,6 +949,8 @@ export class ModalManager {
             contextUnlimited: ctxUnlimited,
             temperature: parseFloat(document.getElementById('global-temperature').value),
             topP: parseFloat(document.getElementById('global-top-p').value),
+            thinkLevel: parseInt(document.getElementById('global-think-level').value),
+            maxTokens: parseInt(document.getElementById('global-max-tokens').value),
             theme: document.getElementById('global-theme').value,
             fontSize: fontSize,
             modelName: currentModel,

@@ -5,6 +5,7 @@ from flask import Flask, request, jsonify
 from flask_cors import CORS
 import chromadb
 from chromadb.config import Settings
+from chromadb.api.types import Schema, FtsIndexConfig, VectorIndexConfig
 from sentence_transformers import SentenceTransformer
 import PyPDF2
 import docx
@@ -23,8 +24,15 @@ TOP_K = 3
 # ========== 初始化 Chroma 客户端 ==========
 client = chromadb.PersistentClient(path=PERSIST_DIR, settings=Settings(anonymized_telemetry=False))
 
+# 禁用 FTS（全文搜索索引），避免 trigram 分词器导致数据库膨胀
+# 本项目只用向量检索 (query_embeddings)，不需要 FTS
+# 同时配置向量空间为 cosine
+_schema_no_fts = Schema()
+_schema_no_fts.delete_index(config=FtsIndexConfig(), key="#document")
+_schema_no_fts.create_index(config=VectorIndexConfig(space="cosine"))
+
 # 元数据集合（存储知识库信息）
-meta_collection = client.get_or_create_collection("kb_meta")
+meta_collection = client.get_or_create_collection("kb_meta", schema=_schema_no_fts)
 
 # 嵌入模型（主进程保留一份，用于检索接口的实时查询 embedding，单条很快不阻塞）
 MODEL_PATH = './local_model/all-MiniLM-L6-v2'
@@ -99,12 +107,15 @@ def parse_file(file) -> str:
         raise ValueError(f"不支持的文件类型: {ext}")
 
 def get_kb_collection(kb_id: str):
-    """获取或创建知识库对应的 collection"""
-    return client.get_or_create_collection(f"kb_{kb_id}", metadata={"hnsw:space": "cosine"})
+    """获取或创建知识库对应的 collection（FTS 已禁用）"""
+    return client.get_or_create_collection(
+        f"kb_{kb_id}",
+        schema=_schema_no_fts
+    )
 
 def get_doc_meta_collection(kb_id: str):
     """获取或创建知识库的文档元数据集合（每个文档一条记录）"""
-    return client.get_or_create_collection(f"kb_{kb_id}_docs")
+    return client.get_or_create_collection(f"kb_{kb_id}_docs", schema=_schema_no_fts)
 
 # 任务状态存储
 tasks = {}

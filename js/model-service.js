@@ -14,6 +14,8 @@ export class ModelService {
     // 实例属性
     #currentStreamController = null;  // 用于取消当前流式请求
     #isStreaming = false;
+    #inThinking = false;                // 跟踪 Ollama thinking 阶段
+    #currentThinkLevel = 0;             // 当前请求的思考深度
     
     constructor(config, initialModels = []) {
         this.config = { ...config };
@@ -72,10 +74,12 @@ export class ModelService {
     async *streamChat(messages, options = {}) {
         // 中断之前的流式请求
         this.abortCurrentStream();
-        
+
         const controller = new AbortController();
         this.#currentStreamController = controller;
         this.#isStreaming = true;
+        this.#inThinking = false;
+        this.#currentThinkLevel = options.thinkLevel ?? 0;
         
         try {
             yield* this.#streamChatInternal(messages, options, controller.signal);
@@ -205,15 +209,20 @@ export class ModelService {
     /**
      * 构建请求体
      * @param {Array} messages - 消息列表 [{role, content}]
-     * @param {Object} options - 额外参数 { temperature, topP, maxTokens, stream }
+     * @param {Object} options - 额外参数 { temperature, topP, maxTokens, stream, thinkLevel }
      */
     buildRequestBody(messages, options = {}) {
         const {
             temperature = 0.7,
             topP = 0.9,
             maxTokens = 500,
-            stream = true
+            stream = true,
+            thinkLevel = 0
         } = options;
+
+        // 思考强度映射：0→false, 1→"low", 2→"medium", 3→"high", 4→"max"
+        const thinkValue = thinkLevel === 0 ? false
+            : ['low', 'medium', 'high', 'max'][thinkLevel - 1];
 
         const baseBody = {
             model: this.config.modelName,
@@ -227,7 +236,8 @@ export class ModelService {
                 options: {
                     temperature,
                     top_p: topP,
-                    num_predict: maxTokens
+                    num_predict: maxTokens,
+                    think: thinkValue
                 }
             };
         } else {
@@ -235,7 +245,8 @@ export class ModelService {
                 ...baseBody,
                 temperature,
                 top_p: topP,
-                max_tokens: maxTokens
+                max_tokens: maxTokens,
+                think: thinkValue
             };
             // OpenAI 兼容 API 需要此参数才能在流式响应中返回 token 用量
             if (stream) {
@@ -287,12 +298,36 @@ export class ModelService {
      */
     parseChunk(line) {
         if (!line.trim()) return null;
-        
+
         if (this.isOllama()) {
-            // Ollama 格式：{"message":{"content":"..."}}
+            // Ollama 格式：{"message":{"content":"...", "thinking":"..."}}
             try {
                 const data = JSON.parse(line);
-                return data.message?.content || null;
+                const content = data.message?.content || '';
+                const thinking = data.message?.thinking || '';
+
+                // 思考深度关闭时，完全丢弃 thinking 内容，仅返回回复
+                if (this.#currentThinkLevel === 0) {
+                    if (thinking) return null;  // 跳过思考阶段的 chunk
+                    return content || null;
+                }
+
+                let result = '';
+                if (thinking) {
+                    if (!this.#inThinking) {
+                        this.#inThinking = true;
+                        result += '<think>';
+                    }
+                    result += thinking;
+                }
+                if (content) {
+                    if (this.#inThinking) {
+                        this.#inThinking = false;
+                        result += '</think>';
+                    }
+                    result += content;
+                }
+                return result || null;
             } catch { return null; }
         } else {
             // OpenAI 兼容格式：data: {"choices":[{"delta":{"content":"..."}}]}
@@ -333,7 +368,14 @@ export class ModelService {
             if (data.eval_count !== undefined || data.prompt_eval_count !== undefined) {
                 ModelService.#reportUsage(data.prompt_eval_count || 0, data.eval_count || 0);
             }
-            return data.message?.content || '';
+            const thinkLevel = options.thinkLevel ?? 0;
+            const content = data.message?.content || '';
+            const thinking = data.message?.thinking || '';
+            // 思考深度关闭时丢弃 thinking，否则包裹 <think> 标签
+            if (thinking && thinkLevel > 0) {
+                return `<think>${thinking}</think>${content}`;
+            }
+            return content;
         } else {
             if (data.usage) {
                 ModelService.#reportUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);

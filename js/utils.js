@@ -37,18 +37,21 @@ export function formatDate(dateObj) {
     }
     return `${dateObj.getMonth()+1}月${dateObj.getDate()}日`;
 }
-/** 解析原始文本，分离思考内容和回复内容*/ 
+/** 解析原始文本，分离思考内容和回复内容*/
 export function parseThinkContent(rawText) {
     const thinkMatch = rawText.match(/<think>([\s\S]*?)<\/think>/);
     const thinkContent = thinkMatch ? thinkMatch[1].trim() : '';
     const replyContent = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     return { thinkContent, replyContent };
 }
-/** 将原始文本渲染为带折叠区域的 HTML*/ 
-export function renderMessageWithThink(rawText) {
+/** 将原始文本渲染为带折叠区域的 HTML
+ * @param {string} rawText - 原始文本
+ * @param {boolean} showThinking - 是否显示思考内容，false 时直接丢弃 <think> 部分
+ */
+export function renderMessageWithThink(rawText, showThinking = true) {
     const { thinkContent, replyContent } = parseThinkContent(rawText);
     let html = '';
-    if (thinkContent) {
+    if (showThinking && thinkContent) {
         html += `<details class="think-details"><summary>🤔 思考过程</summary><div class="think-content">${escapeHtml(thinkContent).replace(/\n/g, '<br>')}</div></details>`;
     }
     // 处理括号斜体

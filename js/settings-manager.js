@@ -20,6 +20,8 @@ const DEFAULTS = Object.freeze({
     contextUnlimited: false,
     temperature: 0.7,
     topP: 0.9,
+    thinkLevel: 0,         // 0=关闭, 1=低, 2=中, 3=高, 4=最高
+    maxTokens: 500,        // 最大生成 token 数
 
     // 通用
     theme: 'dark',        // 'dark' | 'light' | 'auto'
@@ -195,6 +197,8 @@ export class SettingsManager {
     static isContextUnlimited()     { return !!(this._read().contextUnlimited); }
     static getTemperature()         { return this._read().temperature ?? DEFAULTS.temperature; }
     static getTopP()                { return this._read().topP ?? DEFAULTS.topP; }
+    static getThinkLevel()          { return this._read().thinkLevel ?? DEFAULTS.thinkLevel; }
+    static getMaxTokens()           { return this._read().maxTokens ?? DEFAULTS.maxTokens; }
 
     static getTheme()       { return this._read().theme ?? DEFAULTS.theme; }
     static getFontSize()    { return this._read().fontSize ?? DEFAULTS.fontSize; }

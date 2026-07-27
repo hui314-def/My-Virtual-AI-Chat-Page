@@ -106,7 +106,7 @@ pip install -r requirements.txt
 python tts_api.py
 ```
 
-默认监听端口 5000，支持音色克隆（通过上传参考音频），支持 API Key 鉴权（通过 `.env` 设置 `TTS_API_KEY`）。
+默认监听端口 5000，支持音色克隆（通过上传参考音频），支持 API Key 鉴权（通过 `.env` 设置 `TTS_API_KEY`）。项目文件夹里已经有我克隆好的音色文件，免费使用
 
 首次启动会自动加载 Qwen3-TTS 模型（需提前下载模型权重，参考 [Qwen3-TTS 官方文档](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)）。
 

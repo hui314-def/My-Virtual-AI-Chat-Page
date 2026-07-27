@@ -43,9 +43,14 @@ class Constants {
             ttsVoice: null,
             contextLimit: 10,          // 上下文消息数量上限
             temperature: 0.7,
-            topP: 0.9
+            topP: 0.9,
+            thinkLevel: 0,          // 0=关闭, 1=低, 2=中, 3=高, 4=最高
+            maxTokens: 500          // 最大生成 token 数
         };
     }
+
+    // 思考深度档位标签
+    static get THINK_LEVELS() { return ['关闭', '低', '中', '高', '最高']; }
 
     // ==================== 模型参数默认值 ====================
     static get DEFAULT_MODEL_HOST() { return 'http://localhost:11434'; }
@@ -359,6 +364,20 @@ class Constants {
                                 <input type="range" id="top-p" min="0" max="1" step="0.05" value="0.9">
                                 <span id="top-p-value" class="param-value">0.9</span>
                                 <small>核采样，控制词汇多样性</small>
+                            </div>
+                            <!-- 思考深度 -->
+                            <div class="model-param-item">
+                                <label>思考深度 (Think Level)</label>
+                                <input type="range" id="think-level" min="0" max="4" step="1" value="0">
+                                <span id="think-level-value" class="param-value">关闭</span>
+                                <small>控制模型的思考深度，关闭时发送 think: false</small>
+                            </div>
+                            <!-- 最大 Token 数 -->
+                            <div class="model-param-item">
+                                <label>最大 Token 数 (Max Tokens)</label>
+                                <input type="range" id="max-tokens" min="50" max="8000" step="50" value="500">
+                                <span id="max-tokens-value" class="param-value">500</span>
+                                <small>限制模型单次回复的最大长度</small>
                             </div>
                         </div>
                     </div>

@@ -7,3 +7,6 @@ audio_cache/
 
 # Ignore vscode settings folders
 .vscode/
+
+# Ignore my thought files
+改善想法.txt
