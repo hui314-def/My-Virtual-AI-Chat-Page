@@ -1,7 +1,7 @@
 // 全局设置管理器负责从 localStorage 读取/写入/更新 global_settings，统一默认值与错误处理。
 import Constants from './constants.js';
 
-const STORAGE_KEY = 'global_settings';
+const STORAGE_KEY = Constants.STORAGE_KEYS.GLOBAL_SETTINGS;
 
 // 字段默认值表。所有读操作都从这张表取默认值，写操作不会写入默认值。
 const DEFAULTS = Object.freeze({
@@ -11,7 +11,7 @@ const DEFAULTS = Object.freeze({
     modelName: Constants.DEFAULT_MODEL_NAME,
 
     // 用户相关
-    username: '访客',
+    username: Constants.DEFAULT_USERNAME,
     bio: '',
     avatar: null,         // data:image/...;base64,... 或 null
 
@@ -133,7 +133,7 @@ export class SettingsManager {
 
     // ========== 按厂商（provider）保存/恢复设置 ==========
     // 每个厂商独立保存：apiKey、modelHost、models（模型列表）、currentModel
-    static #PROVIDER_KEY = 'provider_settings';
+    static #PROVIDER_KEY = Constants.STORAGE_KEYS.PROVIDER_SETTINGS;
 
     /** @returns {Object} 所有厂商的保存状态 */
     static #_readProviderStates() {

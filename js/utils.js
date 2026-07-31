@@ -120,7 +120,45 @@ export function compressImage(file, maxWidth = 200, quality = 0.7) {
         reader.readAsDataURL(file);
     });
 }
-/** 将快捷键字符串转为规范化的小写形式 (ctrl+n)*/ 
+
+/** 从 data URL 生成缩略图（用于聊天列表展示，节省内存和存储）
+ * @param {string} dataUrl - 完整图片 data URL
+ * @param {number} maxDim - 缩略图最大宽/高，默认 300px
+ * @param {number} quality - JPEG 质量 0-1，默认 0.7
+ * @returns {Promise<string>} 缩略图 data URL
+ */
+export function createThumbnail(dataUrl, maxDim = 300, quality = 0.7) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.onload = () => {
+            let width = img.width;
+            let height = img.height;
+            // 已经足够小，直接返回原图
+            if (width <= maxDim && height <= maxDim) {
+                resolve(dataUrl);
+                return;
+            }
+            const ratio = Math.min(maxDim / width, maxDim / height);
+            width = Math.round(width * ratio);
+            height = Math.round(height * ratio);
+            const canvas = document.createElement('canvas');
+            canvas.width = width;
+            canvas.height = height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(img, 0, 0, width, height);
+            resolve(canvas.toDataURL('image/jpeg', quality));
+        };
+        img.onerror = () => reject(new Error('缩略图生成失败'));
+        img.src = dataUrl;
+    });
+}
+
+/** 检测字符串是否为图片 data URL */
+export function isImageUrl(str) {
+    return typeof str === 'string' && str.startsWith('data:image/');
+}
+
+/** 将快捷键字符串转为规范化的小写形式 (ctrl+n)*/
 export function normalizeShortcut(keys) {
     return keys.toLowerCase().replace(/\s/g, '');
 }

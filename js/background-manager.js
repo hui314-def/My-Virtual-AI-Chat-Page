@@ -62,8 +62,8 @@ class BackgroundManager {
         // 3. 默认 SVG 背景
         this.#removeVideoLayer();
         mainChat.style.backgroundImage = Constants.getDefaultChatBackgroundImage();
-        mainChat.style.backgroundSize = '';
-        mainChat.style.backgroundPosition = '';
+        mainChat.style.backgroundSize = 'cover';
+        mainChat.style.backgroundPosition = 'center';
     }
 
     static #createVideoLayer(src) {
@@ -94,6 +94,8 @@ class BackgroundManager {
         video.onerror = () => {
             this.#removeVideoLayer();
             mainChat.style.backgroundImage = Constants.getDefaultChatBackgroundImage();
+            mainChat.style.backgroundSize = 'cover';
+            mainChat.style.backgroundPosition = 'center';
         };
 
         const overlay = document.createElement('div');

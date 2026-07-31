@@ -1,6 +1,8 @@
 // Token 用量追踪器，负责累积统计和 localStorage 持久化。
 // 与 SettingsManager 分离，使用独立的 storage key 避免被设置保存覆盖。
-const STORAGE_KEY = 'token_usage_stats';
+import Constants from './constants.js';
+
+const STORAGE_KEY = Constants.STORAGE_KEYS.TOKEN_USAGE_STATS;
 
 const DEFAULTS = Object.freeze({
     promptTokens: 0,

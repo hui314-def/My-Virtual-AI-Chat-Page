@@ -32,7 +32,7 @@ export class TTsService {
      */
     static async getVoices(forceRefresh = false) {
         if (this.#voiceCache && !forceRefresh) return this.#voiceCache;
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+        const globalSettings = JSON.parse(localStorage.getItem(Constants.STORAGE_KEYS.GLOBAL_SETTINGS)) || {};
         const apiUrl = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
         try {
             const response = await fetch(`${apiUrl}/voices`);
@@ -184,7 +184,7 @@ export class TTsService {
         this.#currentController = controller;
 
         // 获取配置
-        const globalSettings = JSON.parse(localStorage.getItem('global_settings')) || {};
+        const globalSettings = JSON.parse(localStorage.getItem(Constants.STORAGE_KEYS.GLOBAL_SETTINGS)) || {};
         const ttsApiUrl = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
         const ttsApiKey = globalSettings.ttsApiKey || '';
 

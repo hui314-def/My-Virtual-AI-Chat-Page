@@ -1,5 +1,6 @@
 // 搜索模块，负责全局搜索逻辑与 UI 事件绑定。
 import { escapeHtml } from './utils.js';
+import Constants from './constants.js';
 
 export class SearchManager {
     /**
@@ -35,7 +36,7 @@ export class SearchManager {
 
         for (const chat of chats) {
             const settings = chat.settings || {};
-            const roleName = settings.roleName || 'Nova';
+            const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
 
             // 匹配会话标题
             if (roleName.toLowerCase().includes(lowerKeyword)) {
@@ -60,14 +61,14 @@ export class SearchManager {
                             topicIndex: topicIdx,
                             messageIndex: msgIdx,
                             title: roleName,
-                            preview: msg.text.length > 60 ? msg.text.substring(0, 60) + '...' : msg.text,
+                            preview: msg.text.length > Constants.QUOTE_PREVIEW_MAX_LEN ? msg.text.substring(0, Constants.QUOTE_PREVIEW_MAX_LEN) + '...' : msg.text,
                             time: msg.time
                         });
                     }
                 }
             }
         }
-        this.#renderResults(results.slice(0, 20));
+        this.#renderResults(results.slice(0, Constants.SEARCH_RESULT_LIMIT));
     }
 
     /** 渲染搜索结果下拉 */
@@ -140,7 +141,7 @@ export class SearchManager {
             messages[messageIndex].scrollIntoView({ behavior: 'smooth', block: 'center' });
             messages[messageIndex].style.transition = 'background 0.3s';
             messages[messageIndex].style.backgroundColor = 'rgba(95, 126, 255, 0.3)';
-            setTimeout(() => { messages[messageIndex].style.backgroundColor = ''; }, 1500);
+            setTimeout(() => { messages[messageIndex].style.backgroundColor = ''; }, Constants.HIGHLIGHT_DURATION_MS);
         }
     }
 
@@ -193,7 +194,7 @@ export class SearchManager {
                 clearTimeout(this.#debounceTimer);
                 this.#debounceTimer = setTimeout(() => {
                     this.performSearch(e.target.value);
-                }, 300);
+                }, Constants.SEARCH_DEBOUNCE_MS);
             });
         }
 

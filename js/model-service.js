@@ -209,24 +209,30 @@ export class ModelService {
     /**
      * 构建请求体
      * @param {Array} messages - 消息列表 [{role, content}]
-     * @param {Object} options - 额外参数 { temperature, topP, maxTokens, stream, thinkLevel }
+     * @param {Object} options - 额外参数 { temperature, topP, maxTokens, stream, thinkLevel, images }
      */
     buildRequestBody(messages, options = {}) {
         const {
-            temperature = 0.7,
-            topP = 0.9,
-            maxTokens = 500,
+            temperature = Constants.DEFAULT_SETTINGS.temperature,
+            topP = Constants.DEFAULT_SETTINGS.topP,
+            maxTokens = Constants.DEFAULT_SETTINGS.maxTokens,
             stream = true,
-            thinkLevel = 0
+            thinkLevel = Constants.DEFAULT_SETTINGS.thinkLevel,
+            images = []
         } = options;
 
         // 思考强度映射：0→false, 1→"low", 2→"medium", 3→"high", 4→"max"
         const thinkValue = thinkLevel === 0 ? false
             : ['low', 'medium', 'high', 'max'][thinkLevel - 1];
 
+        // 多模态转换：将图片注入到最后一条用户消息
+        const finalMessages = images.length > 0
+            ? this.#buildMultimodalMessages(messages, images)
+            : messages;
+
         const baseBody = {
             model: this.config.modelName,
-            messages: messages,
+            messages: finalMessages,
             stream: stream,
         };
 
@@ -248,12 +254,41 @@ export class ModelService {
                 max_tokens: maxTokens,
                 think: thinkValue
             };
-            // OpenAI 兼容 API 需要此参数才能在流式响应中返回 token 用量
             if (stream) {
                 body.stream_options = { include_usage: true };
             }
             return body;
         }
+    }
+
+    /**
+     * 将图片注入消息列表，仅影响最后一条用户消息
+     * @param {Array} messages
+     * @param {string[]} images - base64 dataURL 数组
+     * @returns {Array}
+     */
+    #buildMultimodalMessages(messages, images) {
+        const isOllama = this.isOllama();
+        return messages.map((msg, i) => {
+            const isLast = i === messages.length - 1;
+            if (!isLast || msg.role !== 'user') return msg;
+
+            if (isOllama) {
+                // Ollama REST API 期望纯 base64（不含 data:image/...;base64, 前缀）
+                const rawImages = images.map(img => {
+                    const commaIdx = img.indexOf(',');
+                    return commaIdx >= 0 ? img.slice(commaIdx + 1) : img;
+                });
+                return { ...msg, images: rawImages };
+            } else {
+                // OpenAI 兼容: content 改为数组 [text, image_url, ...]，保留完整 data URL
+                const parts = [{ type: 'text', text: msg.content }];
+                for (const img of images) {
+                    parts.push({ type: 'image_url', image_url: { url: img } });
+                }
+                return { ...msg, content: parts };
+            }
+        });
     }
     
     /**

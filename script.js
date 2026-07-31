@@ -1,7 +1,7 @@
 // 聊天页面核心交互功能
 import { 
     escapeHtml, getCurrentTime, formatDate, parseThinkContent,renderMessageWithThink, genMsgUid,
-    parseParenthesesContent, compressImage, eventToShortcutString,
+    parseParenthesesContent, compressImage, isImageUrl, eventToShortcutString,
 } from './js/utils.js';
 import Constants from './js/constants.js'
 import { ModelService } from './js/model-service.js';
@@ -39,6 +39,7 @@ const chatIO = new ChatIO({
 const fileUpload = new FileUploadService({
     previewArea: document.getElementById('file-preview-area'),
     fileNameSpan: document.getElementById('file-name'),
+    imagePreviewArea: document.getElementById('image-preview-area'),
     alertFn: (msg, type) => modalManager.customAlert(msg, type)
 });
 
@@ -185,7 +186,7 @@ function getModelService() {
 
 function setCurrentChatId(id) { 
     currentChatId = id;
-    localStorage.setItem('last_chat_id', id);
+    localStorage.setItem(Constants.STORAGE_KEYS.LAST_CHAT_ID, id);
 }
 
 // 禁用输入区域
@@ -343,7 +344,7 @@ function addModel(modelName) {
 // 保存模型列表到 localStorage（由 script.js 负责持久化）
 function saveModelListToStorage() {
     const models = ModelService.getModels();
-    localStorage.setItem('model_list', JSON.stringify(models));
+    localStorage.setItem(Constants.STORAGE_KEYS.MODEL_LIST, JSON.stringify(models));
     // 同步更新当前厂商模型列表（保留已有的 apiKey / modelHost）
     const currentProvider = SettingsManager.getModelProvider();
     const existing = SettingsManager.loadProviderState(currentProvider) || {};
@@ -369,19 +370,19 @@ function loadModelListAndInit() {
         }
     } else {
         // 回退到旧的全局 model_list
-        const stored = localStorage.getItem('model_list');
+        const stored = localStorage.getItem(Constants.STORAGE_KEYS.MODEL_LIST);
         if (stored) {
             models = JSON.parse(stored);
         } else {
             models = [SettingsManager.getModelName()];
-            localStorage.setItem('model_list', JSON.stringify(models));
+            localStorage.setItem(Constants.STORAGE_KEYS.MODEL_LIST, JSON.stringify(models));
         }
     }
     ModelService.setModels(models);
 }
 // 左侧边栏拖动调整宽度
 function initResizer() {
-    if (window.innerWidth <= 768) return; // 移动端不启用拖动
+    if (window.innerWidth <= Constants.MOBILE_BREAKPOINT) return; // 移动端不启用拖动
     const resizer = document.querySelector('.resizer');
     const sidebar = document.querySelector('.sidebar');
     if (!resizer || !sidebar) return;
@@ -390,7 +391,7 @@ function initResizer() {
     let isDragging = false;
 
     // 从 localStorage 恢复宽度
-    const savedWidth = localStorage.getItem('sidebar-width');
+    const savedWidth = localStorage.getItem(Constants.STORAGE_KEYS.SIDEBAR_WIDTH);
     if (savedWidth && !isNaN(parseInt(savedWidth))) {
         sidebar.style.width = `${savedWidth}px`;
     }
@@ -399,9 +400,9 @@ function initResizer() {
         if (!isDragging) return;
         e.preventDefault();   // 阻止默认行为（重要）
         let newWidth = startWidth + (e.clientX - startX);
-        newWidth = Math.min(500, Math.max(220, newWidth));
+        newWidth = Math.min(Constants.SIDEBAR_MAX_WIDTH, Math.max(Constants.SIDEBAR_MIN_WIDTH, newWidth));
         sidebar.style.width = `${newWidth}px`;
-        localStorage.setItem('sidebar-width', newWidth);
+        localStorage.setItem(Constants.STORAGE_KEYS.SIDEBAR_WIDTH, newWidth);
     }
 
     function onMouseUp() {
@@ -475,7 +476,7 @@ function renderHistoryList() {
     });
     sortedChats.forEach(chat => {
         const settings = chat.settings || Constants.DEFAULT_SETTINGS;
-        const roleName = settings.roleName || 'Nova';
+        const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
         const avatarUrl = settings.avatarUrl;
         
         const historyItem = document.createElement('div');
@@ -519,7 +520,7 @@ function renderHistoryList() {
 }
 
 // 追加消息到DOM
-async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null) {
+async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null, imageAttachments = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
     if (msgUid) messageDiv.dataset.msgUid = msgUid;
@@ -565,6 +566,15 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
             <div class="quoted-msg-ref-role"><i class="fas fa-quote-right"></i> ${quotedRole}</div>
             <div class="quoted-msg-ref-text">${truncatedText}</div>
         </div>` + bubbleContent;
+    }
+    if (type === 'user' && imageAttachments && imageAttachments.length > 0) {
+        bubbleContent += '<div class="message-images">';
+        for (const img of imageAttachments) {
+            const thumbSrc = img.dataUrl;                        // 缩略图（旧格式兼容：即为完整图）
+            const fullSrc = img.fullDataUrl || img.dataUrl;      // 完整图用于点击放大
+            bubbleContent += `<img src="${thumbSrc}" class="message-image" data-full-img="${fullSrc}" alt="${escapeHtml(img.name || '图片')}" title="${escapeHtml(img.name || '图片')}">`;
+        }
+        bubbleContent += '</div>';
     }
     if (type === 'user' && fileAttachment) {
         // 添加可点击的文件链接
@@ -751,7 +761,8 @@ function renderMessages(chatId, topicIndex = null) {
                 appendImageToDOM(msg.type, msg.text, msg.time, false, null);
             } else {
                 const fileAttachment = msg.file || null;
-                appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null);
+                const imageAttachments = msg.images || null;
+                appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null, imageAttachments);
             }
         });
         if (topicMessages.length === 0) {
@@ -774,7 +785,8 @@ function renderMessages(chatId, topicIndex = null) {
                     appendImageToDOM(msg.type, msg.text, msg.time, false, null);
                 } else {
                     const fileAttachment = msg.file || null;
-                    appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null);
+                    const imageAttachments = msg.images || null;
+                    appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null, imageAttachments);
                 }
             });
         }
@@ -788,7 +800,7 @@ function getTypingSpeed() {
     return slider ? parseFloat(slider.value) || 1 : 1;
 }
 
-async function simulateAIResponse(userMsg) {
+async function simulateAIResponse(userMsg, imageUrls = []) {
     // 🔒 请求开始：集中管理请求生命周期
     if (!acquireRequestLock()) {
         console.warn('已有请求正在处理，丢弃本次调用');
@@ -803,7 +815,7 @@ async function simulateAIResponse(userMsg) {
     }
     updateStatusIndicator('thinking', '模型思考中 ...');
     const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
-    const roleName = settings.roleName || 'Nova';
+    const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
     const rolePersona = settings.persona || '';
 
     // 显示正在输入指示器
@@ -834,7 +846,7 @@ async function simulateAIResponse(userMsg) {
         // 构建 API 消息列表
         const messages = [];
         // 系统提示中的用户名默认值与设置面板不同：系统提示用 '用户'，设置面板用 '访客'，保持原行为
-        const userName = SettingsManager.getUsername() === '访客' ? '用户' : SettingsManager.getUsername();
+        const userName = SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername();
         const userBio = SettingsManager.getBio();
 
         let systemPrompt = `你是一位角色扮演者，你的姓名是“ ${roleName} ”。关于你的角色简介是：\n\n${rolePersona ? rolePersona : ''}\n\n总之你需要始终以“ ${roleName} ”的身份和口吻回应\n\n`;
@@ -858,7 +870,7 @@ async function simulateAIResponse(userMsg) {
         let finalUserMsg = null;
         let knowledgeSources = null;
 
-        const selectedIdsStr = localStorage.getItem('selected_kb_ids') || '';
+        const selectedIdsStr = localStorage.getItem(Constants.STORAGE_KEYS.SELECTED_KB_IDS) || '';
         if (selectedIdsStr.trim() !== '') {
             const kbIds = selectedIdsStr.split(',').filter(id => id.trim());
             if (kbIds.length > 0) {
@@ -899,10 +911,11 @@ async function simulateAIResponse(userMsg) {
 
         // 准备请求选项
         const requestOptions = {
-            temperature: currentChat.settings?.temperature ?? 0.7,
-            topP: currentChat.settings?.topP ?? 0.9,
-            maxTokens: currentChat.settings?.maxTokens ?? 500,
-            thinkLevel: currentChat.settings?.thinkLevel ?? 0,
+            temperature: currentChat.settings?.temperature ?? Constants.DEFAULT_SETTINGS.temperature,
+            topP: currentChat.settings?.topP ?? Constants.DEFAULT_SETTINGS.topP,
+            maxTokens: currentChat.settings?.maxTokens ?? Constants.DEFAULT_SETTINGS.maxTokens,
+            thinkLevel: currentChat.settings?.thinkLevel ?? Constants.DEFAULT_SETTINGS.thinkLevel,
+            images: imageUrls,
         };
 
         // 获取生成器
@@ -1088,12 +1101,18 @@ async function sendUserMessage() {
     if (fileAttachment) {
         fileUpload.clearFile();
     }
+    // 获取图片附件
+    const imageAttachments = fileUpload.getImageAttachments();
+    const imageUrls = fileUpload.getImageDataUrls();
+    if (imageAttachments.length > 0) {
+        fileUpload.clearImages();
+    }
 
     // 捕获并清除引用状态
     const quoteRef = msgActions.getQuoteRef();
     if (quoteRef) msgActions.clearQuoteRef();
 
-    if (text === '' && !fileAttachment) return;
+    if (text === '' && !fileAttachment && imageAttachments.length === 0) return;
 
     const sendButton = document.querySelector('.send-btn');
     if (sendButton) {
@@ -1125,6 +1144,7 @@ async function sendUserMessage() {
                 text: text,
                 time: userTime,
                 file: fileAttachment,
+                images: imageAttachments.length > 0 ? imageAttachments : undefined,
                 modelInputText: modelUserMsg,
                 uid: msgUid,
                 quoteRef: quoteRef || undefined,
@@ -1136,10 +1156,10 @@ async function sendUserMessage() {
     }
     if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
     // 渲染消息
-    await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null);
+    await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null, null, imageAttachments);
     messageInput.value = '';
     if (messageInput) messageInput.style.height = 'auto';
-    simulateAIResponse(modelUserMsg);
+    simulateAIResponse(modelUserMsg, imageUrls);
 }
 
 async function createNewChat() {
@@ -1246,7 +1266,7 @@ async function initData() {
     if (stored && stored.length > 0) {
         chats = stored;
         // 读取上次对话 ID
-        const lastId = localStorage.getItem('last_chat_id');
+        const lastId = localStorage.getItem(Constants.STORAGE_KEYS.LAST_CHAT_ID);
         if (lastId && chats.some(c => c.id == lastId)) {
             setCurrentChatId(lastId);
         } else {
@@ -1272,7 +1292,7 @@ async function initData() {
 }
 
 function closeSidebarOnMobile() {
-    if (window.innerWidth <= 768) {
+    if (window.innerWidth <= Constants.MOBILE_BREAKPOINT) {
         const sidebar = document.querySelector('.sidebar');
         if (sidebar && sidebar.classList.contains('open')) {
             sidebar.classList.remove('open');
@@ -1352,7 +1372,7 @@ function bindToolbarButtons() {
         bgUpload.addEventListener('change', (e) => {
             const file = e.target.files[0];
             if (!file) return;
-            modalManager.showCropModal(file, NaN, { maxWidth: 2560, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
+            modalManager.showCropModal(file, NaN, { maxWidth: Constants.BG_CROP_MAX_WIDTH, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
                 const bgImgEl = document.getElementById('bg-img');
                 if (bgImgEl) { bgImgEl.src = croppedDataUrl; bgImgEl.setAttribute('data-custom', 'true'); }
                 // 确保 bg-type 切换到静态图片
@@ -1372,7 +1392,7 @@ function bindToolbarButtons() {
             const file = e.target.files[0];
             if (!file) return;
             try {
-                const compressedUrl = await compressImage(file, 150, 0.6);
+                const compressedUrl = await compressImage(file, Constants.AVATAR_MAX_WIDTH, Constants.AVATAR_JPEG_QUALITY);
                 document.getElementById('global-avatar-img').src = compressedUrl;
             } catch (err) {
                 console.error('头像压缩失败', err);
@@ -1383,11 +1403,27 @@ function bindToolbarButtons() {
 
     // 文件上传 / 清除 / 语音
     const uploadBtn = document.getElementById('upload-file-btn');
-    if (uploadBtn) uploadBtn.addEventListener('click', () => fileUpload.selectFile());
+    if (uploadBtn) uploadBtn.addEventListener('click', () => fileUpload.selectFileOrImage());
     const removeFileBtn = document.getElementById('remove-file-btn');
     if (removeFileBtn) removeFileBtn.addEventListener('click', () => fileUpload.clearFile());
     const voiceBtn = document.getElementById('voice-input-btn');
     if (voiceBtn) voiceBtn.addEventListener('click', startVoiceInput);
+
+    // 粘贴图片（Ctrl+V）
+    const chatInput = document.querySelector('.auto-expand-textarea');
+    if (chatInput) {
+        chatInput.addEventListener('paste', (e) => {
+            const items = e.clipboardData?.items;
+            if (!items) return;
+            for (const item of items) {
+                if (item.type.startsWith('image/')) {
+                    e.preventDefault();
+                    const file = item.getAsFile();
+                    fileUpload.handleFile(file);
+                }
+            }
+        });
+    }
 
     // 拖拽上传
     const dropZone = document.querySelector('.chat-messages');
@@ -1402,6 +1438,24 @@ function bindToolbarButtons() {
 
     // 图片生成
     bindImageGeneration();
+
+    // 点击消息中的图片放大查看
+    const chatMessages = document.querySelector('.chat-messages');
+    if (chatMessages) {
+        chatMessages.addEventListener('click', (e) => {
+            const img = e.target.closest('.message-image');
+            if (!img) return;
+            // 优先使用完整图（data-full-img），回退到 src（旧格式兼容）
+            const src = img.dataset.fullImg || img.src;
+            if (!src) return;
+            // 全屏预览
+            const overlay = document.createElement('div');
+            overlay.className = 'fullscreen-overlay';
+            overlay.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;border-radius:12px;box-shadow:0 0 40px rgba(0,0,0,0.6);">`;
+            overlay.addEventListener('click', () => overlay.remove());
+            document.body.appendChild(overlay);
+        });
+    }
 }
 
 // —— 折叠按钮逻辑（从 bindToolbarButtons 中抽出） ——
@@ -1412,7 +1466,7 @@ function bindCollapseToggle() {
     if (!collapseToggle || !collapsibleButtons) return;
 
     collapseToggle.addEventListener('click', () => {
-        if (window.innerWidth <= 768) {
+        if (window.innerWidth <= Constants.MOBILE_BREAKPOINT) {
             showMobileCollapseMenu();
         } else {
             const isOpen = collapsibleButtons.classList.toggle('open');
@@ -2319,7 +2373,7 @@ function toggleImmersiveMode() {
     const isImmersive = body.classList.toggle('immersive-mode');
     
     // 移动端：退出沉浸模式时自动关闭侧边栏打开状态
-    if (!isImmersive && window.innerWidth <= 768) {
+    if (!isImmersive && window.innerWidth <= Constants.MOBILE_BREAKPOINT) {
         const sidebar = document.querySelector('.sidebar');
         if (sidebar && sidebar.classList.contains('open')) {
             sidebar.classList.remove('open');
@@ -2332,7 +2386,7 @@ function toggleImmersiveMode() {
 
 // 恢复上次选中的知识库
 function restoreSelectedKnowledgeBase() {
-    const namesStr = localStorage.getItem('selected_kb_names');
+    const namesStr = localStorage.getItem(Constants.STORAGE_KEYS.SELECTED_KB_NAMES);
     const label = document.getElementById('kb-btn-label');
     if (!label) return;
     if (namesStr && namesStr.trim() !== '') {
@@ -2364,7 +2418,7 @@ async function retrieveKnowledge(kbIds, query) {
             const response = await fetch(`${base}/knowledge_bases/${kbId}/search`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, top_k: 3 })
+                body: JSON.stringify({ query, top_k: Constants.KB_TOP_K })
             });
             if (!response.ok) throw new Error(`HTTP ${response.status}`);
             const data = await response.json();
@@ -2381,7 +2435,7 @@ async function retrieveKnowledge(kbIds, query) {
     const allResults = await Promise.all(promises);
     const merged = allResults.flat();
     merged.sort((a, b) => (b.score || 0) - (a.score || 0));
-    return merged.slice(0, 5); // 最多取5条
+    return merged.slice(0, Constants.KB_MAX_RESULTS); // 最多取N条
 }
 
 async function init() {

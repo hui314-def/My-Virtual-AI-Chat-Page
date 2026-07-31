@@ -106,7 +106,7 @@ export class ChatIO {
      */
     #exportHTMLSync(chat, cssText) {
         const settings = chat.settings || Constants.DEFAULT_SETTINGS;
-        const roleName = escapeHtml(settings.roleName || 'Nova');
+        const roleName = escapeHtml(settings.roleName || Constants.DEFAULT_ROLE_NAME);
         const title = `${roleName} · 对话记录`;
         const dateStr = chat.date.toLocaleString(Constants.SPEECH_RECOGNITION_LANG);
         const userAvatar = SettingsManager.getAvatar();
@@ -259,6 +259,6 @@ export class ChatIO {
         toast.textContent = msg;
         toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 2000);
+        setTimeout(() => toast.remove(), Constants.TOAST_DURATION_MS);
     }
 }

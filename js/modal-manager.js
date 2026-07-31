@@ -76,7 +76,7 @@ export class ModalManager {
                 modal.style.display = 'none';
                 if (afterClose) afterClose();
             }
-        }, 200);
+        }, Constants.MODAL_CLOSE_TIMEOUT_MS);
     }
 
     /** 显示轻量 toast 提示 */
@@ -85,7 +85,7 @@ export class ModalManager {
         toast.textContent = message;
         toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
         document.body.appendChild(toast);
-        setTimeout(() => toast.remove(), 3000);
+        setTimeout(() => toast.remove(), Constants.TOAST_DURATION_MS);
     }
 
     /**
@@ -307,7 +307,7 @@ export class ModalManager {
             const { maxWidth, mimeType = 'image/jpeg', quality = 0.9 } = options;
             const canvasOptions = {};
             if (maxWidth && maxWidth > 0) canvasOptions.maxWidth = maxWidth;
-            else canvasOptions.maxWidth = 1920;
+            else canvasOptions.maxWidth = Constants.CROP_DEFAULT_MAX_WIDTH;
             const canvas = this.ctx.cropperRef.value.getCroppedCanvas(canvasOptions);
             const dataUrl = canvas.toDataURL(mimeType, quality);
             this.ctx.cropperRef.value.destroy();
@@ -329,12 +329,12 @@ export class ModalManager {
         if (!currentChat) return;
         const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
 
-        const contextLimit = settings.contextLimit !== undefined ? settings.contextLimit : 10;
+        const contextLimit = settings.contextLimit !== undefined ? settings.contextLimit : Constants.DEFAULT_SETTINGS.contextLimit;
         const contextUnlimited = (settings.contextLimit === -1);
-        const temperature = settings.temperature !== undefined ? settings.temperature : 0.7;
-        const topP = settings.topP !== undefined ? settings.topP : 0.9;
-        const thinkLevel = settings.thinkLevel !== undefined ? settings.thinkLevel : 0;
-        const maxTokens = settings.maxTokens !== undefined ? settings.maxTokens : 500;
+        const temperature = settings.temperature !== undefined ? settings.temperature : Constants.DEFAULT_SETTINGS.temperature;
+        const topP = settings.topP !== undefined ? settings.topP : Constants.DEFAULT_SETTINGS.topP;
+        const thinkLevel = settings.thinkLevel !== undefined ? settings.thinkLevel : Constants.DEFAULT_SETTINGS.thinkLevel;
+        const maxTokens = settings.maxTokens !== undefined ? settings.maxTokens : Constants.DEFAULT_SETTINGS.maxTokens;
 
         const modal = document.getElementById('settings-modal');
         const roleNameInput = document.getElementById('role-name');
@@ -551,7 +551,7 @@ export class ModalManager {
         if (!currentChat) return;
         const oldGreeting = currentChat.settings?.greeting || Constants.DEFAULT_SETTINGS.greeting;
 
-        const newRoleName = document.getElementById('role-name').value.trim() || 'Nova';
+        const newRoleName = document.getElementById('role-name').value.trim() || Constants.DEFAULT_ROLE_NAME;
         const newPersona = document.getElementById('role-persona').value.trim() || '暂无设定';
         const newGreeting = document.getElementById('role-greeting').value.trim() || '✨ 你好，我是你的虚拟AI伙伴。';
 
@@ -584,7 +584,11 @@ export class ModalManager {
         if (bgType === 'image') {
             const bgImg = document.getElementById('bg-img');
             currentChat.settings.bgImageUrl = (bgImg && bgImg.hasAttribute('data-custom')) ? bgImg.src : null;
-        } else if (bgType === 'video') {
+        } else {
+            // 切换到默认/视频背景时清除图片设置
+            currentChat.settings.bgImageUrl = null;
+        }
+        if (bgType === 'video') {
             const videoMode = document.querySelector('input[name="chat-bg-video-mode"]:checked')?.value || 'url';
             currentChat.settings.bgVideoMode = videoMode;
             if (videoMode === 'url') {
@@ -1185,7 +1189,7 @@ export class ModalManager {
             const kbList = data.knowledge_bases || [];
 
             // 获取当前选中的知识库ID列表
-            const selectedIdsStr = localStorage.getItem('selected_kb_ids') || '';
+            const selectedIdsStr = localStorage.getItem(Constants.STORAGE_KEYS.SELECTED_KB_IDS) || '';
             const selectedIds = selectedIdsStr ? selectedIdsStr.split(',') : [];
 
             // 渲染列表
@@ -1317,8 +1321,8 @@ export class ModalManager {
         });
 
         // 保存到 localStorage（用逗号分隔ID，为空则保存空字符串）
-        localStorage.setItem('selected_kb_ids', ids.join(','));
-        localStorage.setItem('selected_kb_names', names.join(','));
+        localStorage.setItem(Constants.STORAGE_KEYS.SELECTED_KB_IDS, ids.join(','));
+        localStorage.setItem(Constants.STORAGE_KEYS.SELECTED_KB_NAMES, names.join(','));
 
         // 更新按钮显示
         this.#updateKbButtonLabel(names);

@@ -1,8 +1,59 @@
 class Constants {
+    // ==================== localStorage 键名 ====================
+    static get STORAGE_KEYS() {
+        return {
+            LAST_CHAT_ID: 'last_chat_id',
+            SIDEBAR_WIDTH: 'sidebar-width',
+            MODEL_LIST: 'model_list',
+            SELECTED_KB_IDS: 'selected_kb_ids',
+            SELECTED_KB_NAMES: 'selected_kb_names',
+            KB_API_BASE: 'kb_api_base',
+            KB_NAME_DEFAULT: 'kb_name_default',
+            GLOBAL_SETTINGS: 'global_settings',
+            PROVIDER_SETTINGS: 'provider_settings',
+            TOKEN_USAGE_STATS: 'token_usage_stats',
+        };
+    }
+
     // ==================== 知识库相似度阈值 ====================
-    static get SIMILARITY_THRESHOLD() { return 0.4; }  
+    static get SIMILARITY_THRESHOLD() { return 0.4; }
     // ==================== UI 行为常量 ====================
     static get SCROLL_THRESHOLD() { return 20; }           // px，距离底部自动滚动的阈值
+
+    // ==================== UI 布局尺寸 ====================
+    static get MOBILE_BREAKPOINT() { return 768; }          // px，移动端断点
+    static get SIDEBAR_MIN_WIDTH() { return 220; }          // px，侧边栏最小宽度
+    static get SIDEBAR_MAX_WIDTH() { return 500; }          // px，侧边栏最大宽度
+    static get SIDEBAR_DEFAULT_WIDTH() { return 300; }      // px，侧边栏默认宽度
+
+    // ==================== 时间常量 (ms) ====================
+    static get SEARCH_DEBOUNCE_MS() { return 300; }
+    static get TOAST_DURATION_MS() { return 3000; }
+    static get SHORTCUT_RECORD_TIMEOUT_MS() { return 30000; }
+    static get HIGHLIGHT_DURATION_MS() { return 1500; }
+    static get TOPIC_TRANSITION_MS() { return 300; }
+    static get DELETE_ANIMATION_TIMEOUT_MS() { return 400; }
+    static get MODAL_CLOSE_TIMEOUT_MS() { return 200; }
+
+    // ==================== 知识库参数 ====================
+    static get KB_TOP_K() { return 3; }
+    static get KB_MAX_RESULTS() { return 5; }
+    static get KB_POLL_INITIAL_MS() { return 3000; }
+    static get KB_POLL_MAX_MS() { return 30000; }
+
+    // ==================== 搜索/引用 ====================
+    static get SEARCH_RESULT_LIMIT() { return 20; }
+    static get QUOTE_PREVIEW_MAX_LEN() { return 60; }
+
+    // ==================== 图片处理参数 ====================
+    static get AVATAR_MAX_WIDTH() { return 150; }
+    static get AVATAR_JPEG_QUALITY() { return 0.6; }
+    static get BG_CROP_MAX_WIDTH() { return 2560; }
+    static get CROP_DEFAULT_MAX_WIDTH() { return 1920; }
+
+    // ==================== 默认名称 ====================
+    static get DEFAULT_ROLE_NAME() { return 'Nova'; }
+    static get DEFAULT_USERNAME() { return '访客'; }
 
     // ==================== 默认快捷键映射 ====================
     static get DEFAULT_SHORTCUTS() {
@@ -23,8 +74,24 @@ class Constants {
         return ['.txt', '.md', '.json', '.js', '.html', '.css', '.xml', '.log'];
     }
 
+    static get ALLOWED_IMAGE_EXTENSIONS() {
+        return ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+    }
+
     static get MAX_FILE_SIZE() {
         return 5 * 1024 * 1024;  // 5MB
+    }
+
+    static get MAX_IMAGE_SIZE() {
+        return 20 * 1024 * 1024;  // 20MB
+    }
+
+    static get IMAGE_MAX_DIMENSION() {
+        return 2048;  // 压缩后最大边长（px）
+    }
+
+    static get IMAGE_QUALITY() {
+        return 0.85;  // JPEG/WEBP 压缩质量
     }
 
     // ==================== 对话默认设置模板 ====================
@@ -86,11 +153,11 @@ class Constants {
     }
 
     /**
-     * 构建 main-chat 默认背景的 backgroundImage CSS 字符串（与旧实现完全一致）。
+     * 构建 main-chat 默认背景的 backgroundImage CSS 值（仅图片部分，不含 position/size/repeat）。
      * @returns {string}
      */
     static getDefaultChatBackgroundImage() {
-        return `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url("${Constants.DEFAULT_CHAT_BG_SVG}") center/cover no-repeat`;
+        return `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url("${Constants.DEFAULT_CHAT_BG_SVG}")`;
     }
 
     /**

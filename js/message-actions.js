@@ -47,7 +47,7 @@ export class MessageActions {
         const textSpan = document.getElementById('quote-indicator-text');
         if (indicator && roleSpan && textSpan) {
             roleSpan.textContent = ref.role;
-            const maxLen = 60;
+            const maxLen = Constants.QUOTE_PREVIEW_MAX_LEN;
             textSpan.textContent = ref.text.length > maxLen
                 ? ref.text.substring(0, maxLen) + '...'
                 : ref.text;
@@ -76,7 +76,7 @@ export class MessageActions {
         setTimeout(() => {
             target.style.backgroundColor = '';
             target.style.borderRadius = '';
-        }, 2000);
+        }, Constants.HIGHLIGHT_DURATION_MS);
     }
     // ==================== 图片消息操作栏 ====================
 

@@ -1,6 +1,7 @@
 // 快捷键管理模块，负责全局快捷键的加载/存储/监听/分发/录制/面板渲染。
 // 依赖通过构造函数注入，与 script.js 中的具体动作解耦。
 import { normalizeShortcut, eventToShortcutString, isBrowserReserved } from './utils.js';
+import Constants from './constants.js';
 
 export class ShortcutManager {
     /**
@@ -243,7 +244,7 @@ export class ShortcutManager {
                 const keys = self.currentShortcuts[action];
                 displayElement.textContent = keys ? keys.toUpperCase() : '???';
             }
-        }, 30000);
+        }, Constants.SHORTCUT_RECORD_TIMEOUT_MS);
     }
 }
 

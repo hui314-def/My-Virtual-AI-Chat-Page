@@ -1,5 +1,6 @@
 // 知识库管理模块，负责知识库的列表/详情/创建/编辑/上传等功能。
 import { escapeHtml } from './utils.js';
+import Constants from './constants.js';
 
 export class KnowledgeBaseManager {
     /**
@@ -11,8 +12,8 @@ export class KnowledgeBaseManager {
         this.customAlert = deps.customAlert;
         this.showCustomDialog = deps.showCustomDialog;
         this.kbListCache = null;
-        this.kbCustomName = localStorage.getItem('kb_name_default') || '默认知识库';
-        this.apiBase = localStorage.getItem('kb_api_base') || 'http://localhost:5051';
+        this.kbCustomName = localStorage.getItem(Constants.STORAGE_KEYS.KB_NAME_DEFAULT) || '默认知识库';
+        this.apiBase = localStorage.getItem(Constants.STORAGE_KEYS.KB_API_BASE) || 'http://localhost:5051';
     }
 
     _api(path) {
@@ -76,7 +77,7 @@ export class KnowledgeBaseManager {
             const newBase = apiInput.value.trim().replace(/\/+$/, '');
             if (newBase && newBase !== this.apiBase) {
                 this.apiBase = newBase;
-                localStorage.setItem('kb_api_base', this.apiBase);
+                localStorage.setItem(Constants.STORAGE_KEYS.KB_API_BASE, this.apiBase);
                 this.kbListCache = null;
                 this.renderKnowledgeBase();
             }

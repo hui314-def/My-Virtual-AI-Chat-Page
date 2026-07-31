@@ -196,6 +196,8 @@
                     <button class="remove-file-btn" id="remove-file-btn"><i class="fas fa-times-circle"></i></button>
                 </div>
             </div>
+            <!-- 图片预览区 -->
+            <div class="image-preview-area" id="image-preview-area" style="display: none;"></div>
             <!-- 引用消息标识 -->
             <div class="quote-indicator" id="quote-indicator" style="display: none;">
                 <i class="fas fa-quote-right quote-indicator-icon"></i>
@@ -360,7 +362,7 @@
                         <small>思考深度 (Think Level)</small>
                         <input type="range" id="global-think-level" min="0" max="4" step="1" value="0">
                         <span id="global-think-level-value" class="param-value">关闭</span>
-                        <small>控制模型的思考深度，关闭时发送 think: false</small>
+                        <small>控制模型的思考深度（部分模型可能不支持think参数）</small>
                     </div>
                     <div class="model-param-item">
                         <small>最大 Token 数 (Max Tokens)</small>

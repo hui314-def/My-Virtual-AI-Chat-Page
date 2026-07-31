@@ -1475,6 +1475,53 @@ body.dragging {
     color: #ff5c4a;
 }
 
+/* 图片预览区域 */
+.image-preview-area {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+    padding: 8px 12px;
+    margin-bottom: 12px;
+    background: rgba(30, 34, 55, 0.5);
+    border-radius: 20px;
+    border: 1px solid rgba(100, 130, 255, 0.3);
+}
+.image-preview-item {
+    position: relative;
+    width: 72px;
+    height: 72px;
+    border-radius: 10px;
+    overflow: hidden;
+    border: 1px solid rgba(100, 130, 255, 0.3);
+    flex-shrink: 0;
+}
+.image-preview-item img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.image-remove-btn {
+    position: absolute;
+    top: 2px;
+    right: 2px;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: rgba(255, 60, 60, 0.85);
+    color: white;
+    border: none;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    line-height: 1;
+    padding: 0;
+}
+.image-remove-btn:hover {
+    background: rgba(255, 30, 30, 1);
+}
+
 /* 引用消息标识卡片（输入框上方） */
 .quote-indicator {
     display: flex;
@@ -1961,9 +2008,28 @@ body.dragging {
     outline: none;
 }
 /* 气泡内图片显示限制 */
+/* 用户消息中的多图容器 */
+.message-images {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.message-images img.message-image {
+    max-width: 120px;
+    max-height: 120px;
+    border-radius: 8px;
+    object-fit: cover;
+    cursor: pointer;
+    transition: transform 0.2s;
+}
+.message-images img.message-image:hover {
+    transform: scale(1.05);
+}
+
 .bubble img.message-image {
     max-width: 100%;
-    max-height: 400px;
+    max-height: 250px;
     width: auto;
     height: auto;
     object-fit: contain;
