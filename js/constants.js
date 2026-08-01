@@ -383,7 +383,10 @@ class Constants {
                         <textarea id="role-persona" rows="3" placeholder="例如：Nova 是一位来自未来星系的AI助手，喜欢用诗意的语言回答问题..."></textarea>
                     </div>
                     <div class="form-group">
-                        <label>角色开场白</label>
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            角色开场白
+                            <button type="button" id="generate-greeting-btn" class="mini-btn" title="根据角色名称和设定自动生成开场白">✨ 生成</button>
+                        </label>
                         <textarea id="role-greeting" rows="2" placeholder="每次新对话时显示的开场白"></textarea>
                     </div>
                     <div class="form-group">

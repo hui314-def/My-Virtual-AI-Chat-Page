@@ -749,6 +749,23 @@ body {
     font-size: 0.85rem;
 }
 
+.mini-btn {
+    background: linear-gradient(135deg, rgba(95, 126, 255, 0.3), rgba(120, 100, 255, 0.2));
+    border: 1px solid rgba(100, 130, 255, 0.5);
+    border-radius: 15px;
+    padding: 3px 12px;
+    font-size: 0.72rem;
+    color: #a5b9ff;
+    cursor: pointer;
+    transition: 0.2s;
+    white-space: nowrap;
+}
+.mini-btn:hover {
+    background: linear-gradient(135deg, rgba(95, 126, 255, 0.5), rgba(120, 100, 255, 0.35));
+    color: #d0ddff;
+    border-color: rgba(130, 160, 255, 0.7);
+}
+
 .image-preview {
     width: 100px;
     height: 100px;
@@ -2059,6 +2076,10 @@ body.dragging {
     max-height: 95%;
     object-fit: contain;
     border-radius: 8px;
+}
+
+#custom-dialog {
+    z-index: 10001;
 }
 
 #custom-dialog .modal-body p {

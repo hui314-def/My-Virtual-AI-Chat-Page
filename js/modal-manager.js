@@ -414,6 +414,65 @@ export class ModalManager {
         if (settings.avatarUrl) { avatarImg.src = settings.avatarUrl; avatarImg.setAttribute('data-custom', 'true'); }
         else { avatarImg.src = Constants.DEFAULT_AI_AVATAR; avatarImg.removeAttribute('data-custom'); }
 
+        // ---- 生成开场白按钮 ----
+        const generateGreetingBtn = document.getElementById('generate-greeting-btn');
+        if (generateGreetingBtn) {
+            generateGreetingBtn.onclick = async () => {
+                const roleName = roleNameInput.value.trim();
+                const persona = rolePersona.value.trim();
+
+                // 角色名称和设定都必须填写
+                if (!roleName || !persona) {
+                    this.customAlert('请先填写"角色名称"和"角色设定"后再生成开场白。', 'warning');
+                    return;
+                }
+                const userName = SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '' : SettingsManager.getUsername();
+                const userBio = SettingsManager.getBio().trim();
+
+                let userInfo = '';
+                if (userName) userInfo += `用户名称：${userName}\n`;
+                if (userBio) userInfo += `用户简介：${userBio}\n`;
+
+                const prompt = `你是一位角色设定专家。请根据以下信息，为AI角色生成一句简短的开场白（20-60字），用于AI对话的开始。
+
+角色名称：${roleName}
+角色设定：${persona}
+${userInfo ? '\n' + userInfo : ''}
+开场白应该：
+1. 体现角色个性和风格
+2. 引导用户开始对话，比如创建一个对话场景，可以包含人物动作、环境描写、情绪描述等非语言表达内容。${userName ? `\n3. 自然地称呼用户"${userName}"，但不要生硬` : ''}
+${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4. 不要使用"你好，我是..."这类模板化开场\n'}
+回复格式规则：当你的回复中包含非语言表达的内容时，请使用括号（）将这些内容包裹起来。例如：“（轻轻叹气）我相信你能做到”。或“（窗外的雨声淅沥）今天的任务完成得不错。”请只返回开场白本身，不要加任何解释或引号。`;
+
+                generateGreetingBtn.disabled = true;
+                generateGreetingBtn.textContent = '⏳ 生成中...';
+                try {
+                    const modelService = ctx.getModelService();
+                    // 同步最新配置（模型名可能已切换）
+                    modelService.updateConfig({
+                        modelHost: SettingsManager.getModelHost(),
+                        apiKey: SettingsManager.getApiKey(),
+                        modelName: SettingsManager.getModelName(),
+                    });
+                    const greeting = await modelService.generateText(prompt, {
+                        temperature: 0.8,
+                        maxTokens: 200
+                    });
+                    if (greeting && greeting.trim()) {
+                        roleGreeting.value = greeting.trim();
+                    } else {
+                        this.customAlert('生成失败，请重试', 'error');
+                    }
+                } catch (err) {
+                    console.error('生成开场白失败:', err);
+                    this.customAlert('生成失败：' + (err.message || '未知错误'), 'error');
+                } finally {
+                    generateGreetingBtn.disabled = false;
+                    generateGreetingBtn.textContent = '✨ 生成';
+                }
+            };
+        }
+
         // ---- 背景类型选择 ----
         const bgTypeSelect = document.getElementById('bg-type');
         const bgImageSection = document.getElementById('bg-image-section');

@@ -101,7 +101,7 @@
                 <div id="search-results-dropdown" class="search-dropdown" style="display: none;"></div>
             </div>
             <div class="model-selector" style="margin-left: 20px;">
-                <select id="quick-model-select" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
+                <select id="quick-model-select" title="快速切换模型" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
                     <option>加载中...</option>
                 </select>
             </div>
@@ -221,8 +221,8 @@
                 <!-- 可折叠按钮组（初始隐藏） -->
                 <div class="collapsible-buttons" id="collapsible-buttons">
                     <button class="action-btn" id="kb-select-btn"><i class="fas fa-database"></i> <span id="kb-btn-label">选择知识库</span></button>
-                    <button class="action-btn" id="upload-file-btn"><i class="fas fa-file-upload"></i> 文件上传</button>
-                    <button class="action-btn" id="generate-image-btn"><i class="fas fa-image"></i> 生成图片</button>
+                    <button class="action-btn" id="upload-file-btn" title="支持文本和图片（需要视觉模型）"><i class="fas fa-file-upload"></i> 文件上传</button>
+                    <button class="action-btn" id="generate-image-btn" title="需要安装ComfyUI"><i class="fas fa-image"></i> 生成图片</button>
                 </div>
                 <!-- 折叠切换按钮 -->
                 <button class="action-btn collapse-toggle" id="collapse-toggle-btn" title="展开/收缩更多工具">

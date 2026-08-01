@@ -377,13 +377,13 @@ export class ModelService {
     }
 
     /**
-     * 非流式生成摘要（用于话题简介等）
+     * 非流式生成摘要
      * @param {string} prompt - 提示词
      * @param {Object} options - 选项 { temperature, maxTokens }
      * @returns {Promise<string>}
      */
     async generateText(prompt, options = {}) {
-        const messages = [{ role: 'user', content: prompt }];
+        const messages = [{ role: 'system', content: prompt }];
         const isStream = false;
         const url = this.getRequestUrl();
         const headers = this.getHeaders();
