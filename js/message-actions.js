@@ -37,20 +37,29 @@ export class MessageActions {
         this.currentPictureMsgElement = null;
     }
 
-    #currentQuoteRef = null;  // 当前引用状态 { msgUid, role, text }
-    
-    /** 设置引用状态并更新 UI */
+    #currentQuoteRef = null;  // 当前引用状态 { msgUid, role, text, imageUrls?: string[] }
+
+    /** 设置引用状态并更新 UI（可选 imageUrls 用于引用图片） */
     setQuoteRef(ref) {
         this.#currentQuoteRef = ref;
         const indicator = document.getElementById('quote-indicator');
         const roleSpan = document.getElementById('quote-indicator-role');
         const textSpan = document.getElementById('quote-indicator-text');
         if (indicator && roleSpan && textSpan) {
-            roleSpan.textContent = ref.role;
-            const maxLen = Constants.QUOTE_PREVIEW_MAX_LEN;
-            textSpan.textContent = ref.text.length > maxLen
-                ? ref.text.substring(0, maxLen) + '...'
-                : ref.text;
+            roleSpan.textContent = ref.role || 'AI';
+            if (ref.imageUrls && ref.imageUrls.length > 0) {
+                const label = ref.imageUrls.length === 1 ? '📷 图片' : `📷 ${ref.imageUrls.length}张图片`;
+                const maxLen = Constants.QUOTE_PREVIEW_MAX_LEN;
+                const textPreview = ref.text && ref.text !== '[图片]'
+                    ? ref.text.substring(0, maxLen) + (ref.text.length > maxLen ? '...' : '')
+                    : '';
+                textSpan.textContent = textPreview ? `${label} — ${textPreview}` : label;
+            } else {
+                const maxLen = Constants.QUOTE_PREVIEW_MAX_LEN;
+                textSpan.textContent = ref.text.length > maxLen
+                    ? ref.text.substring(0, maxLen) + '...'
+                    : ref.text;
+            }
             indicator.style.display = 'flex';
         }
     }
@@ -95,6 +104,7 @@ export class MessageActions {
         const actionsDiv = document.createElement('div');
         actionsDiv.className = 'message-actions';
         actionsDiv.innerHTML = `
+            <button class="quote-pic-btn"><i class="fas fa-quote-right"></i> 引用</button>
             <button class="save-pic-btn"><i class="fas fa-download"></i> 保存</button>
             <button class="delete-btn"><i class="fas fa-trash-alt"></i> 删除</button>
         `;
@@ -126,6 +136,20 @@ export class MessageActions {
         };
         const scrollCloseHandler = () => closePictureMenu();
 
+        // 引用图片
+        actionsDiv.querySelector('.quote-pic-btn')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            // 将图片设为引用，发送消息时会传递给模型
+            this.setQuoteRef({
+                msgUid: msgData.uid || '',
+                role: msgData.type === 'ai' ? 'AI' : '用户',
+                text: '[图片]',
+                imageUrls: [msgData.src],
+            });
+            this.ctx.showBriefToast('已引用图片，发送消息时将传递给模型');
+            closePictureMenu();
+        });
+
         // 保存图片
         actionsDiv.querySelector('.save-pic-btn')?.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -153,7 +177,7 @@ export class MessageActions {
 
     // ==================== 文字消息操作栏 ====================
 
-    showMessageActions(msgElement, type, text, time, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment) {
+    showMessageActions(msgElement, type, text, time, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment, imageAttachments = null) {
         const ctx = this.ctx;
 
         // 移除已存在的操作栏
@@ -310,10 +334,18 @@ export class MessageActions {
             const settings = chat.settings || Constants.DEFAULT_SETTINGS;
             const role = type === 'ai' ? settings.roleName : '用户';
             const msgUid = msgElement.dataset.msgUid || null;
+            // 提取消息中的图片 URL（如果有）
+            const refImageUrls = [];
+            if (imageAttachments && imageAttachments.length > 0) {
+                for (const img of imageAttachments) {
+                    refImageUrls.push(img.dataUrl);
+                }
+            }
             this.setQuoteRef({
                 msgUid: msgUid,
                 role: role,
                 text: text,
+                imageUrls: refImageUrls.length > 0 ? refImageUrls : undefined,
             });
             closeActionMenu();
         });

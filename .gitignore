@@ -1,3 +1,7 @@
+# Ignore Python cache files
+*.pyc
+__pycache__/
+
 # Ignore Chroma database folder
 chroma_db/
 
@@ -5,8 +9,15 @@ chroma_db/
 audio_cache/
 *音频缓存*
 
-# Ignore vscode settings folders
+# Ignore settings folders
 .vscode/
+.claude/
 
 # Ignore my thought files
 改善想法.txt
+
+# Ignore environment files
+.env
+
+# Ignore virtual environment
+.venv/

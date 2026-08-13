@@ -1,0 +1,149 @@
+/* ============================================================
+   responsive.css — 所有响应式媒体查询
+   ============================================================ */
+
+/* ---- 平板/小屏桌面 (≤780px) ---- */
+@media (max-width: 780px) {
+    .chat-app {
+        grid-template-columns: 260px 1fr;
+    }
+    .message {
+        max-width: 92%;
+    }
+    .chat-header {
+        padding: 14px 20px;
+    }
+    .chat-messages {
+        padding: 16px 20px;
+    }
+}
+
+/* ---- 移动端 (≤768px) ---- */
+@media (max-width: 768px) {
+    /* 布局 */
+    .chat-app {
+        display: flex;
+        position: relative;
+        overflow-x: hidden;
+    }
+    .sidebar {
+        position: fixed;
+        top: 0; left: 0;
+        width: 85%;
+        max-width: 280px;
+        height: 100%;
+        z-index: 1000;
+        transform: translateX(-100%);
+        transition: transform 0.3s ease;
+        box-shadow: 2px 0 12px rgba(0,0,0,0.3);
+        border-right: none;
+    }
+    .sidebar.open {
+        transform: translateX(0);
+    }
+    .main-chat {
+        flex: 1;
+        width: 100%;
+        transition: margin-left 0.3s;
+    }
+    .resizer { display: none; }
+
+    /* 头部 */
+    .chat-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+    }
+    .search-container { margin-left: auto; }
+    .menu-toggle {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 36px; height: 36px;
+        background: rgba(30,34,55,0.7);
+        border-radius: 50%;
+        cursor: pointer;
+        color: #ccd6ff;
+        font-size: 1.2rem;
+    }
+
+    /* 消息 */
+    .message { max-width: 90%; }
+    .bubble p { font-size: 0.85rem; }
+
+    /* 输入 */
+    .chat-input-area { padding: 12px 16px; }
+    .action-buttons { gap: 10px; flex-wrap: wrap; }
+    .action-btn { padding: 4px 10px; font-size: 0.7rem; }
+    .auto-expand-textarea { font-size: 16px; }
+
+    /* 搜索 */
+    .search-container input {
+        width: 140px !important;
+        font-size: 0.75rem !important;
+    }
+    .search-dropdown {
+        left: 0; right: auto;
+        width: 280px;
+        max-width: calc(100vw - 20px);
+    }
+    #topic-indicator { display: none !important; }
+    #global-search-input.search-input-hidden { display: none; }
+
+    /* 弹窗 */
+    .modal-content {
+        width: 95%;
+        max-width: 95%;
+        margin: 10px;
+        max-height: 90vh;
+    }
+    .settings-sidebar { width: 100px; }
+    .settings-content { padding: 12px; }
+
+    /* 话题 */
+    .topic-item { padding: 10px; }
+    .topic-actions { flex-wrap: wrap; gap: 8px; }
+    .topic-actions button { padding: 4px 8px; font-size: 0.7rem; }
+
+    /* 侧边栏 */
+    .new-chat-fixed { padding: 12px; }
+    .new-chat-btn { padding: 8px; font-size: 0.9rem; }
+
+    /* 沉浸模式 */
+    body.immersive-mode .sidebar {
+        display: none !important;
+        transform: none !important;
+    }
+
+    /* 折叠按钮 */
+    .collapsible-buttons { gap: 10px; display: none !important; }
+    .collapsible-buttons.open { max-width: 100%; flex-wrap: wrap; }
+    #collapse-toggle-btn { margin-left: auto; }
+
+    /* 知识库选择 */
+    .kb-select-grid { grid-template-columns: 1fr 1fr; gap: 12px; }
+    .kb-select-card { padding: 14px 12px 12px 12px; }
+    .kb-select-name { font-size: 0.9rem; }
+
+    /* 音乐播放器 */
+    .bg-music-player-bar {
+        bottom: 100px;
+        right: 12px;
+        padding: 6px 12px;
+        gap: 6px;
+        max-width: 320px;
+        border-radius: 24px;
+    }
+    .bg-music-player-bar .music-name { max-width: 80px; font-size: 0.7rem; }
+    .bg-music-player-bar .music-volume-slider { width: 40px; }
+}
+
+/* ---- 桌面端隐藏菜单按钮 ---- */
+@media (min-width: 769px) {
+    .menu-toggle { display: none; }
+}
+
+/* ---- 小屏手机 (≤480px) ---- */
+@media (max-width: 480px) {
+    .kb-select-grid { grid-template-columns: 1fr; }
+}

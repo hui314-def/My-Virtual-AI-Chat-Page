@@ -2,12 +2,12 @@ import Constants from './constants.js';
 
 /**
  * 语音合成服务
- * 支持通过后端 API 生成语音，降级使用浏览器内置 TTS
+ * 支持 SSE 流式播放（边生成边播）、后端完整 WAV API，降级使用浏览器内置 TTS
  */
 export class TTsService {
     /** @type {AbortController|null} 当前 TTS 请求的控制器 */
     #currentController = null;
-    /** @type {HTMLAudioElement|null} 当前播放的音频对象 */
+    /** @type {HTMLAudioElement|null} 当前播放的音频对象（非流式模式） */
     #currentAudio = null;
     /** @type {SpeechSynthesisUtterance|null} 当前朗读的 utterance */
     #currentUtterance = null;
@@ -15,6 +15,12 @@ export class TTsService {
     #isSpeaking = false;
     /** @type {HTMLElement|null} 最后被禁用的播放按钮 */
     #lastDisabledPlayBtn = null;
+    /** @type {AudioContext|null} 流式播放的 AudioContext */
+    #audioCtx = null;
+    /** @type {AudioBufferSourceNode[]} 已调度的流式音频源节点 */
+    #scheduledSources = [];
+    /** @type {number} 流式播放最后一个 buffer 的结束时间 */
+    #streamEndTime = 0;
     static #voiceCache = null;// 静态私有音色缓存
     onFallback = null; // 降级回调
     /**
@@ -24,7 +30,7 @@ export class TTsService {
     setOnFallback(callback) {
         this.onFallback = callback;
     }
-    
+
     /**
      * 获取音色列表（自动缓存）
      * @param {boolean} forceRefresh - 是否强制刷新缓存，默认 false
@@ -77,7 +83,7 @@ export class TTsService {
     }
 
     /**
-     * 更新“可用音色列表”显示区域（span元素）
+     * 更新"可用音色列表"显示区域（span元素）
      * @param {HTMLElement} displaySpan - 用于显示音色列表的 span 元素
      * @param {boolean} forceRefresh - 是否强制刷新缓存
      * @returns {Promise<void>}
@@ -90,7 +96,7 @@ export class TTsService {
             displaySpan.innerHTML = voices.join(', ');
         }
     }
-    
+
     // 清空音色缓存（音色克隆成功后调用）
     static clearVoiceCache() { this.#voiceCache = null; }
 
@@ -104,7 +110,9 @@ export class TTsService {
             this.#currentController.abort();
             this.#currentController = null;
         }
-        // 停止音频播放
+        // 停止流式 AudioContext
+        this.#stopStreamingAudio();
+        // 停止音频播放（非流式）
         if (this.#currentAudio) {
             this.#currentAudio.pause();
             this.#currentAudio.currentTime = 0;
@@ -118,6 +126,21 @@ export class TTsService {
         this.#isSpeaking = false;
         // 恢复被禁用的按钮（如果有）
         this.#restoreLastDisabledButton();
+    }
+
+    /** 停止流式 AudioContext 及已调度音源 */
+    #stopStreamingAudio() {
+        // 停止所有已调度的 AudioBufferSourceNode
+        for (const src of this.#scheduledSources) {
+            try { src.stop(); } catch (_) { /* 可能已结束 */ }
+        }
+        this.#scheduledSources = [];
+        // 关闭 AudioContext
+        if (this.#audioCtx && this.#audioCtx.state !== 'closed') {
+            this.#audioCtx.close().catch(() => {});
+        }
+        this.#audioCtx = null;
+        this.#streamEndTime = 0;
     }
 
     // 恢复之前禁用的播放按钮
@@ -145,7 +168,7 @@ export class TTsService {
     }
 
     /**
-     * 播放语音（优先使用后端 API，失败时降级浏览器语音）
+     * 播放语音（优先 SSE 流式 → 降级完整 WAV → 降级浏览器语音）
      * @param {string} text 要朗读的文本
      * @param {string} voiceId 音色名称（后端 API 使用）
      * @param {HTMLElement} [playButtonElement] 关联的播放按钮元素，播放期间禁用，结束后恢复
@@ -160,17 +183,28 @@ export class TTsService {
         this.#disablePlayButton(playButtonElement);
 
         try {
-            // 尝试使用后端 API
-            await this.#speakWithBackend(text, voiceId);
+            // 1. 优先尝试 SSE 流式播放（边生成边播，首帧延迟最低）
+            await this.#speakStreaming(text, voiceId);
         } catch (err) {
             if (err.name === 'AbortError') {
-                console.log('TTS 请求被取消');
+                console.log('TTS 流式请求被取消');
             } else {
-                console.error('后端 TTS 失败，降级到浏览器语音', err);
-                if (this.onFallback) {
-                    this.onFallback('语音合成服务连接失败，已切换至浏览器默认语音');
+                console.warn('SSE 流式 TTS 失败，尝试完整 WAV 模式', err);
+                try {
+                    // 2. 降级：完整 WAV 模式
+                    await this.#speakWithBackend(text, voiceId);
+                } catch (err2) {
+                    if (err2.name === 'AbortError') {
+                        console.log('TTS 请求被取消');
+                    } else {
+                        console.error('后端 TTS 全部失败，降级到浏览器语音', err2);
+                        if (this.onFallback) {
+                            this.onFallback('语音合成服务连接失败，已切换至浏览器默认语音');
+                        }
+                        // 3. 最终降级：浏览器内置语音
+                        this.#fallbackSpeak(text);
+                    }
                 }
-                this.#fallbackSpeak(text);
             }
         } finally {
             this.#isSpeaking = false;
@@ -178,7 +212,179 @@ export class TTsService {
         }
     }
 
-    // 调用后端 TTS API 生成并播放音频
+    /**
+     * SSE 流式播放——边接收 PCM 边用 Web Audio API 播放
+     * 首块 PCM 到达即开始播放，无需等待完整音频生成。
+     */
+    async #speakStreaming(text, voiceId) {
+        const controller = new AbortController();
+        this.#currentController = controller;
+
+        // 获取配置
+        const globalSettings = JSON.parse(localStorage.getItem(Constants.STORAGE_KEYS.GLOBAL_SETTINGS)) || {};
+        const ttsApiUrl = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
+        const ttsApiKey = globalSettings.ttsApiKey || '';
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (ttsApiKey) headers['X-API-Key'] = ttsApiKey;
+
+        const response = await fetch(`${ttsApiUrl}/tts/stream`, {
+            method: 'POST',
+            headers,
+            body: JSON.stringify({ text, voiceId: voiceId }),
+            signal: controller.signal,
+        });
+
+        // 缓存命中 → 后端返回完整 WAV（非流式），用 <audio> 播放
+        const contentType = response.headers.get('Content-Type') || '';
+        if (contentType.includes('audio/')) {
+            const audioBlob = await response.blob();
+            const audioUrl = URL.createObjectURL(audioBlob);
+            const audio = new Audio(audioUrl);
+            this.#currentAudio = audio;
+            audio.play();
+            await new Promise((resolve, reject) => {
+                audio.onended = () => { URL.revokeObjectURL(audioUrl); this.#currentAudio = null; resolve(); };
+                audio.onerror = (e) => { URL.revokeObjectURL(audioUrl); reject(e); };
+            });
+            return;
+        }
+
+        if (!response.ok) {
+            const errText = await response.text();
+            throw new Error(`HTTP ${response.status}: ${errText}`);
+        }
+
+        // ── SSE 流式处理 ──────────────────────────────────────────────
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';           // 行缓冲区（处理跨 chunk 的不完整行）
+        let started = false;
+        let sampleRate = 48000;
+        let channels = 1;
+        let nextStartTime = 0;
+        const pendingFinish = [];  // 等待完成的 Promise 列表
+
+        try {
+            while (true) {
+                const { done, value } = await reader.read();
+                if (done) break;
+
+                buffer += decoder.decode(value, { stream: true });
+                const lines = buffer.split('\n');
+                // 最后一行可能不完整，保留到下次
+                buffer = lines.pop() || '';
+
+                for (const line of lines) {
+                    if (!line.startsWith('data: ')) continue;
+                    let event;
+                    try {
+                        event = JSON.parse(line.slice(6));
+                    } catch (_) {
+                        continue; // 解析失败的行静默跳过
+                    }
+
+                    switch (event.type) {
+                        case 'start': {
+                            sampleRate = event.sampleRate || 48000;
+                            channels = event.channels || 1;
+                            // 创建 AudioContext
+                            try {
+                                this.#audioCtx = new AudioContext({ sampleRate });
+                            } catch (_) {
+                                this.#audioCtx = new AudioContext(); // 降级：默认采样率
+                            }
+                            nextStartTime = this.#audioCtx.currentTime;
+                            this.#streamEndTime = nextStartTime;
+                            started = true;
+                            break;
+                        }
+
+                        case 'audio': {
+                            if (!started || !this.#audioCtx) break;
+
+                            const pcmChunk = this.#base64ToInt16(event.data);
+                            if (!pcmChunk || pcmChunk.length === 0) break;
+
+                            const float32 = this.#int16ToFloat32(pcmChunk);
+                            const audioBuffer = this.#audioCtx.createBuffer(1, float32.length, sampleRate);
+                            audioBuffer.getChannelData(0).set(float32);
+
+                            const source = this.#audioCtx.createBufferSource();
+                            source.buffer = audioBuffer;
+                            source.connect(this.#audioCtx.destination);
+
+                            const startTime = Math.max(nextStartTime, this.#audioCtx.currentTime);
+                            source.start(startTime);
+                            this.#scheduledSources.push(source);
+
+                            nextStartTime = startTime + audioBuffer.duration;
+                            this.#streamEndTime = nextStartTime;
+
+                            // 在 source 结束时清理引用
+                            const srcRef = source;
+                            const idx = this.#scheduledSources.indexOf(srcRef);
+                            source.onended = () => {
+                                const i = this.#scheduledSources.indexOf(srcRef);
+                                if (i >= 0) this.#scheduledSources.splice(i, 1);
+                            };
+                            break;
+                        }
+
+                        case 'done': {
+                            // 等待最后一个 buffer 播完
+                            if (this.#audioCtx && this.#audioCtx.state !== 'closed') {
+                                const waitMs = Math.max(0, (nextStartTime - this.#audioCtx.currentTime) * 1000) + 300;
+                                await new Promise(r => setTimeout(r, waitMs));
+                            }
+                            break;
+                        }
+
+                        case 'error': {
+                            throw new Error(event.message || '流式 TTS 服务端错误');
+                        }
+                    }
+                }
+            }
+        } finally {
+            // 流结束，等待最后的音频播完再清理
+            if (this.#audioCtx && this.#audioCtx.state !== 'closed') {
+                const waitMs = Math.max(0, (this.#streamEndTime - this.#audioCtx.currentTime) * 1000) + 200;
+                await new Promise(r => setTimeout(r, waitMs));
+            }
+            this.#stopStreamingAudio();
+        }
+    }
+
+    /**
+     * Base64 字符串 → Int16Array（小端序 PCM 采样）
+     */
+    #base64ToInt16(base64Str) {
+        try {
+            const binaryStr = atob(base64Str);
+            const len = binaryStr.length;
+            const bytes = new Uint8Array(len);
+            for (let i = 0; i < len; i++) {
+                bytes[i] = binaryStr.charCodeAt(i);
+            }
+            return new Int16Array(bytes.buffer);
+        } catch (_) {
+            return null;
+        }
+    }
+
+    /**
+     * Int16Array → Float32Array（归一化到 [-1, 1]）
+     */
+    #int16ToFloat32(int16) {
+        const float32 = new Float32Array(int16.length);
+        for (let i = 0; i < int16.length; i++) {
+            float32[i] = int16[i] / 32768;
+        }
+        return float32;
+    }
+
+    // ── 非流式后备：调用后端 TTS API 生成完整 WAV 并播放 ────────────────
     async #speakWithBackend(text, voiceId) {
         const controller = new AbortController();
         this.#currentController = controller;

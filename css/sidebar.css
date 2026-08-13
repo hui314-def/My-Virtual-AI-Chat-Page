@@ -1,0 +1,356 @@
+/* ============================================================
+   sidebar.css — 用户信息、对话历史列表、历史菜单、设置区域、新对话按钮
+   ============================================================ */
+
+/* ---------- 用户信息 ---------- */
+.user-profile {
+    padding: 24px 20px 16px 20px;
+    border-bottom: 1px solid rgba(80, 80, 110, 0.3);
+    background: linear-gradient(135deg, rgba(20, 20, 30, 0.6) 0%, rgba(8, 8, 14, 0.4) 100%);
+}
+
+.user-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+}
+
+.avatar {
+    position: relative;
+    width: 52px;
+    height: 52px;
+    background: linear-gradient(145deg, #2c2f3f, #1a1c28);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    box-shadow: 0 0 0 2px rgba(100, 150, 255, 0.4), 0 8px 20px rgba(0,0,0,0.4);
+}
+
+.avatar i {
+    font-size: 28px;
+    color: #a5b9ff;
+    filter: drop-shadow(0 0 3px #5f7eff);
+}
+
+.avatar::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 14px;
+    height: 14px;
+    background: #2effb0;
+    border-radius: 50%;
+    border: 2px solid #0a0a0f;
+    box-shadow: 0 0 4px #2effb0;
+}
+
+.user-details h4 {
+    font-size: 1rem;
+    font-weight: 600;
+    letter-spacing: 0.3px;
+    background: linear-gradient(135deg, #fff, #c0ccff);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+}
+
+.user-details p {
+    font-size: 0.7rem;
+    color: #9b9bbf;
+    margin-top: 4px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+
+/* ---------- 对话历史栏目 ---------- */
+.history-section {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    padding: 20px 16px 0 16px;
+}
+
+.history-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    margin-bottom: 18px;
+    padding: 0 4px;
+}
+
+.history-header h3 {
+    font-size: 0.85rem;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    color: #bcbce6;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.history-list {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: visible;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding-right: 4px;
+    transition: all 0.2s ease;
+}
+
+/* ---------- 历史项 ---------- */
+.history-item {
+    position: relative;
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 12px 14px;
+    background: rgba(18, 18, 26, 0.7);
+    backdrop-filter: blur(2px);
+    border-radius: 18px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+    border: 1px solid rgba(70, 70, 110, 0.2);
+    overflow: visible;
+    z-index: 1;
+}
+
+.history-item:hover {
+    background: #20222f;
+    border-color: #4e5a9e;
+}
+
+.history-item.active {
+    background: linear-gradient(105deg, #20243b, #131625);
+    border-left: 3px solid #5f8cff;
+    box-shadow: 0 2px 8px rgba(0, 30, 80, 0.4);
+    z-index: 2;
+}
+
+.history-item i {
+    font-size: 1rem;
+    color: #7c89cc;
+    width: 24px;
+    text-align: center;
+}
+
+/* 历史项头像 */
+.history-avatar {
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    overflow: hidden;
+    background: #1f2233;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+.history-avatar-img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+.history-default-icon {
+    font-size: 1.4rem;
+    color: #a5b9ff;
+}
+
+.history-info {
+    flex: 1;
+    overflow: hidden;
+}
+.history-info .title {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.85rem;
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.history-info .date {
+    font-size: 0.65rem;
+    color: #8e8eb3;
+    margin-top: 4px;
+}
+
+/* 置顶星星 */
+.pin-star {
+    color: #ffd966;
+    margin-left: 6px;
+    font-size: 0.7rem;
+    vertical-align: middle;
+}
+
+/* ---------- 历史项三点菜单 ---------- */
+.history-menu-trigger {
+    position: absolute;
+    right: 12px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 28px;
+    height: 28px;
+    background: rgba(30, 34, 55, 0.8);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    opacity: 0;
+    transition: opacity 0.2s, background 0.2s;
+    z-index: 5;
+}
+.history-item:hover .history-menu-trigger {
+    opacity: 1;
+}
+.history-menu-trigger:hover {
+    background: rgba(80, 100, 200, 0.8);
+}
+.history-menu-trigger i {
+    font-size: 1rem;
+    color: #ccd6ff;
+}
+
+/* 下拉菜单 */
+.history-menu {
+    background: rgba(20, 24, 40, 0.95);
+    backdrop-filter: blur(12px);
+    border-radius: 16px;
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    box-shadow: 0 8px 20px rgba(0, 0, 0, 0.4);
+    min-width: 140px;
+    overflow: hidden;
+    animation: menuFadeIn 0.15s ease;
+}
+@keyframes menuFadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+.history-menu-item {
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    font-size: 0.85rem;
+    color: #eef2ff;
+    cursor: pointer;
+    transition: background 0.2s;
+    white-space: nowrap;
+}
+.history-menu-item i {
+    width: 20px;
+    font-size: 0.9rem;
+    color: #9bb0ff;
+}
+.history-menu-item:hover {
+    background: rgba(60, 80, 140, 0.6);
+}
+.history-menu-item.delete-item {
+    color: #ff9e8f;
+}
+.history-menu-item.delete-item i {
+    color: #ff7a5c;
+}
+
+/* 删除动画 */
+.history-item.removing {
+    transition: transform 0.6s ease, opacity 0.6s ease, margin-bottom 0.6s ease, padding 0.6s ease;
+    transform: translateX(-120%);
+    opacity: 0;
+    margin-bottom: 0;
+    padding-top: 0;
+    padding-bottom: 0;
+    max-height: 0;
+    overflow: hidden;
+    border-width: 0;
+    pointer-events: none;
+}
+
+/* 新对话插入动画 */
+.history-item.inserting {
+    animation: slideInDown 0.4s cubic-bezier(0.25, 0.46, 0.45, 0.94) forwards;
+}
+@keyframes slideInDown {
+    from { opacity: 0; transform: translateY(-20px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ---------- 左下角设置 ---------- */
+.settings-area {
+    padding: 20px 20px 28px 20px;
+    border-top: 1px solid rgba(80, 80, 110, 0.35);
+    margin-top: auto;
+    background: rgba(5, 5, 10, 0.4);
+}
+
+.setting-btn {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    background: rgba(25, 28, 40, 0.7);
+    padding: 10px 16px;
+    border-radius: 40px;
+    backdrop-filter: blur(5px);
+    cursor: pointer;
+    border: 1px solid rgba(100, 110, 150, 0.3);
+}
+.setting-btn:hover {
+    background: #2a2e44;
+}
+.setting-btn i {
+    font-size: 1.2rem;
+    color: #b0b8ff;
+}
+
+/* ---------- 新对话 / 导入按钮 ---------- */
+.new-chat-fixed {
+    padding: 16px;
+    border-top: 1px solid rgba(80, 80, 110, 0.35);
+    background: rgba(8, 8, 12, 0.88);
+    backdrop-filter: blur(12px);
+    flex-shrink: 0;
+}
+
+.new-chat-btn {
+    background: rgba(45, 55, 85, 0.6);
+    border: 1px solid rgba(100, 120, 200, 0.4);
+    border-radius: 30px;
+    padding: 10px;
+    text-align: center;
+    color: #ccd6ff;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    transition: 0.2s;
+}
+.new-chat-btn:hover {
+    background: rgba(60, 80, 140, 0.8);
+}
+
+.import-chat-btn {
+    background: rgba(45, 55, 85, 0.6);
+    border: 1px solid rgba(100, 120, 200, 0.4);
+    border-radius: 30px;
+    padding: 5px 12px;
+    font-size: 0.7rem;
+    color: #ccd6ff;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.import-chat-btn:hover {
+    background: rgba(60, 80, 140, 0.8);
+}

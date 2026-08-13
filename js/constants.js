@@ -94,6 +94,14 @@ class Constants {
         return 0.85;  // JPEG/WEBP 压缩质量
     }
 
+    static get ALLOWED_AUDIO_EXTENSIONS() {
+        return ['.mp3', '.wav', '.ogg', '.flac', '.m4a', '.weba', '.aac'];
+    }
+
+    static get MAX_AUDIO_SIZE() {
+        return 50 * 1024 * 1024;  // 50MB
+    }
+
     // ==================== 对话默认设置模板 ====================
     static get DEFAULT_SETTINGS() {
         return {
@@ -103,6 +111,11 @@ class Constants {
             bgVideoUrl: '',            // 视频 URL（url 模式）或空（file 模式从 IndexedDB 加载）
             bgVideoMode: 'url',        // 'url' | 'file'
             bgVideoName: '',           // 文件模式的文件名（仅展示用）
+            bgMusicEnabled: false,     // 背景音乐开关
+            bgMusicUrl: '',            // 音乐 URL（url 模式）或空（file 模式从 IndexedDB 加载）
+            bgMusicMode: 'url',        // 'url' | 'file'
+            bgMusicName: '',           // 文件模式的文件名（仅展示用）
+            bgMusicVolume: 0.5,        // 音量 0.0–1.0
             roleName: 'Nova',
             persona: 'Nova 是一位来自未来星系的AI助手，喜欢用诗意的语言回答问题。',
             greeting: '✨ 你好，我是你的虚拟AI伙伴Nova。背景中的灵境图腾，就是我意识映射的碎片。今晚想探索哪个维度？',
@@ -372,6 +385,41 @@ class Constants {
                             <video id="chat-bg-video-preview" muted autoplay loop playsinline
                                    style="width:100%;max-height:140px;border-radius:12px;border:1px solid rgba(100,130,255,0.4);object-fit:cover;background:#000;">
                             </video>
+                        </div>
+                    </div>
+                    <!-- 背景音乐区域 -->
+                    <div class="form-group" id="bg-music-section" style="display:block;">
+                        <label style="display: flex; align-items: center; gap: 12px;">
+                            <i class="fas fa-music"></i> 背景音乐
+                            <label class="switch">
+                                <input type="checkbox" id="bg-music-switch">
+                                <span class="slider round"></span>
+                            </label>
+                        </label>
+                        <div id="bg-music-controls" style="display:none;">
+                            <label>音乐来源</label>
+                            <div style="display:flex; gap:16px; margin-bottom:8px;">
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="chat-bg-music-mode" value="url" checked> URL 链接
+                                </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="chat-bg-music-mode" value="file"> 上传文件
+                                </label>
+                            </div>
+                            <div id="chat-bg-music-url-row">
+                                <input type="text" id="chat-bg-music-url" placeholder="https://example.com/bgm.mp3">
+                            </div>
+                            <div id="chat-bg-music-file-row" style="display:none;">
+                                <input type="file" id="chat-bg-music-file" accept=".mp3,.wav,.ogg,.flac,.m4a,.weba,.aac">
+                                <span id="chat-bg-music-file-name" style="font-size:0.75rem;color:#8e8eb3;"></span>
+                            </div>
+                            <small>支持 mp3/wav/ogg/flac/m4a，建议 ≤50MB，自动循环播放</small>
+                            <label style="margin-top: 8px;">音量</label>
+                            <div style="display:flex; align-items:center; gap:8px;">
+                                <i class="fas fa-volume-down" style="color:#8e8eb3; font-size:0.8rem;"></i>
+                                <input type="range" id="bg-music-volume" min="0" max="100" value="50" style="flex:1;">
+                                <span id="bg-music-volume-value" style="min-width:35px; font-size:0.75rem;">50%</span>
+                            </div>
                         </div>
                     </div>
                     <div class="form-group">

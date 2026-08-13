@@ -14,10 +14,12 @@ import ModalManager from './js/modal-manager.js';
 import { TokenTracker } from './js/token-tracker.js';
 import VoiceInput from './js/voice-input.js';
 import BackgroundManager from './js/background-manager.js';
+import BgMusicManager from './js/bg-music-manager.js';
 import AssetStore from './js/asset-store.js';
 import SearchManager from './js/search.js';
 import MessageActions from './js/message-actions.js';
 import ShortcutManager from './js/shortcut-manager.js';
+import { ImageGenService } from './js/image-gen.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -168,6 +170,17 @@ const msgActions = new MessageActions({
 });
 function showMessageActions(...args) { msgActions.showMessageActions(...args); }
 function showPictureActions(...args) { msgActions.showPictureActions(...args); }
+
+const imageGenService = new ImageGenService({
+    isProcessing: () => isProcessing,
+    customAlert: (msg, type) => modalManager.customAlert(msg, type),
+    getImgApiUrl: () => SettingsManager.getImgApiUrl(),
+    getImgApiKey: () => SettingsManager.getImgApiKey(),
+    appendMessageToDOM,
+    appendImageToDOM,
+    forceScrollToBottom: () => forceScrollToBottom(),
+    getAutoScrollAfterSend: () => SettingsManager.getAutoScrollAfterSend(),
+});
 
 function getModelService() {
     if (!modelServiceInstanceRef.value) {
@@ -462,6 +475,14 @@ function applyCurrentChatSettings() {
         bgVideoUrl: settings.bgVideoUrl || '',
         bgVideoMode: settings.bgVideoMode || 'url',
     });
+    BgMusicManager.apply({
+        chatId: chat.id,
+        bgMusicEnabled: settings.bgMusicEnabled || false,
+        bgMusicUrl: settings.bgMusicUrl || '',
+        bgMusicMode: settings.bgMusicMode || 'url',
+        bgMusicName: settings.bgMusicName || '',
+        bgMusicVolume: settings.bgMusicVolume ?? 0.5,
+    });
 }
 
 // 渲染左侧历史列表
@@ -618,7 +639,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     if (bubble) {
         bubble.addEventListener('dblclick', (e) => {
             e.stopPropagation();
-            showMessageActions(messageDiv, type, text, displayTime, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment);
+            showMessageActions(messageDiv, type, text, displayTime, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment, imageAttachments);
         });
     }
 
@@ -866,7 +887,6 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             messages.push({ role: 'user', content: userMsg });
         }
 
-        const SIMILARITY_THRESHOLD = Constants.SIMILARITY_THRESHOLD; // 相似度分数阈值（0~1）
         let finalUserMsg = null;
         let knowledgeSources = null;
 
@@ -876,7 +896,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             if (kbIds.length > 0) {
                 try {
                     const kbResults = await retrieveKnowledge(kbIds, userMsg);
-                    const relevant = kbResults.filter(item => (item.score || 0) >= SIMILARITY_THRESHOLD);
+                    const relevant = kbResults.filter(item => (item.score || 0) >= Constants.SIMILARITY_THRESHOLD);
                     if (relevant && relevant.length > 0) {
                         const knowledgeText = relevant.map((item, idx) => 
                             `[知识片段 ${idx+1}] 来源：${item.filename || '知识库'}\n${item.content}`
@@ -1039,8 +1059,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         } else {
             console.error('模型调用失败:', error);
             updateStatusIndicator('offline', '离线 · 模型调用失败');
-
-            appendMessageToDOM('ai', `❌ 模型调用失败：${error.message}\n请检查模型地址和 API Key 是否正确。`, getCurrentTime(), true);
+            modalManager.customAlert(`❌ 模型调用失败：${error.message}\n请检查模型地址和 API Key 是否正确。`);
         }
     } finally {
         // 🔓 请求结束，恢复输入并清理控制器
@@ -1112,7 +1131,14 @@ async function sendUserMessage() {
     const quoteRef = msgActions.getQuoteRef();
     if (quoteRef) msgActions.clearQuoteRef();
 
-    if (text === '' && !fileAttachment && imageAttachments.length === 0) return;
+    // 如果引用中包含图片 URL，追加到图片列表传递给模型
+    if (quoteRef && quoteRef.imageUrls && quoteRef.imageUrls.length > 0) {
+        for (const url of quoteRef.imageUrls) {
+            imageUrls.push(url);
+        }
+    }
+
+    if (text === '' && !fileAttachment && imageAttachments.length === 0 && imageUrls.length === 0) return;
 
     const sendButton = document.querySelector('.send-btn');
     if (sendButton) {
@@ -1437,7 +1463,7 @@ function bindToolbarButtons() {
     bindCollapseToggle();
 
     // 图片生成
-    bindImageGeneration();
+    imageGenService.bindImageGeneration();
 
     // 点击消息中的图片放大查看
     const chatMessages = document.querySelector('.chat-messages');
@@ -1557,70 +1583,6 @@ function showMobileCollapseMenu() {
             @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
         `;
         document.head.appendChild(style);
-    }
-}
-
-// —— 图片生成弹窗及生成逻辑 ——
-function bindImageGeneration() {
-    const genImgBtn = document.getElementById('generate-image-btn');
-    if (genImgBtn) {
-        genImgBtn.addEventListener('click', () => {
-            const modal = document.getElementById('image-gen-modal');
-            if (modal) modal.style.display = 'flex';
-        });
-    }
-
-    const closeBtn = document.getElementById('close-image-gen-modal');
-    const cancelBtn = document.getElementById('cancel-image-gen-btn');
-    if (closeBtn) closeBtn.addEventListener('click', () => { document.getElementById('image-gen-modal').style.display = 'none'; });
-    if (cancelBtn) cancelBtn.addEventListener('click', () => { document.getElementById('image-gen-modal').style.display = 'none'; });
-
-    const imageGenModal = document.getElementById('image-gen-modal');
-    if (imageGenModal) {
-        // 防止拖选文本时误关闭
-        let _imgGenMousedownOnOverlay = false;
-        imageGenModal.addEventListener('mousedown', (e) => { _imgGenMousedownOnOverlay = (e.target === imageGenModal); });
-        imageGenModal.addEventListener('click', (e) => { if (e.target === imageGenModal && _imgGenMousedownOnOverlay) imageGenModal.style.display = 'none'; });
-    }
-
-    const startBtn = document.getElementById('start-image-gen-btn');
-    if (startBtn) startBtn.addEventListener('click', onStartImageGen);
-}
-
-async function onStartImageGen() {
-    if (isProcessing) {
-        modalManager.customAlert('AI 正在回复中，请等待完成后再生成图片。', 'warning');
-        return;
-    }
-    const prompt = document.getElementById('image-gen-prompt').value;
-    if (!prompt) { modalManager.customAlert('请输入图片描述'); return; }
-
-    const negative = document.getElementById('image-gen-negative').value;
-    const size = document.getElementById('image-gen-ratio').value;
-    const count = parseInt(document.getElementById('image-gen-count').value);
-    const model = document.getElementById('image-gen-model').value;
-    const imgApiUrl = SettingsManager.getImgApiUrl();
-    const imgApiKey = SettingsManager.getImgApiKey();
-    const headers = { 'Content-Type': 'application/json' };
-    if (imgApiKey) headers['X-API-Key'] = imgApiKey;
-
-    document.getElementById('image-gen-modal').style.display = 'none';
-    await appendMessageToDOM('ai', `🎨 正在生成 ${count} 张图片...`, getCurrentTime(), false);
-    if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
-
-    try {
-        const response = await fetch(`${imgApiUrl}/generate_image`, {
-            method: 'POST', headers,
-            body: JSON.stringify({ prompt, negative, size, count, model })
-        });
-        const data = await response.json();
-        if (!response.ok) throw new Error(data.error || '生成失败');
-        for (const imgB64 of data.images) {
-            const imgSrc = imgB64.startsWith('data:') ? imgB64 : `data:image/png;base64,${imgB64}`;
-            await appendImageToDOM('ai', imgSrc, getCurrentTime(), true);
-        }
-    } catch (error) {
-        appendMessageToDOM('ai', `❌ 图片生成失败: ${error.message}`, getCurrentTime(), true);
     }
 }
 

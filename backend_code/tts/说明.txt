@@ -1,0 +1,5 @@
+moss_tts_server.py是调用mossland平台语音合成接口搭建的后端服务
+
+tts_api.py是使用本地qwen语音合成模型搭建的后端服务
+
+以上两种任选其一运行代码即可

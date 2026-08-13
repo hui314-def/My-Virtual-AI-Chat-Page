@@ -21,6 +21,7 @@ class AssetStore {
 
     /** @param {string|number} id — 通常是 chatId */
     static #key(id) { return `bg-video-${id}`; }
+    static #audioKey(id) { return `bg-music-${id}`; }
 
     /**
      * 保存视频 Blob
@@ -61,6 +62,50 @@ class AssetStore {
         return new Promise((resolve) => {
             const tx = db.transaction(STORE_NAME, 'readwrite');
             tx.objectStore(STORE_NAME).delete(this.#key(id));
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onerror = () => { db.close(); resolve(); };
+        });
+    }
+
+    /**
+     * 保存音频 Blob
+     * @param {string|number} id
+     * @param {Blob} blob
+     */
+    static async saveAudio(id, blob) {
+        const db = await this.#open();
+        return new Promise((resolve, reject) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).put(blob, this.#audioKey(id));
+            tx.oncomplete = () => { db.close(); resolve(); };
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    /**
+     * 读取音频 Blob，不存在返回 null
+     * @param {string|number} id
+     * @returns {Promise<Blob|null>}
+     */
+    static async getAudio(id) {
+        const db = await this.#open();
+        return new Promise((resolve) => {
+            const tx = db.transaction(STORE_NAME, 'readonly');
+            const req = tx.objectStore(STORE_NAME).get(this.#audioKey(id));
+            req.onsuccess = () => { db.close(); resolve(req.result || null); };
+            tx.onerror = () => { db.close(); resolve(null); };
+        });
+    }
+
+    /**
+     * 删除存储的音频
+     * @param {string|number} id
+     */
+    static async deleteAudio(id) {
+        const db = await this.#open();
+        return new Promise((resolve) => {
+            const tx = db.transaction(STORE_NAME, 'readwrite');
+            tx.objectStore(STORE_NAME).delete(this.#audioKey(id));
             tx.oncomplete = () => { db.close(); resolve(); };
             tx.onerror = () => { db.close(); resolve(); };
         });

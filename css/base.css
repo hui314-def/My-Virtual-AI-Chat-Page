@@ -1,0 +1,318 @@
+/* ============================================================
+   base.css — CSS 变量、重置、加载遮罩、表单元素、开关、按钮
+   ============================================================ */
+
+/* ---------- CSS 自定义属性 ---------- */
+:root {
+    --bg-deep: #030305;
+    --bg-dark: #0b0b0f;
+    --bg-card: rgba(30, 34, 55, 0.7);
+    --bg-card-hover: rgba(40, 45, 70, 0.8);
+    --bg-sidebar: rgba(8, 8, 12, 0.88);
+    --bg-modal: rgba(15, 18, 30, 0.95);
+    --bg-input: rgba(30, 34, 55, 0.7);
+    --bg-input-focus: rgba(40, 45, 70, 0.8);
+
+    --border-subtle: rgba(50, 50, 70, 0.6);
+    --border-default: rgba(100, 130, 255, 0.4);
+    --border-hover: rgba(130, 160, 255, 0.7);
+    --border-active: #5f7eff;
+
+    --text-primary: #f0f3ff;
+    --text-secondary: #ccd6ff;
+    --text-muted: #b7c4ff;
+    --text-dim: #8e8eb3;
+    --text-placeholder: #a8aad3;
+
+    --accent: #5f7eff;
+    --accent-glow: rgba(95, 126, 255, 0.4);
+    --accent-light: #a5b9ff;
+    --danger: #ff8a7a;
+    --success: #2effb0;
+
+    --radius-sm: 10px;
+    --radius-md: 16px;
+    --radius-lg: 20px;
+    --radius-xl: 32px;
+    --radius-full: 60px;
+
+    --font-sm: 0.75rem;
+    --font-base: 0.9rem;
+    --font-lg: 1.1rem;
+}
+
+/* ---------- 加载遮罩 ---------- */
+#loading-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(circle at 20% 30%, #0b0b0f, #030305);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    z-index: 99999;
+    transition: opacity 0.5s ease, visibility 0.5s ease;
+}
+#loading-overlay.fade-out {
+    opacity: 0;
+    visibility: hidden;
+}
+#loading-overlay p {
+    margin-top: 20px;
+    color: #a5b9ff;
+    font-size: 1rem;
+    letter-spacing: 2px;
+}
+
+/* 旋转动画 */
+.loader-spinner {
+    width: 50px;
+    height: 50px;
+    border: 3px solid rgba(95, 126, 255, 0.3);
+    border-top-color: #5f7eff;
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+}
+@keyframes spin {
+    to { transform: rotate(360deg); }
+}
+
+/* ---------- 重置 & 基础 ---------- */
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    background: radial-gradient(circle at 20% 30%, #0b0b0f, #030305);
+    font-family: 'Inter', 'Segoe UI', system-ui, -apple-system, 'Roboto', sans-serif;
+    height: 100vh;
+    overflow: hidden;
+    color: #ececf0;
+}
+
+/* 初始隐藏主界面，等初始化后显示 */
+.chat-app {
+    opacity: 0;
+    transition: opacity 0.8s ease;
+}
+.chat-app.visible {
+    opacity: 1;
+}
+
+/* ---------- 滚动条样式（全局复用） ---------- */
+.history-list::-webkit-scrollbar,
+.chat-messages::-webkit-scrollbar,
+.auto-expand-textarea::-webkit-scrollbar,
+.modal-body::-webkit-scrollbar,
+.settings-content::-webkit-scrollbar,
+.search-dropdown::-webkit-scrollbar {
+    width: 6px;
+}
+
+.history-list::-webkit-scrollbar-track,
+.chat-messages::-webkit-scrollbar-track,
+.auto-expand-textarea::-webkit-scrollbar-track,
+.modal-body::-webkit-scrollbar-track,
+.settings-content::-webkit-scrollbar-track,
+.search-dropdown::-webkit-scrollbar-track {
+    background: #16161f;
+    border-radius: 10px;
+}
+
+.history-list::-webkit-scrollbar-thumb,
+.chat-messages::-webkit-scrollbar-thumb,
+.auto-expand-textarea::-webkit-scrollbar-thumb,
+.modal-body::-webkit-scrollbar-thumb,
+.settings-content::-webkit-scrollbar-thumb,
+.search-dropdown::-webkit-scrollbar-thumb {
+    background: #4a4a6e;
+    border-radius: 10px;
+}
+
+.modal-body::-webkit-scrollbar-thumb:hover,
+.settings-content::-webkit-scrollbar-thumb:hover {
+    background: #6c7eff;
+}
+
+/* Firefox 兼容 */
+.modal-body,
+.settings-content {
+    scrollbar-width: thin;
+    scrollbar-color: #4a4a6e rgba(20, 24, 45, 0.6);
+}
+
+/* ---------- 表单元素 ---------- */
+input[type="text"],
+input[type="password"],
+textarea,
+input[type="file"] {
+    width: 100%;
+    background: rgba(30, 34, 55, 0.7);
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    border-radius: 20px;
+    padding: 10px 16px;
+    color: #f0f3ff;
+    font-size: 0.9rem;
+    outline: none;
+    transition: 0.2s;
+    box-sizing: border-box;
+}
+textarea {
+    resize: vertical;
+    font-family: inherit;
+}
+input[type="text"]:focus,
+input[type="password"]:focus,
+textarea:focus {
+    border-color: #7f9eff;
+    background: rgba(40, 45, 70, 0.8);
+}
+
+/* ---------- Select 下拉 ---------- */
+select {
+    width: 100%;
+    background: rgba(30, 34, 55, 0.7);
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    border-radius: 20px;
+    padding: 10px 16px;
+    color: #f0f3ff;
+    font-size: 0.9rem;
+    outline: none;
+    cursor: pointer;
+    transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+    transform: scale(1);
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23ccd6ff' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 16px center;
+    background-size: 12px;
+    padding-right: 36px;
+}
+select:hover {
+    border-color: #7f9eff;
+    background: rgba(40, 45, 70, 0.8);
+    transform: scale(1.02);
+    box-shadow: 0 0 12px rgba(95, 126, 255, 0.25);
+}
+select:focus {
+    border-color: #7f9eff;
+    background: rgba(40, 45, 70, 0.9);
+    box-shadow: 0 0 16px rgba(95, 126, 255, 0.4);
+    transform: scale(1.02);
+    animation: focusGlow 0.6s ease-out;
+}
+select option {
+    background: #1a1c2a;
+    color: #f0f3ff;
+}
+@keyframes focusGlow {
+    0% { box-shadow: 0 0 0 0 rgba(95, 126, 255, 0.6); }
+    50% { box-shadow: 0 0 20px 4px rgba(95, 126, 255, 0.3); }
+    100% { box-shadow: 0 0 16px rgba(95, 126, 255, 0.4); }
+}
+
+/* ---------- 开关 Toggle ---------- */
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 48px;
+    height: 24px;
+}
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-color: #3a3f5e;
+    transition: 0.3s;
+    border-radius: 34px;
+}
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: 0.3s;
+    border-radius: 50%;
+}
+input:checked + .slider {
+    background-color: #5f7eff;
+}
+input:checked + .slider:before {
+    transform: translateX(24px);
+}
+
+/* ---------- 通用按钮 ---------- */
+.modal-btn {
+    padding: 8px 20px;
+    border-radius: 40px;
+    border: none;
+    cursor: pointer;
+    font-weight: 500;
+    transition: 0.2s;
+}
+.modal-btn.cancel {
+    background: rgba(80, 80, 110, 0.6);
+    color: #ddd;
+}
+.modal-btn.cancel:hover {
+    background: rgba(100, 100, 130, 0.8);
+}
+.modal-btn.save {
+    background: linear-gradient(125deg, #2d3370, #1b1f48);
+    border: 1px solid #6c7eff;
+    color: white;
+}
+.modal-btn.save:hover {
+    background: #3d4590;
+}
+
+.mini-btn {
+    background: linear-gradient(135deg, rgba(95, 126, 255, 0.3), rgba(120, 100, 255, 0.2));
+    border: 1px solid rgba(100, 130, 255, 0.5);
+    border-radius: 15px;
+    padding: 3px 12px;
+    font-size: 0.72rem;
+    color: #a5b9ff;
+    cursor: pointer;
+    transition: 0.2s;
+    white-space: nowrap;
+}
+.mini-btn:hover {
+    background: linear-gradient(135deg, rgba(95, 126, 255, 0.5), rgba(120, 100, 255, 0.35));
+    color: #d0ddff;
+    border-color: rgba(130, 160, 255, 0.7);
+}
+
+.image-preview {
+    width: 100px;
+    height: 100px;
+    border-radius: 50%;
+    overflow: hidden;
+    margin-bottom: 10px;
+    border: 2px solid #5f7eff;
+    background: #1a1c2a;
+}
+.image-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+#bg-preview {
+    width: 100%;
+    height: auto;
+    border-radius: 12px;
+    border: 1px solid #5f7eff;
+}

@@ -14,6 +14,7 @@
 
 - 🎭 **角色定制** — 自定义 AI 角色的名称、性格设定、头像和开场白，打造专属灵魂伴侣。
 - 🖼️ **聊天背景** — 可上传自定义背景图，支持图片（静态背景）和视频（动态背景），配合透明玻璃消息气泡，营造沉浸式视觉氛围。
+- 🎵 **背景音乐** — 可上传自定义背景音乐，增强沉浸式听觉体验。
 - 🎙️ **语音交互** — 支持语音输入（Web Speech API）及语音合成（TTS），让对话更自然。
 - 🧠 **模型兼容** — 原生支持 Ollama 和 OpenAI 兼容 API（如 GPT、DeepSeek 等），可自由切换模型。
 - 📚 **话题管理** — 通过“新话题”分隔不同对话片段，便于回溯与切换，支持自动/手动生成话题简介。
@@ -32,31 +33,24 @@
 将本项目文件下载到本地，确保目录结构包含以下主要文件（部分示例）：
 
 ```plaintext
-├── index.html
-├── style.css
-├── script.js
+├── 提示词模板/
+├── backend_code/
+|   ├── requirements/
+|   ├── image_gen/
+|   ├── knowledge_base/
+|   └── tts/
 ├── js/
-│   ├── asset-store.js
-│   ├── background-manager.js
-│   ├── chat-io.js
-│   ├── constants.js
-│   ├── file-upload.js
-|   ├── knowledge-base-manager.js
-│   ├── message-actions.js
-│   ├── modal-manager.js
-│   ├── model-service.js
-│   ├── repository.js
-│   ├── search.js
-|   ├── settings-manager.js
-|   ├── shortcut-manager.js
-|   ├── token-tracker.js
-|   ├── tts-service.js
-|   ├── utils.js
-|   └── voice-input.js
-├── image_gen_api.py
-├── tts_api.py
-├── knowledge_api.py
-├── requirements.txt
+|  ├── model-service.js
+|  ├── utils.js
+|  └── ...
+├── css/
+|  ├──base.css
+|  └── ...
+├── index.html
+├── script.js
+├── ico.png
+├── install_dependencies.bat
+├── start.bat
 └── README.md
 ```
 
@@ -102,32 +96,34 @@ export OLLAMA_ORIGINS=*
 若需要语音朗读功能，需启动 `tts_api.py`，建议安装python3.12：
 
 ```bash
-pip install -r requirements.txt
-python tts_api.py
+pip install -r backend_code/requirements/tts_requirements.txt
+python backend_code/tts/tts_api.py
 ```
 
 默认监听端口 5000，支持音色克隆（通过上传参考音频），支持 API Key 鉴权（通过 `.env` 设置 `TTS_API_KEY`）。项目文件夹里已经有我克隆好的音色文件，免费使用
 
-首次启动会自动加载 Qwen3-TTS 模型（需提前下载模型权重，参考 [Qwen3-TTS 官方文档](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)）。
+首次启动会自动加载 Qwen3-TTS 模型（需提前下载模型权重，参考 [Qwen3-TTS 官方文档](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)）。编辑.env文件输入模型路径QWEN_MODEL_DIR
 
 ### 4. 图片生成服务（可选）
 
 若需要 AI 生图功能，需安装 [ComfyUI](https://github.com/Comfy-Org/ComfyUI)，并将工作流文件（`image_gen_workflow.json`）放置于项目目录下（示例工作流，可按需修改和替换）。随后启动图片生成 API：
 
 ```bash
-pip install -r requirements.txt
-python image_gen_api.py
+pip install -r backend_code/requirements/image_gen_requirements.txt
+python backend_code/image_gen/image_gen_api.py
 ```
 
 默认监听端口 5050，并支持 API Key 鉴权（通过 `.env` 设置 `IMG_API_KEY`）。
+
+⚠️ 注意事项：生成后的图片不会加入到语言模型的对话列表中，如有需要可以双击消息框打开操作栏选择引用该图片
 
 ### 5. 知识库搭建服务（可选）
 
 若需要搭建知识库，则运行：
 
 ```bash
-pip install -r requirements.txt
-python knowledge_api.py
+pip install -r backend_code/requirements/knowledge_base_requirements.txt
+python backend_code/knowledge_base/knowledge_api.py
 ```
 
 默认监听端口 5051
@@ -146,12 +142,21 @@ IMG_API_KEY=your_img_api_key_here
 
 如果未设置 `*_API_KEY`，则对应服务无需鉴权（仅限开发环境）。
 
-## 🚀 使用技巧
+### 7. 一键启动脚本（建议）
+
+项目根目录下提供了两个批处理文件，用于简化开发环境的启动过程：
+
+- `install_dependencies.bat`：安装所有后端依赖项。
+- `start.bat`：启动所有前后端服务。
+
+直接点击运行即可
+
+## 🚀 WebUI使用技巧
 
 - 开启新话题：点击输入框下方的“话题管理”按钮，或使用快捷键 `Ctrl+/`，可自动开启新的话题片段。
-- 更改话题简介：点击输入框下方的“话题管理”按钮，除了可以点击“生成简介”调用模型，还可以双击简介文本直接编辑
-- 调整模型参数：在“对话设置”中可为每个对话独立调整温度、Top-P 和上下文长度，实现不同风格的回复。
-- 语音输入：点击“语音输入”按钮，在 HTTPS 或 localhost 环境下即可使用麦克风转文字（支持中文）。
+- 更改话题简介：点击输入框下方的“话题管理”按钮，除了可以点击“生成简介”调用语言模型，还可以双击简介文本直接编辑
+- 调整模型参数：在“对话设置”中可为每个对话独立调整温度、Top-P 、上下文长度等等，实现不同风格的回复。
+- 语音输入：点击“语音输入”按钮，在 HTTPS 或 localhost 环境下即可使用麦克风转文字（需要浏览器支持）。
 - 文件上传：支持上传 `.txt`、`.md`、`.json` 等文本文件以及`.jpg`、`.png`等图片文件（需要模型支持识别图片），可直接将文件拖入网页中，内容将自动附加到消息中发送给模型。
 - 消息操作：双击任意消息气泡，弹出操作栏可进行引用、删除、重新生成（AI 消息）或继续生成（AI 消息）等操作。
 - 搜索功能：点击右上角圆形搜索按钮，输入关键词即可搜索所有会话的消息和会话标题，点击结果快速跳转。
@@ -168,13 +173,12 @@ IMG_API_KEY=your_img_api_key_here
 ### 后端服务（按需选择）
 
 - Python 3.12
-- Flask（后端接口服务必备）
-- Flask-CORS
+- FastAPI（后端接口服务必备）
 - Qwen3-TTS（语音合成，flash_attention_2模式需 GPU 支持）
 - ComfyUI（图片生成，独立安装）
 - chromadb（向量数据库，知识库搭建必备）
 
-详见 `requirements.txt`。
+更多依赖项详见 `backend_code/requirements`文件夹。
 
 ## ⚠️ 注意事项
 

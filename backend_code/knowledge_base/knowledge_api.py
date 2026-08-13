@@ -1,8 +1,10 @@
 import uuid
 import re
+import io
 from datetime import datetime
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+from fastapi import FastAPI, Request, HTTPException, UploadFile, File
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 import chromadb
 from chromadb.config import Settings
 from chromadb.api.types import Schema, FtsIndexConfig, VectorIndexConfig
@@ -11,9 +13,19 @@ import PyPDF2
 import docx
 import threading
 from concurrent.futures import ProcessPoolExecutor
+import os
+import uvicorn
 
-app = Flask(__name__)
-CORS(app)
+app = FastAPI(title="Knowledge Base API", version="1.0.0")
+
+# 允许跨域请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # ========== 配置 ==========
 PERSIST_DIR = "./chroma_db"
@@ -35,7 +47,7 @@ _schema_no_fts.create_index(config=VectorIndexConfig(space="cosine"))
 meta_collection = client.get_or_create_collection("kb_meta", schema=_schema_no_fts)
 
 # 嵌入模型（主进程保留一份，用于检索接口的实时查询 embedding，单条很快不阻塞）
-MODEL_PATH = './local_model/all-MiniLM-L6-v2'
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_model", "all-MiniLM-L6-v2")
 print("正在加载嵌入模型 all-MiniLM-L6-v2 ...")
 embedder = SentenceTransformer(MODEL_PATH)
 print("嵌入模型加载完成。")
@@ -86,14 +98,13 @@ def split_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) 
         chunks.append(''.join(current_chunk))
     return chunks
 
-def parse_file(file) -> str:
+def parse_file(filename: str, content: bytes) -> str:
     """解析上传文件为纯文本"""
-    filename = file.filename
     ext = filename.split('.')[-1].lower()
     if ext == 'txt':
-        return file.read().decode('utf-8')
+        return content.decode('utf-8')
     elif ext == 'pdf':
-        reader = PyPDF2.PdfReader(file)
+        reader = PyPDF2.PdfReader(io.BytesIO(content))
         text = ''
         for page in reader.pages:
             page_text = page.extract_text()
@@ -101,7 +112,7 @@ def parse_file(file) -> str:
                 text += page_text + '\n'
         return text
     elif ext == 'docx':
-        doc = docx.Document(file)
+        doc = docx.Document(io.BytesIO(content))
         return '\n'.join([para.text for para in doc.paragraphs])
     else:
         raise ValueError(f"不支持的文件类型: {ext}")
@@ -174,13 +185,13 @@ def process_document_task(kb_id, filename, doc_id, chunks):
             tasks[doc_id]['finished_at'] = datetime.now().isoformat()
 # ========== 知识库管理 API ==========
 
-@app.route('/knowledge_bases', methods=['GET'])
+@app.get('/knowledge_bases')
 def list_knowledge_bases():
     """列出所有知识库（含文档数量）"""
     try:
         all_meta = meta_collection.get()
         if not all_meta['ids']:
-            return jsonify({"knowledge_bases": []}), 200
+            return {"knowledge_bases": []}
 
         result = []
         for idx, kb_id in enumerate(all_meta['ids']):
@@ -198,18 +209,18 @@ def list_knowledge_bases():
                 "created_at": meta.get('created_at', ''),
                 "document_count": doc_count
             })
-        return jsonify({"knowledge_bases": result}), 200
+        return {"knowledge_bases": result}
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/knowledge_bases', methods=['POST'])
-def create_knowledge_base():
+@app.post('/knowledge_bases')
+async def create_knowledge_base(request: Request):
     """创建新知识库"""
-    data = request.get_json()
+    data = await request.json()
     name = data.get('name', '').strip()
     description = data.get('description', '').strip()
     if not name:
-        return jsonify({"error": "知识库名称不能为空"}), 400
+        raise HTTPException(status_code=400, detail="知识库名称不能为空")
 
     kb_id = str(uuid.uuid4())
     created_at = datetime.now().isoformat()
@@ -225,23 +236,26 @@ def create_knowledge_base():
     )
     # 自动创建对应的 collection（首次操作时会创建）
     get_kb_collection(kb_id)
-    return jsonify({
-        "id": kb_id,
-        "name": name,
-        "description": description,
-        "created_at": created_at
-    }), 201
+    return JSONResponse(
+        content={
+            "id": kb_id,
+            "name": name,
+            "description": description,
+            "created_at": created_at
+        },
+        status_code=201
+    )
 
-@app.route('/knowledge_bases/<kb_id>', methods=['PUT'])
-def update_knowledge_base(kb_id):
+@app.put('/knowledge_bases/{kb_id}')
+async def update_knowledge_base(kb_id: str, request: Request):
     """更新知识库名称或描述"""
-    data = request.get_json()
+    data = await request.json()
     name = data.get('name', '').strip()
     description = data.get('description', '').strip()
     # 检查是否存在
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
-        return jsonify({"error": "知识库不存在"}), 404
+        raise HTTPException(status_code=404, detail="知识库不存在")
     # 更新元数据
     old_meta = existing['metadatas'][0]
     new_meta = {
@@ -255,15 +269,15 @@ def update_knowledge_base(kb_id):
         documents=[new_meta['name']],
         metadatas=[new_meta]
     )
-    return jsonify({"id": kb_id, **new_meta}), 200
+    return {"id": kb_id, **new_meta}
 
-@app.route('/knowledge_bases/<kb_id>', methods=['DELETE'])
-def delete_knowledge_base(kb_id):
+@app.delete('/knowledge_bases/{kb_id}')
+def delete_knowledge_base(kb_id: str):
     """删除知识库及其所有文档"""
     # 检查是否存在
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
-        return jsonify({"error": "知识库不存在"}), 404
+        raise HTTPException(status_code=404, detail="知识库不存在")
     # 删除元数据
     meta_collection.delete(ids=[kb_id])
     # 删除对应的 collection
@@ -276,49 +290,46 @@ def delete_knowledge_base(kb_id):
         client.delete_collection(f"kb_{kb_id}_docs")
     except Exception:
         pass
-    return jsonify({"status": "deleted"}), 200
+    return {"status": "deleted"}
 
 # ========== 文档管理 API ==========
 
-@app.route('/knowledge_bases/<kb_id>/documents', methods=['POST'])
-def upload_document(kb_id):
+@app.post('/knowledge_bases/{kb_id}/documents')
+async def upload_document(kb_id: str, file: UploadFile = File(...)):
     """上传文档到指定知识库"""
-    if 'file' not in request.files:
-        return jsonify({"error": "未提供文件"}), 400
-    file = request.files['file']
-    if file.filename == '':
-        return jsonify({"error": "文件名为空"}), 400
-    
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="文件名为空")
+
     MAX_FILE_SIZE = 50 * 1024 * 1024  # 50MB
-    if file.content_length > MAX_FILE_SIZE:
-        return jsonify({"error": "文件过大，请上传小于 50MB 的文档"}), 413
-    
+    content = await file.read()
+    if len(content) > MAX_FILE_SIZE:
+        raise HTTPException(status_code=413, detail="文件过大，请上传小于 50MB 的文档")
+
     # 验证知识库是否存在
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
-        return jsonify({"error": "知识库不存在"}), 404
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     # 触发过期任务清理
     _cleanup_stale_tasks()
 
     try:
-        content = parse_file(file)
-        if not content.strip():
-            return jsonify({"error": "文件内容为空或无法解析"}), 400
+        text = parse_file(file.filename, content)
+        if not text.strip():
+            raise HTTPException(status_code=400, detail="文件内容为空或无法解析")
 
-        chunks = split_text(content)
+        chunks = split_text(text)
         if not chunks:
-            return jsonify({"error": "分块结果为空"}), 400
+            raise HTTPException(status_code=400, detail="分块结果为空")
 
         doc_id = str(uuid.uuid4())
-        filename = file.filename
 
         # 初始化任务状态
         with tasks_lock:
             tasks[doc_id] = {
                 'status': 'processing',
                 'progress': 0,
-                'filename': filename,
+                'filename': file.filename,
                 'kb_id': kb_id
             }
 
@@ -326,9 +337,9 @@ def upload_document(kb_id):
         doc_meta_coll = get_doc_meta_collection(kb_id)
         doc_meta_coll.add(
             ids=[doc_id],
-            documents=[filename],
+            documents=[file.filename],
             metadatas=[{
-                "filename": filename,
+                "filename": file.filename,
                 "chunk_count": len(chunks),
                 "uploaded_at": datetime.now().isoformat()
             }]
@@ -337,50 +348,55 @@ def upload_document(kb_id):
         # 启动后台线程（embedding + 写入均在后台完成，请求立即返回）
         thread = threading.Thread(
             target=process_document_task,
-            args=(kb_id, filename, doc_id, chunks)
+            args=(kb_id, file.filename, doc_id, chunks)
         )
         thread.daemon = True
         thread.start()
 
-        # 立即返回任务 ID
-        return jsonify({
-            "doc_id": doc_id,
-            "status": "processing",
-            "message": "文档已提交处理"
-        }), 202  # 202 Accepted
+        # 立即返回任务 ID（202 Accepted）
+        return JSONResponse(
+            content={
+                "doc_id": doc_id,
+                "status": "processing",
+                "message": "文档已提交处理"
+            },
+            status_code=202
+        )
 
+    except HTTPException:
+        raise
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.route('/task_status/<doc_id>', methods=['GET'])
-def task_status(doc_id):
+@app.get('/task_status/{doc_id}')
+def task_status(doc_id: str):
     with tasks_lock:
         if doc_id not in tasks:
-            return jsonify({"error": "任务不存在"}), 404
-        return jsonify(tasks[doc_id]), 200
+            raise HTTPException(status_code=404, detail="任务不存在")
+        return tasks[doc_id]
 
 
-@app.route('/knowledge_bases/<kb_id>/tasks', methods=['GET'])
-def list_tasks(kb_id):
+@app.get('/knowledge_bases/{kb_id}/tasks')
+def list_tasks(kb_id: str):
     """列出知识库中所有活跃的上传任务（用于页面重开时恢复进度条）"""
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
-        return jsonify({"error": "知识库不存在"}), 404
+        raise HTTPException(status_code=404, detail="知识库不存在")
     with tasks_lock:
         kb_tasks = {
             doc_id: {k: v for k, v in t.items() if k != 'kb_id'}
             for doc_id, t in tasks.items()
             if t.get('kb_id') == kb_id
         }
-    return jsonify({"tasks": kb_tasks}), 200
-    
-@app.route('/knowledge_bases/<kb_id>/documents', methods=['GET'])
-def list_documents(kb_id):
+    return {"tasks": kb_tasks}
+
+@app.get('/knowledge_bases/{kb_id}/documents')
+def list_documents(kb_id: str):
     """列出知识库中的所有文档（从文档元数据集合查询，O(1)）"""
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
-        return jsonify({"error": "知识库不存在"}), 404
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     doc_meta_coll = get_doc_meta_collection(kb_id)
     all_data = doc_meta_coll.get(include=["metadatas"])
@@ -393,43 +409,43 @@ def list_documents(kb_id):
             "filename": meta.get('filename', '未知'),
             "chunks": meta.get('chunk_count', 0)
         })
-    return jsonify({"documents": documents}), 200
+    return {"documents": documents}
 
-@app.route('/knowledge_bases/<kb_id>/documents/<doc_id>', methods=['DELETE'])
-def delete_document(kb_id, doc_id):
+@app.delete('/knowledge_bases/{kb_id}/documents/{doc_id}')
+def delete_document(kb_id: str, doc_id: str):
     """删除指定文档的所有分块"""
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
-        return jsonify({"error": "知识库不存在"}), 404
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     kb_coll = get_kb_collection(kb_id)
     doc_meta_coll = get_doc_meta_collection(kb_id)
 
     # 检查文档是否存在
     if not bool(doc_meta_coll.get(ids=[doc_id])['ids']):
-        return jsonify({"error": "文档不存在"}), 404
+        raise HTTPException(status_code=404, detail="文档不存在")
 
     # 直接按元数据过滤删除分块，无需先加载全部 ID
     kb_coll.delete(where={"doc_id": doc_id})
     # 同步删除文档元数据
     doc_meta_coll.delete(ids=[doc_id])
 
-    return jsonify({"status": "deleted"}), 200
+    return {"status": "deleted"}
 
 # ========== 检索 API ==========
 
-@app.route('/knowledge_bases/<kb_id>/search', methods=['POST'])
-def search_knowledge(kb_id):
+@app.post('/knowledge_bases/{kb_id}/search')
+async def search_knowledge(kb_id: str, request: Request):
     """在指定知识库中检索"""
-    data = request.get_json()
+    data = await request.json()
     if not data or 'query' not in data:
-        return jsonify({"error": "缺少 query 参数"}), 400
+        raise HTTPException(status_code=400, detail="缺少 query 参数")
     query = data['query']
     top_k = data.get('top_k', TOP_K)
 
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
-        return jsonify({"error": "知识库不存在"}), 404
+        raise HTTPException(status_code=404, detail="知识库不存在")
 
     kb_coll = get_kb_collection(kb_id)
     try:
@@ -450,10 +466,10 @@ def search_knowledge(kb_id):
                 "filename": meta.get('filename', '未知'),
                 "score": 1 - dist / 2
             })
-        return jsonify({"results": items}), 200
+        return {"results": items}
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
 # ========== 启动服务 ==========
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5051, debug=True)
+    uvicorn.run(app, host='0.0.0.0', port=5051)

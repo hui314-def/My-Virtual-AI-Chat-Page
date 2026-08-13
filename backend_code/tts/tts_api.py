@@ -1,5 +1,5 @@
 import glob
-import torch
+from torch import bfloat16
 import soundfile as sf
 from qwen_tts import Qwen3TTSModel
 import pickle
@@ -9,11 +9,12 @@ import shutil
 import time
 import threading
 import tempfile
-from flask import Flask, request, send_file, jsonify
+from fastapi import FastAPI, Request, HTTPException, Depends, UploadFile, File, Form
+from fastapi.responses import StreamingResponse
+from fastapi.middleware.cors import CORSMiddleware
 import os
-from flask_cors import CORS
-from functools import wraps
 from dotenv import load_dotenv
+import uvicorn
 
 
 VOICE_LIBRARY_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "音色库")
@@ -22,23 +23,20 @@ os.makedirs(VOICE_LIBRARY_DIR, exist_ok=True)
 AUDIO_CACHE_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "音频缓存")
 os.makedirs(AUDIO_CACHE_DIR, exist_ok=True)
 
+load_dotenv()
+MODEL_DIR = os.environ.get("QWEN_TTS_MODEL_PATH", "")
 
 # ========== API Key 配置 ==========
 # 从环境变量获取密钥，若未设置则允许无鉴权（开发环境），生产环境务必设置
-load_dotenv()
 API_KEY = os.environ.get("TTS_API_KEY", "")
 REQUIRE_AUTH = bool(API_KEY)   # 若密钥非空则启用鉴权
 
-def require_api_key(f):
-    """装饰器：要求请求头中包含正确的 X-API-Key"""
-    @wraps(f)
-    def decorated_function(*args, **kwargs):
-        if REQUIRE_AUTH:
-            auth_header = request.headers.get("X-API-Key")
-            if not auth_header or auth_header != API_KEY:
-                return jsonify({"error": "未授权访问，请提供有效的 API Key"}), 401
-        return f(*args, **kwargs)
-    return decorated_function
+async def require_api_key(request: Request):
+    """依赖注入：要求请求头中包含正确的 X-API-Key"""
+    if REQUIRE_AUTH:
+        auth_header = request.headers.get("X-API-Key")
+        if not auth_header or auth_header != API_KEY:
+            raise HTTPException(status_code=401, detail="未授权访问，请提供有效的 API Key")
 
 
 # ========== 缓存清理配置 ==========
@@ -129,15 +127,23 @@ def cleanup_audio_cache(force=False):
                     print(f"[Cache] Failed to delete {fpath}: {e}")
                 idx += 1
 
-app = Flask(__name__)
-CORS(app)  # 允许跨域请求
+app = FastAPI(title="TTS API", version="1.0.0")
+
+# 允许跨域请求
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 # 全局加载模型（启动时加载一次，避免重复加载）
 print("正在加载 Qwen3TTS 模型...")
 model = Qwen3TTSModel.from_pretrained(
-    "D:\code4\Qwen3-TTS-12Hz-1.7B-Base",
+    MODEL_DIR,
     device_map="cuda:0",
-    dtype=torch.bfloat16,
+    dtype=bfloat16,
     attn_implementation="flash_attention_2",
 )
 print("模型加载完成。")
@@ -185,22 +191,23 @@ def load_all_voice_prompts():
 # 初始化时加载
 VOICE_PROMPT_MAP = load_all_voice_prompts()
 
-@app.route('/voices', methods=['GET'])
+
+@app.get('/voices')
 def get_voices():
     """返回可用的音色名称列表"""
     voices = list(VOICE_PROMPT_MAP.keys())
-    return jsonify({"voices": voices})
+    return {"voices": voices}
 
-@app.route('/tts', methods=['POST'])
-@require_api_key
-def tts_synthesis():
-    data = request.get_json()
+
+@app.post('/tts')
+async def tts_synthesis(request: Request, _credentials=Depends(require_api_key)):
+    data = await request.json()
     text = data.get('text', '')
     voiceId = data.get('voiceId', 'default')
 
     if not text:
-        return jsonify({"error": "text 参数不能为空"}), 400
-    
+        raise HTTPException(status_code=400, detail="text 参数不能为空")
+
     # 生成缓存文件名（基于文本和音色的哈希）
     cache_key = hashlib.md5(f"{text}_{voiceId}".encode('utf-8')).hexdigest()
     cache_path = os.path.join(AUDIO_CACHE_DIR, f"{cache_key}.wav")
@@ -209,7 +216,10 @@ def tts_synthesis():
     if os.path.exists(cache_path):
         # 更新访问时间
         os.utime(cache_path, None)
-        return send_file(cache_path, mimetype='audio/wav')
+        def iterfile():
+            with open(cache_path, 'rb') as f:
+                yield from f
+        return StreamingResponse(iterfile(), media_type='audio/wav')
 
     try:
         # 1. 从内存映射获取
@@ -234,7 +244,7 @@ def tts_synthesis():
                         prompt = pickle.load(f)
                         VOICE_PROMPT_MAP["default"] = prompt
                 else:
-                    return jsonify({"error": f"未找到音色 '{voiceId}'，且没有默认音色可用"}), 400
+                    raise HTTPException(status_code=400, detail=f"未找到音色 '{voiceId}'，且没有默认音色可用")
 
         # 生成语音
         wavs, sr = model.generate_voice_clone(
@@ -250,58 +260,66 @@ def tts_synthesis():
         buffer = io.BytesIO()
         sf.write(buffer, audio_data, sr, format='wav')
         buffer.seek(0)
-        return send_file(buffer, mimetype='audio/wav')
+        return StreamingResponse(buffer, media_type='audio/wav')
+    except HTTPException:
+        raise
     except Exception as e:
         print(f"TTS 生成失败: {e}")
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
 
-@app.route('/clone_voice', methods=['POST'])
-def clone_voice():
+
+@app.post('/clone_voice')
+async def clone_voice(
+    voice_name: str = Form(...),
+    audio: UploadFile = File(...),
+    ref_text: str = Form(...),
+):
     tmp_path = None
     try:
-        voice_name = request.form.get('voice_name')
         if not voice_name:
-            return jsonify({"error": "缺少音色名称"}), 400
-        
+            raise HTTPException(status_code=400, detail="缺少音色名称")
+
         # 检查文件名合法性（防止路径遍历）
         safe_name = "".join(c for c in voice_name if c.isalnum() or c in "._-")
         if safe_name != voice_name:
-            return jsonify({"error": "音色名称只能包含字母、数字、下划线、点、横线"}), 400
-        
-        audio_file = request.files.get('audio')
-        if not audio_file:
-            return jsonify({"error": "缺少音频文件"}), 400
-        
-        ref_text = request.form.get('ref_text')
+            raise HTTPException(status_code=400, detail="音色名称只能包含字母、数字、下划线、点、横线")
+
+        if not audio:
+            raise HTTPException(status_code=400, detail="缺少音频文件")
+
         if not ref_text:
-            return jsonify({"error": "缺少音频文本内容"}), 400
-        
+            raise HTTPException(status_code=400, detail="缺少音频文本内容")
+
         # 保存临时音频文件
-        with tempfile.NamedTemporaryFile(delete=False, suffix=os.path.splitext(audio_file.filename)[1]) as tmp:
-            audio_file.save(tmp.name)
+        suffix = os.path.splitext(audio.filename)[1] if audio.filename else ".wav"
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
+            content = await audio.read()
+            tmp.write(content)
             tmp_path = tmp.name
-        
+
         # 调用模型生成克隆提示
         voice_clone_prompt = model.create_voice_clone_prompt(
             ref_audio=tmp_path,
             ref_text=ref_text,
         )
-        
+
         # 保存到音色库文件夹
         pkl_path = os.path.join(VOICE_LIBRARY_DIR, f"{safe_name}.pkl")
         with open(pkl_path, 'wb') as f:
             pickle.dump(voice_clone_prompt, f)
-        
+
         # 更新内存中的映射
         VOICE_PROMPT_MAP[safe_name] = voice_clone_prompt
-        
+
         # 清理临时文件
         os.unlink(tmp_path)
-        
-        return jsonify({"message": "音色克隆成功", "voice_name": safe_name})
+
+        return {"message": "音色克隆成功", "voice_name": safe_name}
+    except HTTPException:
+        raise
     except Exception as e:
         print("克隆错误:", e)
-        return jsonify({"error": str(e)}), 500
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         # 无论成功或失败，只要临时文件存在就删除
         if tmp_path and os.path.exists(tmp_path):
@@ -309,7 +327,8 @@ def clone_voice():
                 os.unlink(tmp_path)
             except Exception as cleanup_error:
                 print(f"清理临时文件失败: {cleanup_error}")
-    
+
+
 if __name__ == '__main__':
     cleanup_audio_cache(force=True)
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    uvicorn.run(app, host='0.0.0.0', port=5000)

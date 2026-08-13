@@ -8,6 +8,7 @@ import { KnowledgeBaseManager } from './knowledge-base-manager.js';
 import { TokenTracker } from './token-tracker.js';
 import { escapeHtml } from './utils.js';
 import AssetStore from './asset-store.js';
+import BgMusicManager from './bg-music-manager.js';
 
 export class ModalManager {
     /**
@@ -566,6 +567,76 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
             }
         }
 
+        // ---- 背景音乐 ----
+        const bgMusicSwitch = document.getElementById('bg-music-switch');
+        const bgMusicControls = document.getElementById('bg-music-controls');
+        const bgMusicModeRadios = document.querySelectorAll('input[name="chat-bg-music-mode"]');
+        const bgMusicUrlRow = document.getElementById('chat-bg-music-url-row');
+        const bgMusicFileRow = document.getElementById('chat-bg-music-file-row');
+        const bgMusicUrlInput = document.getElementById('chat-bg-music-url');
+        const bgMusicFileName = document.getElementById('chat-bg-music-file-name');
+        const bgMusicVolumeSlider = document.getElementById('bg-music-volume');
+        const bgMusicVolumeValue = document.getElementById('bg-music-volume-value');
+
+        const bgMusicEnabled = settings.bgMusicEnabled || false;
+        if (bgMusicSwitch) {
+            bgMusicSwitch.checked = bgMusicEnabled;
+            if (bgMusicControls) bgMusicControls.style.display = bgMusicEnabled ? 'block' : 'none';
+            bgMusicSwitch.onchange = () => {
+                if (bgMusicControls) bgMusicControls.style.display = bgMusicSwitch.checked ? 'block' : 'none';
+            };
+        }
+
+        const savedMusicMode = settings.bgMusicMode || 'url';
+        bgMusicModeRadios.forEach(r => {
+            if (r.value === savedMusicMode) r.checked = true;
+            r.addEventListener('change', () => {
+                const mode = document.querySelector('input[name="chat-bg-music-mode"]:checked')?.value;
+                if (bgMusicUrlRow) bgMusicUrlRow.style.display = mode === 'url' ? 'block' : 'none';
+                if (bgMusicFileRow) bgMusicFileRow.style.display = mode === 'file' ? 'block' : 'none';
+            });
+        });
+        if (savedMusicMode === 'file') {
+            if (bgMusicUrlRow) bgMusicUrlRow.style.display = 'none';
+            if (bgMusicFileRow) bgMusicFileRow.style.display = 'block';
+        }
+        if (bgMusicUrlInput) {
+            bgMusicUrlInput.value = (savedMusicMode === 'url') ? (settings.bgMusicUrl || '') : '';
+        }
+        if (bgMusicFileName) bgMusicFileName.textContent = settings.bgMusicName || '';
+
+        const savedVolume = settings.bgMusicVolume ?? 0.5;
+        if (bgMusicVolumeSlider) {
+            bgMusicVolumeSlider.value = Math.round(savedVolume * 100);
+            if (bgMusicVolumeValue) bgMusicVolumeValue.textContent = Math.round(savedVolume * 100) + '%';
+            bgMusicVolumeSlider.oninput = () => {
+                if (bgMusicVolumeValue) bgMusicVolumeValue.textContent = bgMusicVolumeSlider.value + '%';
+            };
+        }
+
+        this._pendingMusicFile = null;
+        const bgMusicFileInput = document.getElementById('chat-bg-music-file');
+        if (bgMusicFileInput) {
+            bgMusicFileInput.value = '';
+            bgMusicFileInput.addEventListener('change', () => {
+                const file = bgMusicFileInput.files[0];
+                if (!file) return;
+                if (file.size > Constants.MAX_AUDIO_SIZE) {
+                    this.customAlert('音乐文件过大，请选择小于 50MB 的文件', 'warning');
+                    bgMusicFileInput.value = '';
+                    return;
+                }
+                const ext = '.' + file.name.split('.').pop().toLowerCase();
+                if (!Constants.ALLOWED_AUDIO_EXTENSIONS.includes(ext)) {
+                    this.customAlert('不支持的音频格式，支持: mp3, wav, ogg, flac, m4a', 'warning');
+                    bgMusicFileInput.value = '';
+                    return;
+                }
+                this._pendingMusicFile = file;
+                if (bgMusicFileName) bgMusicFileName.textContent = `${file.name} (${(file.size / 1024 / 1024).toFixed(1)}MB)`;
+            });
+        }
+
         if (ttsSwitch) {
             ttsSwitch.checked = settings.ttsEnabled || false;
             if (ttsVoiceGroup) ttsVoiceGroup.style.display = ttsSwitch.checked ? 'block' : 'none';
@@ -669,6 +740,33 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
             // 默认背景：保留 image/video 数据不清空，方便切回来恢复
             currentChat.settings.bgVideoMode = 'url';
             currentChat.settings.bgVideoName = '';
+        }
+
+        // ---- 背景音乐 ----
+        const musicEnabled = document.getElementById('bg-music-switch')?.checked || false;
+        currentChat.settings.bgMusicEnabled = musicEnabled;
+
+        if (musicEnabled) {
+            const musicMode = document.querySelector('input[name="chat-bg-music-mode"]:checked')?.value || 'url';
+            currentChat.settings.bgMusicMode = musicMode;
+            const musicVolumeSlider = document.getElementById('bg-music-volume');
+            currentChat.settings.bgMusicVolume = musicVolumeSlider ? parseInt(musicVolumeSlider.value) / 100 : 0.5;
+
+            if (musicMode === 'url') {
+                currentChat.settings.bgMusicUrl = document.getElementById('chat-bg-music-url')?.value?.trim() || '';
+                currentChat.settings.bgMusicName = '';
+                AssetStore.deleteAudio(currentChat.id).catch(() => {});
+            } else {
+                if (this._pendingMusicFile) {
+                    await AssetStore.saveAudio(currentChat.id, this._pendingMusicFile);
+                    currentChat.settings.bgMusicName = this._pendingMusicFile.name;
+                    currentChat.settings.bgMusicUrl = '';
+                    this._pendingMusicFile = null;
+                }
+            }
+        } else {
+            // 音乐关闭：停止播放（applyCurrentChatSettings 随后会移除播放器浮栏）
+            BgMusicManager.stop();
         }
 
         const ttsEnabled = document.getElementById('tts-switch').checked;

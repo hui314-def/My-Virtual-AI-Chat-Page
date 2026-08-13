@@ -1,0 +1,163 @@
+/* ============================================================
+   layout.css — 主布局网格、侧边栏结构、聊天区结构、拖动条、沉浸模式
+   ============================================================ */
+
+/* ---------- 主布局（Flex 布局，支持拖动调整宽度）---------- */
+.chat-app {
+    display: flex;
+    height: 100vh;
+    width: 100%;
+    overflow: hidden;
+    backdrop-filter: blur(2px);
+}
+
+/* ---------- 左侧边栏（仅结构，内容样式见 sidebar.css）---------- */
+.sidebar {
+    width: 300px;
+    flex-shrink: 0;
+    background: rgba(8, 8, 12, 0.88);
+    backdrop-filter: blur(12px);
+    border-right: 1px solid rgba(50, 50, 70, 0.6);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    transition: all 0.2s;
+    box-shadow: 4px 0 25px rgba(0, 0, 0, 0.5);
+    z-index: 2;
+}
+
+/* ---------- 右侧主聊天区 ---------- */
+.main-chat {
+    flex: 1;
+    min-width: 0;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    /* 默认虚拟人物背景 */
+    background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)),
+                url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 1600'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%232a2e5a'/%3E%3Cstop offset='100%25' stop-color='%2312152c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23grad)'/%3E%3Ccircle cx='600' cy='600' r='280' fill='%23333b6e' opacity='0.3'/%3E%3Cpath d='M520,460 L680,460 L720,540 L680,620 L520,620 L480,540 Z' fill='%235f7eff' opacity='0.45'/%3E%3Ccircle cx='600' cy='540' r='38' fill='%23aac0ff' opacity='0.6'/%3E%3Ccircle cx='550' cy='520' r='8' fill='white'/%3E%3Ccircle cx='650' cy='520' r='8' fill='white'/%3E%3Cpath d='M570 580 Q600 620 630 580' stroke='%23f0f3ff' stroke-width='5' fill='none' stroke-linecap='round' opacity='0.7'/%3E%3Ctext x='600' y='800' font-size='42' font-family='monospace' fill='%23ffffff80' text-anchor='middle'%3E⚡ AI CORE ⚡%3C/text%3E%3C/svg%3E") center/cover no-repeat;
+    background-blend-mode: normal;
+}
+
+/* 动态光晕层 */
+.main-chat::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: radial-gradient(circle at 70% 20%, rgba(70, 110, 255, 0.08), transparent 70%);
+    pointer-events: none;
+    z-index: 0;
+}
+
+/* ---------- 拖动条 ---------- */
+.resizer {
+    width: 4px;
+    background: rgba(100, 120, 200, 0.3);
+    cursor: ew-resize;
+    transition: background 0.2s;
+    flex-shrink: 0;
+    height: 100%;
+    user-select: none;
+}
+.resizer:hover {
+    background: rgba(100, 150, 255, 0.8);
+}
+.resizer.active {
+    background: #5f7eff;
+}
+body.dragging {
+    user-select: none;
+    cursor: ew-resize;
+}
+
+/* ---------- 右上角头部 ---------- */
+.chat-header {
+    display: flex;
+    justify-content: flex-end;
+    align-items: center;
+    padding: 15px 32px;
+    background: rgba(5, 5, 12, 0.3);
+    backdrop-filter: blur(6px);
+    border-bottom: 1px solid rgba(100, 120, 200, 0.3);
+    z-index: 2;
+    position: relative;
+}
+
+.logo-icon {
+    width: 38px;
+    height: 38px;
+    background: linear-gradient(135deg, #2a3c7c, #141b44);
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.3rem;
+    color: #b7cbff;
+    box-shadow: 0 0 6px #4e71ff;
+}
+
+.logo-text {
+    font-weight: 600;
+    font-size: 0.9rem;
+    letter-spacing: 1px;
+    background: linear-gradient(120deg, #eef, #a5bbff);
+    background-clip: text;
+    -webkit-background-clip: text;
+    color: transparent;
+}
+
+/* ---------- 聊天消息滚动区（容器）---------- */
+.chat-messages {
+    flex: 1;
+    overflow-y: auto;
+    padding: 24px 32px 20px 32px;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    z-index: 1;
+    position: relative;
+}
+
+/* ---------- 底部输入区域（容器）---------- */
+.chat-input-area {
+    padding: 0px 32px 28px 32px;
+    background: transparent;
+    backdrop-filter: none;
+    z-index: 2;
+    position: relative;
+    min-height: 100px;
+    transition: height 0.05s ease;
+}
+
+/* ---------- 沉浸模式 ---------- */
+body.immersive-mode .sidebar,
+body.immersive-mode .resizer,
+body.immersive-mode .chat-header {
+    display: none !important;
+}
+body.immersive-mode .main-chat {
+    flex: 1;
+    width: 100%;
+}
+body.immersive-mode .chat-messages {
+    padding-top: 20px;
+}
+
+/* ---------- 杂项 ---------- */
+.virtual-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    background: rgba(0, 0, 0, 0.4);
+    border-radius: 60px;
+    padding: 2px 8px;
+    font-size: 0.65rem;
+    margin-left: 12px;
+}
+
+.modal-body textarea {
+    overflow: hidden;
+    resize: none;
+}
