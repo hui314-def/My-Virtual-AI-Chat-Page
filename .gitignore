@@ -5,6 +5,9 @@ __pycache__/
 # Ignore Chroma database folder
 chroma_db/
 
+# Ignore model files
+local_model/
+
 # Ignore audio cache folders
 audio_cache/
 *音频缓存*
