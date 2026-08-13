@@ -73,7 +73,7 @@ python -m http.server 8000
 
 #### Ollama 配置（推荐本地部署）
 
-安装 Ollama 并拉取模型（如 gemma2、llama3 等）。
+安装 [Ollama](https://ollama.com/) 并拉取模型（如 gemma2、llama3 等）。
 
 设置环境变量以允许跨域请求（重启 Ollama 生效）：
 
@@ -85,7 +85,7 @@ set OLLAMA_ORIGINS=*
 export OLLAMA_ORIGINS=*
 ```
 
-默认 Ollama API 地址为 `http://localhost:11434`，可在网页“个性化设置”中根据实际情况修改。
+默认 Ollama API 地址为 `http://localhost:11434`（指向本地端口），可在网页“个性化设置”中根据实际情况修改。
 
 #### OpenAI 兼容 API
 
@@ -93,7 +93,11 @@ export OLLAMA_ORIGINS=*
 
 ### 3. 语音合成服务（可选）
 
-若需要语音朗读功能，需启动 `tts_api.py`，建议安装python3.12：
+若需要语音朗读功能，可选择启动 `tts_api.py`或`moss_tts_api.py`，建议安装python3.12
+
+#### 千问语音合成服务
+
+安装以下依赖项
 
 ```bash
 pip install -r backend_code/requirements/tts_requirements.txt
@@ -104,9 +108,20 @@ python backend_code/tts/tts_api.py
 
 首次启动会自动加载 Qwen3-TTS 模型（需提前下载模型权重，参考 [Qwen3-TTS 官方文档](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)）。编辑.env文件输入模型路径QWEN_MODEL_DIR
 
+#### MOSS 语音合成服务
+
+需要登录 [Mossland](https://mossland.studio/)平台获取 API Key，并在 `.env` 文件中设置 `MOSS_API_KEY`。安装依赖并启动服务：
+
+```bash
+pip install -r backend_code/requirements/moss_tts_requirements.txt
+python backend_code/tts/moss_tts_api.py
+```
+
+默认监听端口 5000，需要设置 API Key 鉴权（通过 `.env` 设置 `MOSS_API_KEY`）。
+
 ### 4. 图片生成服务（可选）
 
-若需要 AI 生图功能，需安装 [ComfyUI](https://github.com/Comfy-Org/ComfyUI)，并将工作流文件（`image_gen_workflow.json`）放置于项目目录下（示例工作流，可按需修改和替换）。随后启动图片生成 API：
+若需要 AI 生图功能，需安装 [ComfyUI](https://github.com/Comfy-Org/ComfyUI)，同时需要开启ComfyUI的开发者模式，并将工作流文件（`image_gen_workflow.json`）放置于项目目录下（示例工作流，可按需修改和替换）。随后启动图片生成 API：
 
 ```bash
 pip install -r backend_code/requirements/image_gen_requirements.txt
@@ -115,7 +130,7 @@ python backend_code/image_gen/image_gen_api.py
 
 默认监听端口 5050，并支持 API Key 鉴权（通过 `.env` 设置 `IMG_API_KEY`）。
 
-⚠️ 注意事项：生成后的图片不会加入到语言模型的对话列表中，如有需要可以双击消息框打开操作栏选择引用该图片
+⚠️ 注意事项：生成后的图片不会加入到语言模型的对话列表中，如有需要可以双击消息框打开操作栏选择引用该图片（需要视觉模型支持）
 
 ### 5. 知识库搭建服务（可选）
 
@@ -144,7 +159,7 @@ IMG_API_KEY=your_img_api_key_here
 
 ### 7. 一键启动脚本（建议）
 
-项目根目录下提供了两个批处理文件，用于简化开发环境的启动过程：
+项目根目录下提供了两个批处理文件，用于简化项目依赖的部署过程：
 
 - `install_dependencies.bat`：安装所有后端依赖项。
 - `start.bat`：启动所有前后端服务。
@@ -185,13 +200,13 @@ IMG_API_KEY=your_img_api_key_here
 - 本项目仅供学习和交流使用，严禁用于商业用途。
 - 所有代码均由 DeepSeek AI 生成，开发者未直接参与编写。如有侵权或不当之处，请及时联系删除。
 - 语音合成和图片生成服务需额外配置其他开源项目，非必需功能。
-- 图片生成使用 ComfyUI 工作流，需自行安装ComfyUI和准备模型文件，文件已包含基础图片生成工作流image_gen_workflow.json，可根据需求修改。
+- 图片生成使用 ComfyUI 工作流，需自行安装ComfyUI、开启开发者模式和准备模型文件，文件已包含基础图片生成工作流image_gen_workflow.json，可根据需求修改。
 - 强烈建议在生产环境中启用 API Key 鉴权，避免未授权访问。
-- 由于使用浏览器 IndexedDB 存储数据，不支持多台设备间共享同一浏览器数据。
+- 由于使用浏览器 IndexedDB 存储数据，暂时不支持多台设备间共享同一浏览器数据。
 
 ## 📬 联系方式
 
-- 开发者：广州大学 2024 级学生
+- 开发者：广州大学 2024 级本科生
 - 邮箱：[2083180893@qq.com](mailto:2083180893@qq.com)
 - 开发时间：2026 年 3 月 31 日 ～ 至今
 
