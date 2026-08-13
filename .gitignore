@@ -24,3 +24,6 @@ audio_cache/
 
 # Ignore virtual environment
 .venv/
+
+# Ignore 
+conda_start.bat

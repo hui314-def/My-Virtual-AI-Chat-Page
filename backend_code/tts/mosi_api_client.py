@@ -867,7 +867,7 @@ if __name__ == "__main__":
         print("  export MOSS_API_KEY=your-key-here")
         sys.exit(1)
 
-    client = MossClient(api_key='sk-bb2258efb33e85a6f6f94fe98f256eaa9b1f4ca212b196d8')
+    client = MossClient()  # 从环境变量 MOSS_API_KEY 读取
 
     # ---- 1. 查询可用模型 ----
     print("=== 可用模型 ===")

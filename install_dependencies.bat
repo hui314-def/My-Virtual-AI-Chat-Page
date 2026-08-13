@@ -67,7 +67,8 @@ echo.
 echo    [1] 全部安装（图片生成 + 知识库 + 语音合成）
 echo    [2] 图片生成服务  （image_gen，需配合 ComfyUI）
 echo    [3] 知识库服务    （knowledge_base，含向量数据库）
-echo    [4] 语音合成服务  （tts，体积较大，建议 Python 3.12）
+echo    [4] 千问语音合成服务  （qwen_tts，本地模型体积较大，建议 Python 3.12）
+echo    [5] moss语音合成服务  （调用云端moss_tts）
 echo    [0] 退出
 echo  ------------------------------------------------------------
 set "choice="
@@ -87,7 +88,8 @@ set "HAS_ANY="
 if defined INSTALL_ALL (
     call :do_install "图片生成" "backend_code\requestments\image_gen_requirements.txt"
     call :do_install "知识库"   "backend_code\requestments\knowledge_base_requirements.txt"
-    call :do_install "语音合成" "backend_code\requestments\tts_requirements.txt"
+    call :do_install "千问语音合成" "backend_code\requestments\qwen_tts_requirements.txt"
+    call :do_install "moss语音合成" "backend_code\requestments\moss_tts_requirements.txt"
     goto finish
 )
 
@@ -105,7 +107,13 @@ if not errorlevel 1 (
 
 echo %choice% | findstr "4" >nul
 if not errorlevel 1 (
-    call :do_install "语音合成" "backend_code\requestments\tts_requirements.txt"
+    call :do_install "千问语音合成" "backend_code\requestments\qwen_tts_requirements.txt"
+    set "HAS_ANY=1"
+)
+
+echo %choice% | findstr "5" >nul
+if not errorlevel 1 (
+    call :do_install "moss语音合成" "backend_code\requestments\moss_tts_requirements.txt"
     set "HAS_ANY=1"
 )
 
@@ -114,7 +122,7 @@ goto finish
 
 :invalid
     echo.
-    echo  [提示] 输入无效，请重新输入 0~4 的组合（如 2、23、234、1）。
+    echo  [提示] 输入无效，请重新输入 0~5 的组合（如 2、23、234、1）。
     echo.
     goto menu
 
@@ -164,31 +172,9 @@ REM ---------- 生成 .env 模板 ----------
         echo TTS_API_KEY=
         echo # 图片生成服务鉴权（留空则不启用鉴权）
         echo IMG_API_KEY=
-        echo # Qwen3-TTS 模型路径（按需填写，即模型权重所在文件夹）
+        echo # Qwen3-TTS 模型路径（按实际情况填写，即模型权重所在文件夹）
         echo QWEN_TTS_MODEL_PATH=
     ) > ".env"
     echo  [完成] 已生成 .env 文件，可按需填写 API Key 与模型路径。
     goto :eof
 
-REM ---------- 使用说明 ----------
-:show_usage
-    echo.
-    echo  ------------------------------------------------------------
-    echo   启动方法：先激活虚拟环境，再用 python 启动（另开终端）：
-    echo.
-    echo   激活      : .venv\Scripts\activate.bat
-    echo.
-    echo   前端网页   : python -m http.server 8000
-    echo                浏览器访问 http://localhost:8000
-    echo   图片生成   : python backend_code\image_gen\image_gen_api.py
-    echo   知识库     : cd backend_code\knowledge_base
-    echo                python knowledge_api.py
-    echo   语音合成   : python backend_code\tts\tts_api.py
-    echo.
-    echo   提示：不想激活环境时，也可直接用 .venv\Scripts\python.exe
-    echo         替代上面的 python 命令。
-    echo.
-    echo  [提醒] 语音合成首次启动会自动加载 Qwen3-TTS 模型，
-    echo         需先在 .env 中填写 QWEN_TTS_MODEL_PATH 模型路径。
-    echo  ------------------------------------------------------------
-    goto :eof
