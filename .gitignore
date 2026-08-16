@@ -25,5 +25,6 @@ audio_cache/
 # Ignore virtual environment
 .venv/
 
-# Ignore 
+# Ignore others
 conda_start.bat
+重构计划-script模块拆分.md

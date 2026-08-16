@@ -20,6 +20,13 @@ import SearchManager from './js/search.js';
 import MessageActions from './js/message-actions.js';
 import ShortcutManager from './js/shortcut-manager.js';
 import { ImageGenService } from './js/image-gen.js';
+import { UiScroll } from './js/ui-scroll.js';
+import { UiAppearance } from './js/ui-appearance.js';
+import { ModelConfigUI } from './js/model-config-ui.js';
+import { ChatManager } from './js/chat-manager.js';
+import { TopicManager } from './js/topic-manager.js';
+import { HistoryList } from './js/history-list.js';
+import { KnowledgeRetriever } from './js/knowledge-retriever.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -47,31 +54,10 @@ const fileUpload = new FileUploadService({
 
 let chats = [];
 let currentChatId = null;
-let autoScrollEnabled = true;     // 是否允许自动滚动
-let isProcessing = false;   // 请求进行中（包括发送到模型返回全过程的锁）
-let currentStatus = 'online';   // 记录当前指示器状态
 const cropperRef = { value: null };
 const modelServiceInstanceRef = { value: null };
 
-// ==================== 话题辅助函数 ====================
-// currentTopicIndex 移入 chat 对象，不再使用全局变量
-function getCurrentTopicIndex() {
-    const chat = chats.find(c => c.id == currentChatId);
-    return chat ? chat.currentTopicIndex : null;
-}
-
-function setCurrentTopicIndex(value) {
-    const chat = chats.find(c => c.id == currentChatId);
-    if (chat) chat.currentTopicIndex = value;
-}
-
-/** 获取当前对话的活跃话题（当前选中话题），可能为 null */
-function getActiveTopic(chat) {
-    if (!chat || !chat.topics) return null;
-    const idx = chat.currentTopicIndex;
-    if (idx === null || idx === undefined || idx < 0 || idx >= chat.topics.length) return null;
-    return chat.topics[idx];
-}
+// (话题辅助函数已迁移至 js/topic-manager.js —— TopicManager)
 
 // ==================== 快捷键管理器 ====================
 // 注意：先于 modalManager 构造，因为 modalManager 依赖 shortcutManager。
@@ -81,10 +67,10 @@ const shortcutManager = new ShortcutManager({
     getStoredShortcuts: () => SettingsManager.getShortcuts(),
     saveShortcuts: (shortcuts) => SettingsManager.update({ shortcuts }),
     actionCallbacks: {
-        'new-chat':          () => createNewChat(),
-        'new-topic':         () => startNewTopic(),
-        'prev-chat':         () => switchToPreviousChat(),
-        'next-chat':         () => switchToNextChat(),
+        'new-chat':          () => chatManager.createNewChat(),
+        'new-topic':         () => topicManager.startNewTopic(),
+        'prev-chat':         () => chatManager.switchToPreviousChat(),
+        'next-chat':         () => chatManager.switchToNextChat(),
         'export-json':       () => chatIO.exportAsJSON(chats.find(c => c.id == currentChatId)),
         'focus-input':       () => focusChatInput(),
         'send-no-ai':        () => sendMessageWithoutAI(),
@@ -93,12 +79,60 @@ const shortcutManager = new ShortcutManager({
     },
 });
 
+// ==================== UI 控制器（滚动 / 请求锁 / 外观 / 模型配置） ====================
+// 注意：modelConfigUI 通过 getModalManager 惰性引用 modalManager，避免构造期循环依赖（运行时才调用）。
+const uiScroll = new UiScroll({ chatMessagesEl: chatMessages, sendBtnEl: sendBtn });
+const uiAppearance = new UiAppearance({ chatMessagesEl: chatMessages });
+const modelConfigUI = new ModelConfigUI({ getModalManager: () => modalManager });
+
+// ==================== 业务控制器（对话 / 话题 / 历史列表 / 知识库检索） ====================
+// 相互引用均通过回调惰性解析(chatManager ↔ historyList ↔ topicManager)，避免循环依赖。
+const chatManager = new ChatManager({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    setCurrentChatId,
+    chatRepo,
+    ttsService,
+    getModelService,
+    uiScroll,
+    uiAppearance,
+    renderHistoryList: () => historyListUI.renderHistoryList(),
+    renderMessages,
+    applyCurrentChatSettings,
+    setCurrentTopicIndex: (v) => topicManager.setCurrentTopicIndex(v),
+    getCurrentTopicIndex: () => topicManager.getCurrentTopicIndex(),
+    closeSidebarOnMobile,
+    getModalManager: () => modalManager,
+});
+const topicManager = new TopicManager({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    chatMessagesEl: chatMessages,
+    chatRepo,
+    ttsService,
+    getModelService,
+    uiScroll,
+    uiAppearance,
+    renderHistoryList: () => historyListUI.renderHistoryList(),
+    renderMessages,
+    getModalManager: () => modalManager,
+});
+const historyListUI = new HistoryList({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    historyListEl: historyList,
+    chatIO,
+    getChatManager: () => chatManager,
+    closeSidebarOnMobile,
+});
+const knowledgeRetriever = new KnowledgeRetriever({ getModalManager: () => modalManager });
+
 // ==================== 弹窗管理器 ====================
 // 注意：ctx 中的回调函数（renderMessages 等）由 function 声明定义在下方，JS 会提升声明，因此引用安全。
 const modalManager = new ModalManager({
     get chats() { return chats; },            // getter：initData 会重新赋值 chats，必须动态读取
     get currentChatId() { return currentChatId; },
-    get currentTopicIndex() { return getCurrentTopicIndex(); },
+    get currentTopicIndex() { return topicManager.getCurrentTopicIndex(); },
     chatRepo,
     chatIO,
     ttsService,
@@ -106,28 +140,28 @@ const modalManager = new ModalManager({
     cropperRef,
     getShortcuts: () => shortcutManager.getShortcuts(),
     getModelService,
-    releaseRequestLock,
-    updateStatusIndicator,
+    releaseRequestLock: () => uiScroll.releaseRequestLock(),
+    updateStatusIndicator: (state, customText) => uiAppearance.updateStatusIndicator(state, customText),
     // 以下回调函数由下方 function 声明定义（JS 提升），在构造时引用安全：
     renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
-    renderHistoryList: () => renderHistoryList(),
+    renderHistoryList: () => historyListUI.renderHistoryList(),
     applyCurrentChatSettings: () => applyCurrentChatSettings(),
-    startNewTopic: () => startNewTopic(),
-    setCurrentTopic: (idx) => setCurrentTopic(idx),
-    applyTheme: (theme) => applyTheme(theme),
-    applyFontSize: (size) => applyFontSize(size),
+    startNewTopic: () => topicManager.startNewTopic(),
+    setCurrentTopic: (idx) => topicManager.setCurrentTopic(idx),
+    applyTheme: (theme) => uiAppearance.applyTheme(theme),
+    applyFontSize: (size) => uiAppearance.applyFontSize(size),
     renderShortcutsPanel: () => shortcutManager.renderPanel(),
     bindAutoResize: (el) => bindAutoResize(el),
-    updateModelSelector: () => updateModelSelector(),
-    renderModelListUI: () => renderModelListUI(),
-    saveModelListToStorage: () => saveModelListToStorage(),
-    addModel: (name) => addModel(name),
-    generateTopicSummary: (idx, msgs) => generateTopicSummary(idx, msgs),
+    updateModelSelector: () => modelConfigUI.updateModelSelector(),
+    renderModelListUI: () => modelConfigUI.renderModelListUI(),
+    saveModelListToStorage: () => modelConfigUI.saveModelListToStorage(),
+    addModel: (name) => modelConfigUI.addModel(name),
+    generateTopicSummary: (idx, msgs) => topicManager.generateTopicSummary(idx, msgs),
     focusChatInput: () => focusChatInput(),
     focusSearchInput: () => searchManager.focusSearchInput(),
-    createNewChat: () => createNewChat(),
-    switchToPreviousChat: () => switchToPreviousChat(),
-    switchToNextChat: () => switchToNextChat(),
+    createNewChat: () => chatManager.createNewChat(),
+    switchToPreviousChat: () => chatManager.switchToPreviousChat(),
+    switchToNextChat: () => chatManager.switchToNextChat(),
     sendMessageWithoutAI: () => sendMessageWithoutAI(),
     toggleImmersiveMode: () => toggleImmersiveMode(),
     executeAction: (action) => shortcutManager.executeAction(action),
@@ -145,9 +179,9 @@ function startVoiceInput() { voiceInput.start(); }
 const searchManager = new SearchManager({
     getChats: () => chats,
     getCurrentChatId: () => currentChatId,
-    getCurrentTopicIndex: () => getCurrentTopicIndex(),
-    setCurrentTopicIndex: (v) => setCurrentTopicIndex(v),
-    switchChat,
+    getCurrentTopicIndex: () => topicManager.getCurrentTopicIndex(),
+    setCurrentTopicIndex: (v) => topicManager.setCurrentTopicIndex(v),
+    switchChat: (chatId) => chatManager.switchChat(chatId),
     renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
 });
 
@@ -155,30 +189,30 @@ const searchManager = new SearchManager({
 const msgActions = new MessageActions({
     getChats: () => chats,
     getCurrentChatId: () => currentChatId,
-    getCurrentTopicIndex: () => getCurrentTopicIndex(),
-    isProcessing: () => isProcessing,
+    getCurrentTopicIndex: () => topicManager.getCurrentTopicIndex(),
+    isProcessing: () => uiScroll.isProcessing,
     chatRepo,
     ttsService,
     chatMessages,
     renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
-    renderHistoryList: () => renderHistoryList(),
+    renderHistoryList: () => historyListUI.renderHistoryList(),
     customAlert: (msg, type) => modalManager.customAlert(msg, type),
     showBriefToast: (msg) => modalManager.showBriefToast(msg),
     simulateAIResponse,
     appendMessageToDOM,
-    updateStatusIndicator,
+    updateStatusIndicator: (state, customText) => uiAppearance.updateStatusIndicator(state, customText),
 });
 function showMessageActions(...args) { msgActions.showMessageActions(...args); }
 function showPictureActions(...args) { msgActions.showPictureActions(...args); }
 
 const imageGenService = new ImageGenService({
-    isProcessing: () => isProcessing,
+    isProcessing: () => uiScroll.isProcessing,
     customAlert: (msg, type) => modalManager.customAlert(msg, type),
     getImgApiUrl: () => SettingsManager.getImgApiUrl(),
     getImgApiKey: () => SettingsManager.getImgApiKey(),
     appendMessageToDOM,
     appendImageToDOM,
-    forceScrollToBottom: () => forceScrollToBottom(),
+    forceScrollToBottom: () => uiScroll.forceScrollToBottom(),
     getAutoScrollAfterSend: () => SettingsManager.getAutoScrollAfterSend(),
 });
 
@@ -202,197 +236,10 @@ function setCurrentChatId(id) {
     localStorage.setItem(Constants.STORAGE_KEYS.LAST_CHAT_ID, id);
 }
 
-// 禁用输入区域
-function disableInput() {
-    const sendBtn = document.querySelector('.send-btn');
-    if (sendBtn) {
-        sendBtn.style.pointerEvents = 'none';
-        sendBtn.style.opacity = '0.5';
-    }
-}
+// (请求锁与滚动控制已迁移至 js/ui-scroll.js —— UiScroll)
 
-// 启用输入区域
-function enableInput() {
-    const sendBtn = document.querySelector('.send-btn');
-    if (sendBtn) {
-        sendBtn.style.pointerEvents = 'auto';
-        sendBtn.style.opacity = '1';
-    }
-}
-
-// ==================== 请求生命周期管理（避免并发与竞态） ====================
-// acquireRequestLock: 返回 true 表示取得锁并开始请求，false 表示已有请求在进行
-function acquireRequestLock() {
-    if (isProcessing) return false;
-    isProcessing = true;
-    disableInput();
-    return true;
-}
-
-// releaseRequestLock: 结束请求，并根据传入的 controller 清理匹配的控制器
-function releaseRequestLock() {
-    isProcessing = false;
-    enableInput();
-}
-
-function updateAutoScrollFlag() {
-    if (!chatMessages) return;
-    const { scrollTop, scrollHeight, clientHeight } = chatMessages;
-    const atBottom = scrollHeight - scrollTop - clientHeight <= Constants.SCROLL_THRESHOLD;// 距离底部阈值（px）
-    autoScrollEnabled = atBottom;
-}
-
-function conditionalScrollToBottom() {
-    if (autoScrollEnabled) {
-        scrollToBottom();
-    }
-}
-
-function forceScrollToBottom() {
-    autoScrollEnabled = true;
-    scrollToBottom();
-}
-
-function scrollToBottom() {if (chatMessages) chatMessages.scrollTop = chatMessages.scrollHeight;}
-
-function renderModelListUI() {
-    const models = ModelService.getModels();
-    const container = document.getElementById('model-list-container');
-    if (!container) return;
-    if (models.length === 0) {
-        container.innerHTML = '<div style="padding: 8px; text-align: center; opacity: 0.6;">暂无模型，请添加</div>';
-        return;
-    }
-    container.innerHTML = models.map(model => `
-        <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-bottom: 1px solid rgba(100,130,255,0.2);">
-            <span>🤖 ${escapeHtml(model)}</span>
-            <div>
-                <button class="select-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: #5f7eff; cursor: pointer; margin-right: 8px;">✓ 使用</button>
-                <button class="delete-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: #ff8a7a; cursor: pointer;">🗑 删除</button>
-            </div>
-        </div>
-    `).join('');
-
-    // 绑定使用和删除事件
-    document.querySelectorAll('.select-model-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const modelName = btn.getAttribute('data-model');
-            // 更新全局设置中的当前模型
-            SettingsManager.update({ modelName });
-            // 更新全局设置弹窗中的模型名称输入框
-            const modelNameInput = document.getElementById('global-model-name');
-            if (modelNameInput) modelNameInput.value = modelName;
-            // 刷新快速切换下拉菜单
-            updateModelSelector();
-            modalManager.customAlert(`已切换到模型：${modelName}`, 'success');
-        });
-    });
-    document.querySelectorAll('.delete-model-btn').forEach(btn => {
-        btn.addEventListener('click', () => {
-            const modelName = btn.getAttribute('data-model');
-            const currentModels = ModelService.getModels();
-            if (currentModels.length === 1) {
-                modalManager.customAlert('至少保留一个模型');
-                return;
-            }
-            ModelService.removeModel(modelName);
-            saveModelListToStorage();
-            renderModelListUI();      // 刷新列表
-            updateModelSelector();    // 刷新下拉框
-            // 如果删除的是当前使用的模型，则自动切换到列表第一个
-            if (SettingsManager.getModelName() === modelName) {
-                SettingsManager.update({ modelName: models[0] });
-                const modelNameInput = document.getElementById('global-model-name');
-                if (modelNameInput) modelNameInput.value = models[0];
-                updateModelSelector();
-            }
-        });
-    });
-}
-
-function updateModelSelector() {
-    const models = ModelService.getModels();
-    const select = document.getElementById('quick-model-select');
-    if (!select) return;
-    const currentModel = SettingsManager.getModelName();
-    select.innerHTML = '';
-    models.forEach(model => {
-        const option = document.createElement('option');
-        option.value = model;
-        option.textContent = model;
-        if (model === currentModel) option.selected = true;
-        select.appendChild(option);
-    });
-    if (models.length === 0) {
-        select.innerHTML = '<option>无模型</option>';
-    }
-}
-
-// 监听快速切换
-function bindQuickModelSwitch() {
-    const select = document.getElementById('quick-model-select');
-    if (!select) return;
-    select.addEventListener('change', (e) => {
-        const newModel = e.target.value;
-        SettingsManager.update({ modelName: newModel });
-        // 同步更新全局设置弹窗中的输入框
-        const modelNameInput = document.getElementById('global-model-name');
-        if (modelNameInput) modelNameInput.value = newModel;
-        // 显示提示
-        modalManager.showBriefToast(`已切换到模型：${newModel}`)
-    });
-}
-
-// 添加模型
-function addModel(modelName) {
-    if (ModelService.addModel(modelName)) {
-        saveModelListToStorage();
-        renderModelListUI();
-        updateModelSelector();
-        return true;
-    }
-    return false;
-}
-
-// 保存模型列表到 localStorage（由 script.js 负责持久化）
-function saveModelListToStorage() {
-    const models = ModelService.getModels();
-    localStorage.setItem(Constants.STORAGE_KEYS.MODEL_LIST, JSON.stringify(models));
-    // 同步更新当前厂商模型列表（保留已有的 apiKey / modelHost）
-    const currentProvider = SettingsManager.getModelProvider();
-    const existing = SettingsManager.loadProviderState(currentProvider) || {};
-    SettingsManager.saveProviderState(currentProvider, {
-        apiKey: existing.apiKey ?? SettingsManager.getApiKey(),
-        modelHost: existing.modelHost ?? SettingsManager.getModelHost(),
-        models: models,
-        currentModel: SettingsManager.getModelName(),
-    });
-}
-
-// 加载模型列表并初始化 ModelService 的静态列表
-function loadModelListAndInit() {
-    const currentProvider = SettingsManager.getModelProvider();
-    // 优先从厂商独立状态中恢复模型列表
-    const savedState = SettingsManager.loadProviderState(currentProvider);
-    let models = [];
-    if (savedState && savedState.models && savedState.models.length > 0) {
-        models = savedState.models;
-        // 同时恢复该厂商的当前模型
-        if (savedState.currentModel) {
-            SettingsManager.update({ modelName: savedState.currentModel });
-        }
-    } else {
-        // 回退到旧的全局 model_list
-        const stored = localStorage.getItem(Constants.STORAGE_KEYS.MODEL_LIST);
-        if (stored) {
-            models = JSON.parse(stored);
-        } else {
-            models = [SettingsManager.getModelName()];
-            localStorage.setItem(Constants.STORAGE_KEYS.MODEL_LIST, JSON.stringify(models));
-        }
-    }
-    ModelService.setModels(models);
-}
+// (模型配置 UI 已迁移至 js/model-config-ui.js —— ModelConfigUI)
+// 左侧边栏拖动调整宽度
 // 左侧边栏拖动调整宽度
 function initResizer() {
     if (window.innerWidth <= Constants.MOBILE_BREAKPOINT) return; // 移动端不启用拖动
@@ -485,60 +332,7 @@ function applyCurrentChatSettings() {
     });
 }
 
-// 渲染左侧历史列表
-function renderHistoryList() {
-    if (!historyList) return;
-    historyList.innerHTML = '';
-    // 排序：置顶的在前，然后按时间倒序（最新的在前）
-    const sortedChats = [...chats].sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        return b.date - a.date;
-    });
-    sortedChats.forEach(chat => {
-        const settings = chat.settings || Constants.DEFAULT_SETTINGS;
-        const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
-        const avatarUrl = settings.avatarUrl;
-        
-        const historyItem = document.createElement('div');
-        historyItem.className = `history-item ${currentChatId === chat.id ? 'active' : ''}`;
-        historyItem.setAttribute('data-id', chat.id);
-        
-        let avatarHtml = '';
-        if (avatarUrl) {
-            avatarHtml = `<img src="${avatarUrl}" class="history-avatar-img" alt="avatar">`;
-        } else {
-            avatarHtml = `<i class="fas fa-robot history-default-icon"></i>`;
-        }
-        
-        // 标题行：角色名称 + 星星（如果置顶）
-        const starHtml = chat.pinned ? '<i class="fas fa-star pin-star"></i>' : '';
-        
-        historyItem.innerHTML = `
-            <div class="history-avatar">
-                ${avatarHtml}
-            </div>
-            <div class="history-info">
-                <div class="title">
-                    ${escapeHtml(roleName)}
-                    ${starHtml}
-                </div>
-                <div class="date">${formatDate(chat.date)}</div>
-            </div>
-        `;
-        const menuTrigger = document.createElement('div');
-        menuTrigger.className = 'history-menu-trigger';
-        menuTrigger.innerHTML = '<i class="fas fa-ellipsis-v"></i>';
-        historyItem.appendChild(menuTrigger);
-        historyList.appendChild(historyItem);
-        
-        attachMenuEvents(historyItem, chat);
-    });
-    if (chats.length === 0) {
-        historyList.innerHTML = '<div style="padding:20px; text-align:center; opacity:0.5;">暂无对话，点击“新对话”开始</div>';
-    }
-    attachHistoryClickEvents();
-}
+// (历史列表渲染已迁移至 js/history-list.js —— HistoryList)
 
 // 追加消息到DOM
 async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null, imageAttachments = null) {
@@ -655,7 +449,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     }
 
     chatMessages.appendChild(messageDiv);
-    conditionalScrollToBottom();
+    uiScroll.conditionalScrollToBottom();
     
     // 绑定文件点击事件
     if (type === 'user' && fileAttachment) {
@@ -670,14 +464,14 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
         const targetChatId = chatIdForSave || currentChatId;
         const targetChat = chats.find(c => c.id == targetChatId);
         if (targetChat) {
-            const activeTopic = getActiveTopic(targetChat);
+            const activeTopic = topicManager.getActiveTopic(targetChat);
             if (activeTopic) {
                 const msgUid = genMsgUid(type, text, time || getCurrentTime());
                 activeTopic.messages.push({ type, text, time: time || getCurrentTime(), uid: msgUid });
                 if (messageDiv) messageDiv.dataset.msgUid = msgUid;
                 if (type === 'user') {
                     targetChat.date = new Date();
-                    renderHistoryList();
+                    historyListUI.renderHistoryList();
                     await chatRepo.saveChat(targetChat);
                 }
             }
@@ -741,13 +535,13 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     }
 
     chatMessages.appendChild(messageDiv);
-    conditionalScrollToBottom();
+    uiScroll.conditionalScrollToBottom();
 
     // 持久化（消息对象里附带 isImage 和生成参数）
     if (saveToStorageFlag) {
         const targetChat = chats.find(c => c.id == currentChatId);
         if (targetChat) {
-            const activeTopic = getActiveTopic(targetChat);
+            const activeTopic = topicManager.getActiveTopic(targetChat);
             if (activeTopic) {
                 const msgUid = genMsgUid(type, imgSrc, time || getCurrentTime());
                 activeTopic.messages.push({
@@ -758,7 +552,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
                     uid: msgUid,
                 });
                 targetChat.date = new Date();
-                renderHistoryList();
+                historyListUI.renderHistoryList();
             }
             await chatRepo.saveChat(targetChat);
         }
@@ -813,7 +607,7 @@ function renderMessages(chatId, topicIndex = null) {
         }
     }
 
-    conditionalScrollToBottom();
+    uiScroll.conditionalScrollToBottom();
 }
 
 function getTypingSpeed() {
@@ -823,7 +617,7 @@ function getTypingSpeed() {
 
 async function simulateAIResponse(userMsg, imageUrls = []) {
     // 🔒 请求开始：集中管理请求生命周期
-    if (!acquireRequestLock()) {
+    if (!uiScroll.acquireRequestLock()) {
         console.warn('已有请求正在处理，丢弃本次调用');
         return;
     }
@@ -831,10 +625,10 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
     if (!currentChat) {
         appendMessageToDOM('ai', '系统错误：无法找到当前对话。', getCurrentTime(), true);
         // 发生错误，释放锁
-        releaseRequestLock();
+        uiScroll.releaseRequestLock();
         return;
     }
-    updateStatusIndicator('thinking', '模型思考中 ...');
+    uiAppearance.updateStatusIndicator('thinking', '模型思考中 ...');
     const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
     const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
     const rolePersona = settings.persona || '';
@@ -844,12 +638,12 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
     typingDiv.className = 'message ai';
     typingDiv.innerHTML = `<div class="avatar-msg"><i class="fas fa-robot"></i></div><div class="bubble typing-bubble"><div class="typing-indicator"><i class="fas fa-ellipsis-h"></i> ${roleName} 正在思考...</div></div>`;
     chatMessages.appendChild(typingDiv);
-    if (SettingsManager.getAutoScrollAfterSend()) scrollToBottom();
+    if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
 
     try {
         // 获取对话历史（支持话题视图）
         let historyMessages = [];
-        const topicIdx = getCurrentTopicIndex();
+        const topicIdx = topicManager.getCurrentTopicIndex();
         if (topicIdx !== null && currentChat.topics[topicIdx]) {
             historyMessages = currentChat.topics[topicIdx].messages;
         } else {
@@ -895,7 +689,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             const kbIds = selectedIdsStr.split(',').filter(id => id.trim());
             if (kbIds.length > 0) {
                 try {
-                    const kbResults = await retrieveKnowledge(kbIds, userMsg);
+                    const kbResults = await knowledgeRetriever.retrieveKnowledge(kbIds, userMsg);
                     const relevant = kbResults.filter(item => (item.score || 0) >= Constants.SIMILARITY_THRESHOLD);
                     if (relevant && relevant.length > 0) {
                         const knowledgeText = relevant.map((item, idx) => 
@@ -957,7 +751,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 bubbleP.innerHTML = '';  // 清空占位
                 bubbleP.style.whiteSpace = 'pre-wrap';
                 chatMessages.appendChild(messageDiv);
-                if (SettingsManager.getAutoScrollAfterSend()) scrollToBottom();
+                if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
                 isFirstChunk = false;
             }
             fullReply += chunk;
@@ -965,7 +759,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             span.className = 'fade-in-text';
             span.textContent = chunk;
             bubbleP.appendChild(span);
-            conditionalScrollToBottom();
+            uiScroll.conditionalScrollToBottom();
             
             // 控制打字速度
             const speed = getTypingSpeed();
@@ -1012,12 +806,12 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
             });
         }
-        if (SettingsManager.getAutoScrollAfterSend()) scrollToBottom();
-        updateStatusIndicator('online');
+        if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
+        uiAppearance.updateStatusIndicator('online');
         // 保存消息到存储
         const targetChat = chats.find(c => c.id == currentChatId);
         if (targetChat) {
-            const activeTopic = getActiveTopic(targetChat);
+            const activeTopic = topicManager.getActiveTopic(targetChat);
             if (activeTopic) {
                 const modelName = SettingsManager.getModelName();
                 const msgUid = genMsgUid('ai', fullReply, getCurrentTime());
@@ -1034,7 +828,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 }
                 activeTopic.messages.push(msgData);
                 targetChat.date = new Date();
-                renderHistoryList();
+                historyListUI.renderHistoryList();
                 await chatRepo.saveChat(targetChat);
             }
         }
@@ -1047,9 +841,9 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 if (speechText.trim()) {
                     let ttsVoice = currentChat.settings.ttsVoice;
                     if (!ttsVoice || ttsVoice === '') ttsVoice = 'default';
-                    updateStatusIndicator('speaking', '语音合成中 ...');
+                    uiAppearance.updateStatusIndicator('speaking', '语音合成中 ...');
                     ttsService.speak(speechText, ttsVoice)
-                        .finally(() => updateStatusIndicator('online'));;
+                        .finally(() => uiAppearance.updateStatusIndicator('online'));;
                 }
             }
         }
@@ -1058,13 +852,13 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             console.log('流式请求已被取消');
         } else {
             console.error('模型调用失败:', error);
-            updateStatusIndicator('offline', '离线 · 模型调用失败');
+            uiAppearance.updateStatusIndicator('offline', '离线 · 模型调用失败');
             modalManager.customAlert(`❌ 模型调用失败：${error.message}\n请检查模型地址和 API Key 是否正确。`);
         }
     } finally {
         // 🔓 请求结束，恢复输入并清理控制器
         if (typingDiv && typingDiv.parentNode) typingDiv.remove();
-        releaseRequestLock();
+        uiScroll.releaseRequestLock();
     }
 }
 
@@ -1102,15 +896,15 @@ function createMessageBubble(type, text, time, avatarUrl, modelName = null, know
 }
 
 async function sendUserMessage() {
-    if (isProcessing) {
+    if (uiScroll.isProcessing) {
         modalManager.showBriefToast('请等待当前回复完成后再发送');
         return;
     }
     // 如果当前为”显示全部话题”模式，自动切换到最后一个话题
-    if (getCurrentTopicIndex() === null) {
+    if (topicManager.getCurrentTopicIndex() === null) {
         const currentChat = chats.find(c => c.id == currentChatId);
         if (currentChat && currentChat.topics.length > 0) {
-            await setCurrentTopic(currentChat.topics.length - 1, false);
+            await topicManager.setCurrentTopic(currentChat.topics.length - 1, false);
         }
     }
 
@@ -1162,7 +956,7 @@ async function sendUserMessage() {
         modelUserMsg = modelUserMsg + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
     }
     if (targetChat) {
-        const activeTopic = getActiveTopic(targetChat);
+        const activeTopic = topicManager.getActiveTopic(targetChat);
         if (activeTopic) {
             const msgUid = genMsgUid('user', text, userTime);
             activeTopic.messages.push({
@@ -1176,11 +970,11 @@ async function sendUserMessage() {
                 quoteRef: quoteRef || undefined,
             });
             targetChat.date = new Date();
-            renderHistoryList();
+            historyListUI.renderHistoryList();
             await chatRepo.saveChat(targetChat);
         }
     }
-    if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
+    if (SettingsManager.getAutoScrollAfterSend()) uiScroll.forceScrollToBottom();
     // 渲染消息
     await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null, null, imageAttachments);
     messageInput.value = '';
@@ -1188,106 +982,12 @@ async function sendUserMessage() {
     simulateAIResponse(modelUserMsg, imageUrls);
 }
 
-async function createNewChat() {
-    closeSidebarOnMobile();
-    const newId = Date.now();
-    // 新对话的标题使用默认设置
-    const newSettings = JSON.parse(JSON.stringify(Constants.DEFAULT_SETTINGS));
-    newSettings.contextLimit = SettingsManager.getContextLimit();
-    newSettings.temperature = SettingsManager.getTemperature();
-    newSettings.topP = SettingsManager.getTopP();
-    newSettings.thinkLevel = SettingsManager.getThinkLevel();
-    newSettings.maxTokens = SettingsManager.getMaxTokens();
-    // 继承用户管理的用户名等
-    const newChat = {
-        id: newId,
-        title: `新对话 ${chats.length+1}`,
-        date: new Date(),
-        topics: [{
-            id: Date.now(),
-            name: '话题 1',
-            createdAt: new Date().toISOString(),
-            summary: null,
-            messages: [
-                { type: 'ai', text: newSettings.greeting, time: getCurrentTime() }
-            ]
-        }],
-        currentTopicIndex: 0,
-        settings: newSettings,
-        pinned: false
-    };
-    chats.unshift(newChat);
-    setCurrentChatId(newId);
-    renderHistoryList();
-    renderMessages(currentChatId, 0);
-    applyCurrentChatSettings();   // 应用新对话的设置（背景、名称等）
-    await chatRepo.saveAllChats(chats);
-
-    // 为新创建的历史项添加插入动画
-    setTimeout(() => {
-        const newItem = document.querySelector(`.history-item[data-id="${newId}"]`);
-        if (newItem) {
-            newItem.classList.add('inserting');
-            newItem.addEventListener('animationend', () => {
-                newItem.classList.remove('inserting');
-            }, { once: true });
-        }
-    }, 20); // 确保 DOM 已更新
-}
-
-function switchChat(chatId) {
-    const modelService = getModelService();
-    ttsService.stop();
-    if (currentStatus === 'thinking' || currentStatus === 'speaking') {
-        updateStatusIndicator('online');
-    }
-    // 检查是否有正在进行的流式回复
-    if (modelService.isStreaming()) {
-        if (confirm('当前对话正在生成回复，切换对话会中断当前回复。是否继续？')) {
-            modelService.abortCurrentStream()
-            // 释放请求锁（如果有）
-            releaseRequestLock();
-            ttsService.stop();
-        } else {
-            return;
-        }
-    }
-    closeSidebarOnMobile();
-    if (currentChatId == chatId) return;
-    setCurrentChatId(chatId);
-    // ✅ 使用 chat 自身存储的 currentTopicIndex，未设置时默认最后一个话题
-    const chat = chats.find(c => c.id == chatId);
-    if (chat) {
-        if (chat.currentTopicIndex === undefined || chat.currentTopicIndex === null) {
-            chat.currentTopicIndex = chat.topics.length > 0 ? chat.topics.length - 1 : null;
-        }
-    }
-    renderHistoryList();
-    renderMessages(currentChatId, getCurrentTopicIndex());
-    applyCurrentChatSettings();
-}
-
-function attachHistoryClickEvents() {
-    const items = document.querySelectorAll('.history-item');
-    items.forEach(item => {
-        item.removeEventListener('click', historyClickHandler);
-        item.addEventListener('click', historyClickHandler);
-    });
-}
-
-function historyClickHandler(e) {
-    const targetItem = e.currentTarget;
-    const chatId = parseInt(targetItem.getAttribute('data-id'));
-    if (!isNaN(chatId)) {
-        closeSidebarOnMobile();
-        switchChat(chatId);
-    }
-}
+// (对话管理已迁移至 js/chat-manager.js —— ChatManager)
 
 // ==================== 初始化数据 ====================
 async function initData() {
     // 应用已保存的字体大小
-    applyFontSize(SettingsManager.getFontSize());
+    uiAppearance.applyFontSize(SettingsManager.getFontSize());
     const stored = await loadFromStorage();
     if (stored && stored.length > 0) {
         chats = stored;
@@ -1312,8 +1012,8 @@ async function initData() {
         chats = [defaultChat];
         setCurrentChatId(defaultChat.id);
     }
-    renderHistoryList();
-    renderMessages(currentChatId, getCurrentTopicIndex());
+    historyListUI.renderHistoryList();
+    renderMessages(currentChatId, topicManager.getCurrentTopicIndex());
     applyCurrentChatSettings();
 }
 
@@ -1623,10 +1323,10 @@ function bindModalControls() {
     if (topicsModal) modalManager.bindModalOverlayClose(topicsModal, () => modalManager.closeTopicsModal());
 
     const newTopicModalBtn = document.getElementById('new-topic-modal-btn');
-    if (newTopicModalBtn) newTopicModalBtn.addEventListener('click', () => { startNewTopic(); modalManager.closeTopicsModal(); });
+    if (newTopicModalBtn) newTopicModalBtn.addEventListener('click', () => { topicManager.startNewTopic(); modalManager.closeTopicsModal(); });
 
     const showAllTopicsBtn = document.getElementById('show-all-topics-btn');
-    if (showAllTopicsBtn) showAllTopicsBtn.addEventListener('click', async () => { await setCurrentTopic(null); modalManager.closeTopicsModal(); });
+    if (showAllTopicsBtn) showAllTopicsBtn.addEventListener('click', async () => { await topicManager.setCurrentTopic(null); modalManager.closeTopicsModal(); });
 
     // —— 知识库选择弹窗 (kb-select-modal) ——
     const closeKbModal = document.getElementById('close-kb-select-modal');
@@ -1770,13 +1470,13 @@ function bindSettingsPanel() {
     });
 
     // 快速模型切换下拉框
-    bindQuickModelSwitch();
+    modelConfigUI.bindQuickModelSwitch();
 }
 
 // —— 对话操作：新建 / 导入 / 滚动 / 返回全部 / 引用关闭 / 搜索 / 添加模型 ——
 function bindChatActions() {
     const newChatBtn = document.querySelector('.new-chat-btn');
-    if (newChatBtn) newChatBtn.addEventListener('click', createNewChat);
+    if (newChatBtn) newChatBtn.addEventListener('click', () => chatManager.createNewChat());
 
     // 导入 JSON
     const importBtn = document.querySelector('.import-chat-btn');
@@ -1795,8 +1495,8 @@ function bindChatActions() {
                         const newChat = await chatIO.importFromJSON(importedData, chats);
                         chats.unshift(newChat);
                         setCurrentChatId(newChat.id);
-                        setCurrentTopicIndex(null);
-                        renderHistoryList();
+                        topicManager.setCurrentTopicIndex(null);
+                        historyListUI.renderHistoryList();
                         renderMessages(currentChatId);
                         applyCurrentChatSettings();
                         await chatRepo.saveAllChats(chats);
@@ -1812,11 +1512,11 @@ function bindChatActions() {
     }
 
     // 聊天区滚动
-    if (chatMessages) chatMessages.addEventListener('scroll', updateAutoScrollFlag);
+    if (chatMessages) chatMessages.addEventListener('scroll', () => uiScroll.updateAutoScrollFlag());
 
     // 返回全部话题
     const backBtn = document.getElementById('back-to-all-topics');
-    if (backBtn) backBtn.addEventListener('click', async () => { await setCurrentTopic(null, false); });
+    if (backBtn) backBtn.addEventListener('click', async () => { await topicManager.setCurrentTopic(null, false); });
 
     // 引用消息关闭
     const quoteCloseBtn = document.getElementById('quote-indicator-close');
@@ -1827,7 +1527,7 @@ function bindChatActions() {
     if (addModelBtn) {
         addModelBtn.addEventListener('click', () => {
             const newModel = document.getElementById('new-model-name').value;
-            if (addModel(newModel)) document.getElementById('new-model-name').value = '';
+            if (modelConfigUI.addModel(newModel)) document.getElementById('new-model-name').value = '';
         });
     }
 
@@ -1845,217 +1545,7 @@ function bindEvents() {
     bindChatActions();
 }
 
-// 开启新话题（创建独立话题对象 + 开场白）
-async function startNewTopic() {
-    const modelService = getModelService();
-    if (modelService.isStreaming()) {
-        if (confirm('当前正在生成回复，开启新话题会中断本次回复。是否继续？')) {
-            modelService.abortCurrentStream();
-            releaseRequestLock();
-            ttsService.stop();
-        } else {
-            return;
-        }
-    }
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return;
-    const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
-    const greeting = settings.greeting || Constants.DEFAULT_SETTINGS.greeting;
-
-    // 创建新话题对象（独立消息列表）
-    const aiTime = getCurrentTime();
-    const newTopic = {
-        id: Date.now(),
-        name: `话题 ${currentChat.topics.length + 1}`,
-        createdAt: new Date().toISOString(),
-        summary: null,
-        messages: [{
-            type: 'ai',
-            text: greeting,
-            time: aiTime,
-            uid: genMsgUid('ai', greeting, aiTime)
-        }]
-    };
-    currentChat.topics.push(newTopic);
-    const newTopicIndex = currentChat.topics.length - 1;
-
-    // 切换到新话题视图
-    await setCurrentTopic(newTopicIndex, false);
-
-    // 刷新左侧历史列表
-    currentChat.date = new Date();
-    renderHistoryList();
-    await chatRepo.saveChat(currentChat);
-
-    // 如果当前对话开启语音合成，则朗读开场白（跳过括号内的非语言内容）
-    if (settings.ttsEnabled) {
-        const { replyContent } = parseThinkContent(greeting);
-        const contentToSpeak = replyContent || greeting;
-        const parts = parseParenthesesContent(contentToSpeak);
-        const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');
-        if (speechText.trim()) {
-            const ttsVoice = currentChat?.settings?.ttsVoice || 'default';
-            updateStatusIndicator('speaking', '语音合成中 ...');
-            ttsService.speak(speechText, ttsVoice)
-                .finally(() => updateStatusIndicator('online'));
-        }
-    }
-}
-
-// 为每个历史项绑定菜单弹出逻辑
-function attachMenuEvents(historyItem, chat) {
-    const trigger = historyItem.querySelector('.history-menu-trigger');
-    if (!trigger) return;
-    let currentMenu = null;
-    let scrollCloseHandler = null;
-    
-    const closeMenu = () => {
-        if (currentMenu && currentMenu.parentNode) currentMenu.remove();
-        currentMenu = null;
-        document.removeEventListener('click', outsideClickListener);
-        if (scrollCloseHandler && historyList) {
-            historyList.removeEventListener('scroll', scrollCloseHandler);
-            scrollCloseHandler = null;
-        }
-    };
-    
-    const outsideClickListener = (e) => {
-        if (!historyItem.contains(e.target) && currentMenu && !currentMenu.contains(e.target)) {
-            closeMenu();
-        }
-    };
-    
-    trigger.addEventListener('click', (e) => {
-        e.stopPropagation();
-        if (currentMenu) {
-            closeMenu();
-            return;
-        }
-        // 获取触发按钮的位置
-        const rect = trigger.getBoundingClientRect();
-        const scrollTop = window.pageYOffset || document.documentElement.scrollTop;
-        const scrollLeft = window.pageXOffset || document.documentElement.scrollLeft;
-        // 创建菜单
-        const menu = document.createElement('div');
-        menu.className = 'history-menu';
-        const pinText = chat.pinned ? '取消置顶' : '收藏置顶';
-        const pinIcon = chat.pinned ? 'fa-thumbtack' : 'fa-thumbtack';
-        menu.innerHTML = `
-            <div class="history-menu-item" data-action="export-json">
-                <i class="fas fa-download"></i> 导出 JSON
-            </div>
-            <div class="history-menu-item" data-action="export-html">
-                <i class="fas fa-file-code"></i> 导出 HTML
-            </div>
-            <div class="history-menu-item" data-action="pin">
-                <i class="fas ${pinIcon}"></i> ${pinText}
-            </div>
-            <div class="history-menu-item delete-item" data-action="delete">
-                <i class="fas fa-trash-alt"></i> 删除会话
-            </div>
-        `;
-        // 设置菜单位置（默认在触发按钮下方右对齐）
-        menu.style.position = 'absolute';
-        menu.style.top = `${rect.bottom + scrollTop + 4}px`;
-        menu.style.left = `${rect.right + scrollLeft - 140}px`; // 菜单宽度约140px
-        menu.style.zIndex = '10001';
-        document.body.appendChild(menu);
-        currentMenu = menu;
-        // 边界检测：防止菜单超出视口右侧
-        const menuRect = menu.getBoundingClientRect();
-        if (menuRect.right > window.innerWidth) {
-            menu.style.left = `${window.innerWidth - menuRect.width - 10 + scrollLeft}px`;
-        }
-        // 边界检测：防止菜单超出视口底部
-        if (menuRect.bottom > window.innerHeight) {
-            menu.style.top = `${rect.top + scrollTop - menuRect.height - 4}px`;
-        }
-        
-        // 绑定菜单项点击
-        menu.querySelectorAll('.history-menu-item').forEach(item => {
-            item.addEventListener('click', (e) => {
-                e.stopPropagation();
-                const action = item.getAttribute('data-action');
-                if (action === 'export-json') chatIO.exportAsJSON(chat);
-                else if (action === 'export-html') chatIO.exportAsHTML(chat);
-                else if (action === 'pin') togglePinChat(chat);
-                else if (action === 'delete') deleteChat(chat.id);
-                closeMenu();
-            });
-        });
-        
-        // 绑定滚动关闭：滚动历史列表时关闭菜单
-        scrollCloseHandler = () => closeMenu();
-        historyList.addEventListener('scroll', scrollCloseHandler);
-        // 点击外部关闭
-        setTimeout(() => {
-            document.addEventListener('click', outsideClickListener);
-        }, 0);
-    });
-}
-
-// 收藏置顶（将对话移到列表最上方）
-async function togglePinChat(chat) {
-    chat.pinned = !chat.pinned;
-    // 重新排序并渲染列表
-    renderHistoryList();
-    await chatRepo.saveChat(chat);
-    modalManager.showBriefToast(chat.pinned ? '📌 已置顶该会话' : '📍 已取消置顶')
-}
-
-// 删除会话
-async function deleteChat(chatId) {
-    if (chats.length === 1) {
-        modalManager.customAlert('至少保留一个对话，无法删除最后一个。', 'warn');
-        return;
-    }
-    if (!confirm('确定要删除这个会话吗？此操作不可撤销。')) return;
-
-    const item = document.querySelector(`.history-item[data-id="${chatId}"]`);
-    if (item) {
-        // 添加删除动画类
-        item.classList.add('removing');
-
-        // 监听过渡结束事件（取第一个完成的属性即可）
-        const onTransitionEnd = (e) => {
-            if (e.propertyName === 'transform') { // 以 transform 为准
-                item.removeEventListener('transitionend', onTransitionEnd);
-                performDelete(chatId);
-            }
-        };
-        item.addEventListener('transitionend', onTransitionEnd);
-
-        // 万一动画不触发，兜底在 400ms 后强制删除
-        setTimeout(() => {
-            if (item.classList.contains('removing')) {
-                item.removeEventListener('transitionend', onTransitionEnd);
-                performDelete(chatId);
-            }
-        }, 400);
-    } else {
-        // 找不到 DOM 元素时直接删除
-        performDelete(chatId);
-    }
-
-    // 实际的删除逻辑
-    async function performDelete(id) {
-        const index = chats.findIndex(c => c.id === id);
-        if (index !== -1) {
-            chats.splice(index, 1);
-            if (currentChatId === id) {
-                setCurrentChatId(chats[0].id);
-                setCurrentTopicIndex(null);
-                renderMessages(currentChatId);
-                applyCurrentChatSettings();
-            }
-        }
-        renderHistoryList();       // 重新渲染列表（此时已无删除动画，会平滑出现）
-        await chatRepo.saveAllChats(chats);
-
-        // 提示
-        modalManager.showBriefToast('🗑️ 会话已删除')
-    }
-}
+// (话题管理已迁移至 js/topic-manager.js;历史菜单/置顶/删除已迁移至 js/history-list.js 与 js/chat-manager.js)
 
 // 自动调整 textarea 高度
 function autoResizeTextarea(textarea) {
@@ -2075,194 +1565,11 @@ function bindAutoResize(textarea) {
     handler(); // 初始化
 }
 
-async function generateTopicSummary(topicIndex, topicMessages) {
-    const currentChat = chats.find(c => c.id == currentChatId);
-    if (!currentChat) return null;
-    
-    // 提取话题中所有用户和AI的消息文本
-    const conversationText = topicMessages.map(msg => `${msg.type === 'user' ? '用户' : '助手'}：${msg.text}`).join('\n');
-    if (!conversationText.trim()) return '（无内容）';
-    
-    const prompt = `请为以下对话生成一句简短的摘要（10-30字），简明扼要地概括主要内容：\n${conversationText}`;
-    
-    const modelService = getModelService();
-    try {
-        const summary = await modelService.generateText(prompt, { temperature: 0.3, maxTokens: 100 });
-        return summary.trim() || '生成失败';
-    } catch (err) {
-        console.error('生成简介失败', err);
-        return '生成失败，请检查模型配置';
-    }
-}
+// (话题摘要/切换已迁移至 js/topic-manager.js —— TopicManager)
 
-async function setCurrentTopic(topicIndex) {
-    const modelService = getModelService();
-    if (modelService.isStreaming()) {
-        if (confirm('正在生成回复，切换话题会中断当前回复。是否继续？')) {
-            modelService.abortCurrentStream();
-            // 释放请求锁
-            releaseRequestLock();
-            ttsService.stop();
-        } else {
-            return;
-        }
-    }
+// (主题 / 字体大小 / 状态指示器 已迁移至 js/ui-appearance.js —— UiAppearance)
 
-    const messagesContainer = chatMessages;
-    if (!messagesContainer) return;
-
-    // 1. 淡出旧消息（如果有）
-    const oldMessages = Array.from(messagesContainer.children).filter(
-        child => child.classList && (child.classList.contains('message') || child.classList.contains('topic-divider'))
-    );
-    if (oldMessages.length > 0) {
-        oldMessages.forEach(msg => {
-            msg.classList.remove('no-animation'); // 移除旧的无动画标记，让 fade-out 生效
-            msg.classList.add('fade-out');
-        });
-        await new Promise(resolve => setTimeout(resolve, 300));
-    }
-
-    // 2. 临时禁用默认入场动画
-    messagesContainer.classList.add('no-entry-animation');
-
-    // 3. 更新话题索引并重新渲染
-    setCurrentTopicIndex(topicIndex);
-    renderMessages(currentChatId, topicIndex);
-
-    // 4. 为新消息添加跌落动画（错开延迟）
-    const newMessages = Array.from(messagesContainer.children).filter(
-        child => child.classList && (child.classList.contains('message') || child.classList.contains('topic-divider'))
-    );
-    newMessages.forEach((msg, idx) => {
-        msg.classList.add('topic-drop-in');
-        msg.style.animationDelay = `${idx * 0.05}s`;
-    });
-
-    // 6. 动画结束后清理样式
-    // 先给当前消息加上 no-animation 防止移除 no-entry-animation 时重新触发入场动画
-    setTimeout(() => {
-        newMessages.forEach(msg => {
-            msg.classList.remove('topic-drop-in');
-            msg.classList.add('no-animation');
-            msg.style.animationDelay = '';
-        });
-        messagesContainer.classList.remove('no-entry-animation');
-    }, 500);
-}
-
-// 应用主题（明亮/暗黑）
-function applyTheme(theme) {
-    // 计算实际应使用的主题（亮色/暗色）
-    let effectiveTheme = theme;
-    if (theme === 'auto') {
-        effectiveTheme = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
-    }
-    
-    if (effectiveTheme === 'light') {
-        document.body.classList.add('light-theme');
-    } else {
-        document.body.classList.remove('light-theme');
-    }
-    
-    // 同步下拉框的值（如果与传入的 theme 不同，说明是 auto 触发的实际显示，但下拉框保留 auto）
-    const themeSelect = document.getElementById('global-theme');
-    if (themeSelect && themeSelect.value !== theme) {
-        themeSelect.value = theme;
-    }
-}
-
-function applyFontSize(size) {
-    let fontSizeValue = '14px';
-    if (size === 'small') fontSizeValue = '12px';
-    else if (size === 'large') fontSizeValue = '16px';
-    else fontSizeValue = '14px';
-    
-    // 移除旧的 style 标签，重新添加确保优先级
-    const styleId = 'dynamic-font-size-style';
-    const oldStyle = document.getElementById(styleId);
-    if (oldStyle) oldStyle.remove();
-    
-    const styleEl = document.createElement('style');
-    styleEl.id = styleId;
-    styleEl.textContent = `
-        .chat-messages .bubble p {
-            font-size: ${fontSizeValue} !important;
-            line-height: 1.5 !important;
-            white-space: pre-wrap;
-        }
-        .chat-messages .bubble {
-            font-size: ${fontSizeValue} !important;
-        }
-        .message .bubble p {
-            font-size: ${fontSizeValue} !important;
-        }
-    `;
-    document.head.appendChild(styleEl);
-    
-    // 强制重绘当前聊天区域（可选，确保所有消息重新计算样式）
-    if (chatMessages) {
-        chatMessages.style.display = 'none';
-        chatMessages.offsetHeight; // 强制重排
-        chatMessages.style.display = '';
-    }
-}
-
-// 状态指示器控制
-function updateStatusIndicator(state, customText = null) {
-    const statusTextElem = document.querySelector('.user-details p');
-    if (!statusTextElem) return;
-    currentStatus = state; 
-    
-    const dotIcon = statusTextElem.querySelector('i');
-    let dotHtml = '';
-    let text = '';
-    
-    switch (state) {
-        case 'online':
-            dotHtml = '<i class="fas fa-circle" style="color: #2effb0; font-size: 0.6rem; text-shadow: 0 0 3px #2effb0;"></i>';
-            text = customText || '在线 · AI 智能体';
-            break;
-        case 'thinking':
-            dotHtml = '<i class="fas fa-spinner fa-pulse" style="color: #ffd966; font-size: 0.6rem;"></i>';
-            text = customText || '思考中 ...';
-            break;
-        case 'speaking':
-            dotHtml = '<i class="fas fa-volume-up fa-fade" style="color: #5f7eff; font-size: 0.6rem;"></i>';
-            text = customText || '语音生成中 ...';
-            break;
-        case 'offline':
-            dotHtml = '<i class="fas fa-circle" style="color: #ff5c4a; font-size: 0.6rem;"></i>';
-            text = customText || '离线 · 连接失败';
-            break;
-        default:
-            return;
-    }
-    
-    statusTextElem.innerHTML = `${dotHtml} ${text}`;
-}
-
-// 切换到上一个/下一个对话（在chats数组中按排序顺序）
-function switchToPreviousChat() {
-    // 按置顶 + 时间倒序排列（与 renderHistoryList 相同）
-    const sorted = [...chats].sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        return b.date - a.date;
-    });
-    const idx = sorted.findIndex(c => c.id == currentChatId);
-    if (idx > 0) switchChat(sorted[idx - 1].id);
-}
-
-function switchToNextChat() {
-    const sorted = [...chats].sort((a, b) => {
-        if (a.pinned && !b.pinned) return -1;
-        if (!a.pinned && b.pinned) return 1;
-        return b.date - a.date;
-    });
-    const idx = sorted.findIndex(c => c.id == currentChatId);
-    if (idx < sorted.length - 1) switchChat(sorted[idx + 1].id);
-}
+// (对话切换已迁移至 js/chat-manager.js —— ChatManager)
 
 // 聚焦聊天输入框
 function focusChatInput() {
@@ -2274,15 +1581,15 @@ function focusChatInput() {
 
 // 发送消息但不触发 AI 回复
 async function sendMessageWithoutAI() {
-    if (isProcessing) {
+    if (uiScroll.isProcessing) {
         modalManager.customAlert('AI 正在回复中，请稍候...', 'warning');
         return;
     }
     // 如果当前为”显示全部话题”模式，自动切换到最后一个话题
-    if (getCurrentTopicIndex() === null) {
+    if (topicManager.getCurrentTopicIndex() === null) {
         const currentChat = chats.find(c => c.id == currentChatId);
         if (currentChat && currentChat.topics.length > 0) {
-            await setCurrentTopic(currentChat.topics.length - 1, false);
+            await topicManager.setCurrentTopic(currentChat.topics.length - 1, false);
         }
     }
     let text = messageInput.value.trim();
@@ -2307,7 +1614,7 @@ async function sendMessageWithoutAI() {
     }
     const targetChat = chats.find(c => c.id == currentChatId);
     if (targetChat) {
-        const activeTopic = getActiveTopic(targetChat);
+        const activeTopic = topicManager.getActiveTopic(targetChat);
         if (activeTopic) {
             activeTopic.messages.push({
                 type: 'user',
@@ -2319,14 +1626,14 @@ async function sendMessageWithoutAI() {
                 quoteRef: quoteRef || undefined,
             });
             targetChat.date = new Date();
-            renderHistoryList();
+            historyListUI.renderHistoryList();
             await chatRepo.saveChat(targetChat);
         }
     }
     await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null);
     messageInput.value = '';
     messageInput.style.height = 'auto';
-    if (SettingsManager.getAutoScrollAfterSend()) forceScrollToBottom();
+    if (SettingsManager.getAutoScrollAfterSend()) uiScroll.forceScrollToBottom();
 }
 
 // 沉浸模式切换
@@ -2346,59 +1653,7 @@ function toggleImmersiveMode() {
     modalManager.showBriefToast(isImmersive ? '🌙 沉浸模式已开启 (再次按快捷键退出)' : '✨ 已退出沉浸模式')
 }
 
-// 恢复上次选中的知识库
-function restoreSelectedKnowledgeBase() {
-    const namesStr = localStorage.getItem(Constants.STORAGE_KEYS.SELECTED_KB_NAMES);
-    const label = document.getElementById('kb-btn-label');
-    if (!label) return;
-    if (namesStr && namesStr.trim() !== '') {
-        const names = namesStr.split(',');
-        if (names.length === 1) {
-            const name = names[0];
-            label.textContent = name.length > 8 ? name.substring(0, 8) + '…' : name;
-            label.title = name;
-        } else {
-            label.textContent = `📚 ${names.length}个`;
-            label.title = names.join('、');
-        }
-    } else {
-        label.textContent = '选择知识库';
-        label.title = '';
-    }
-}
-
-/**
- * 从多个知识库中检索与查询相关的文档片段
- * @param {string[]} kbIds - 知识库ID列表
- * @param {string} query - 用户查询文本
- * @returns {Promise<Array<{content: string, filename: string, score: number}>>}
- */
-async function retrieveKnowledge(kbIds, query) {
-    const base = modalManager.kbManager.apiBase;
-    const promises = kbIds.map(async (kbId) => {
-        try {
-            const response = await fetch(`${base}/knowledge_bases/${kbId}/search`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ query, top_k: Constants.KB_TOP_K })
-            });
-            if (!response.ok) throw new Error(`HTTP ${response.status}`);
-            const data = await response.json();
-            return (data.results || []).map(item => ({
-                content: item.content,
-                filename: item.filename || '未知',
-                score: item.score || 0
-            }));
-        } catch (err) {
-            console.warn(`知识库 ${kbId} 检索失败:`, err);
-            return [];
-        }
-    });
-    const allResults = await Promise.all(promises);
-    const merged = allResults.flat();
-    merged.sort((a, b) => (b.score || 0) - (a.score || 0));
-    return merged.slice(0, Constants.KB_MAX_RESULTS); // 最多取N条
-}
+// (知识库标签恢复已迁移至 js/history-list.js;知识库检索已迁移至 js/knowledge-retriever.js)
 
 async function init() {
     // 初始化 index.html 中以 src="" 占位的元素（默认头像等）可以避免在 HTML 中硬编码超长 SVG base64 字符串。
@@ -2412,20 +1667,20 @@ async function init() {
     document.head.appendChild(styleSheet);
     document.body.insertAdjacentHTML('beforeend', Constants.MODAL_HTML); // 动态创建弹窗 HTML 
 
-    loadModelListAndInit();
+    modelConfigUI.loadModelListAndInit();
     await initData();
-    applyTheme(SettingsManager.getTheme());
+    uiAppearance.applyTheme(SettingsManager.getTheme());
     initResizer();
     shortcutManager.init();
     bindEvents();
     getModelService();
-    renderModelListUI();      // 渲染模型列表弹窗
-    updateModelSelector();    // 更新快速切换下拉框
+    modelConfigUI.renderModelListUI();      // 渲染模型列表弹窗
+    modelConfigUI.updateModelSelector();    // 更新快速切换下拉框
     // 初始化背景（自动判断全局视频 / 对话静态图 / 默认 SVG）
     applyCurrentChatSettings();
     // 清理旧版单 key 视频残留（之前用 'bg-video' 存的，现在已改为 'bg-video-{chatId}'）
     AssetStore.cleanupOrphaned().catch(() => {});
-    restoreSelectedKnowledgeBase();
+    historyListUI.restoreSelectedKnowledgeBase();
 
     // 初始化完成，移除遮罩并显示主界面
     const overlay = document.getElementById('loading-overlay');
