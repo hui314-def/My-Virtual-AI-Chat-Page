@@ -209,7 +209,7 @@ export class ModelService {
     /**
      * 构建请求体
      * @param {Array} messages - 消息列表 [{role, content}]
-     * @param {Object} options - 额外参数 { temperature, topP, maxTokens, stream, thinkLevel, images }
+     * @param {Object} options - 额外参数 { temperature, topP, maxTokens, stream, thinkLevel, images, jsonFormat }
      */
     buildRequestBody(messages, options = {}) {
         const {
@@ -218,7 +218,8 @@ export class ModelService {
             maxTokens = Constants.DEFAULT_SETTINGS.maxTokens,
             stream = true,
             thinkLevel = Constants.DEFAULT_SETTINGS.thinkLevel,
-            images = []
+            images = [],
+            jsonFormat = false   // true 时要求模型输出结构化 JSON（Ollama → format:'json' / OpenAI 兼容 → response_format）
         } = options;
 
         // 思考强度映射：0→false, 1→"low", 2→"medium", 3→"high", 4→"max"
@@ -239,6 +240,7 @@ export class ModelService {
         if (this.isOllama()) {
             return {
                 ...baseBody,
+                ...(jsonFormat ? { format: 'json' } : {}),
                 options: {
                     temperature,
                     top_p: topP,
@@ -252,7 +254,8 @@ export class ModelService {
                 temperature,
                 top_p: topP,
                 max_tokens: maxTokens,
-                think: thinkValue
+                think: thinkValue,
+                ...(jsonFormat ? { response_format: { type: 'json_object' } } : {})
             };
             if (stream) {
                 body.stream_options = { include_usage: true };
@@ -379,7 +382,7 @@ export class ModelService {
     /**
      * 非流式生成摘要
      * @param {string} prompt - 提示词
-     * @param {Object} options - 选项 { temperature, maxTokens }
+     * @param {Object} options - 选项 { temperature, maxTokens, jsonFormat }
      * @returns {Promise<string>}
      */
     async generateText(prompt, options = {}) {

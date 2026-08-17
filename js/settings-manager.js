@@ -1,9 +1,21 @@
 // 全局设置管理器负责从 localStorage 读取/写入/更新 global_settings，统一默认值与错误处理。
 import Constants from './constants.js';
 
-const STORAGE_KEY = Constants.STORAGE_KEYS.GLOBAL_SETTINGS;
+// 命名空间：'' = 访客（沿用旧键，兼容已有数据）；登录后为账户用户名（键加后缀）。
+let _namespace = '';
+
+function _globalKey() {
+    return _namespace ? `${Constants.STORAGE_KEYS.GLOBAL_SETTINGS}_${_namespace}` : Constants.STORAGE_KEYS.GLOBAL_SETTINGS;
+}
+function _providerKey() {
+    return _namespace ? `${Constants.STORAGE_KEYS.PROVIDER_SETTINGS}_${_namespace}` : Constants.STORAGE_KEYS.PROVIDER_SETTINGS;
+}
 
 // 字段默认值表。所有读操作都从这张表取默认值，写操作不会写入默认值。
+// 同步回调：设置在 localStorage 写入后触发，用于把「可同步子集」推送到后端。
+let _syncHook = null;
+let _suppressSync = false;
+
 const DEFAULTS = Object.freeze({
     // 模型相关
     modelHost: Constants.DEFAULT_MODEL_HOST,
@@ -41,6 +53,9 @@ const DEFAULTS = Object.freeze({
 });
 
 export class SettingsManager {
+    /** 切换本地设置命名空间（'' = 访客；登录后传用户名）。 */
+    static setNamespace(ns) { _namespace = ns || ''; }
+
     /**
      * 安全地从 localStorage 读取并解析。
      * 失败（解析错误 / 无 key / 不是对象）时返回空对象。
@@ -48,7 +63,7 @@ export class SettingsManager {
      */
     static _read() {
         try {
-            const raw = localStorage.getItem(STORAGE_KEY);
+            const raw = localStorage.getItem(_globalKey());
             if (!raw) return {};
             const parsed = JSON.parse(raw);
             return (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
@@ -65,7 +80,8 @@ export class SettingsManager {
      */
     static _write(settings) {
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+            localStorage.setItem(_globalKey(), JSON.stringify(settings));
+            this._notifySync();
             return true;
         } catch (err) {
             console.error('[SettingsManager] 写入失败：', err);
@@ -80,7 +96,7 @@ export class SettingsManager {
      */
     static writeWithResult(settings) {
         try {
-            localStorage.setItem(STORAGE_KEY, JSON.stringify(settings));
+            localStorage.setItem(_globalKey(), JSON.stringify(settings));
             return { success: true };
         } catch (err) {
             console.error('[SettingsManager] 写入失败：', err);
@@ -121,7 +137,7 @@ export class SettingsManager {
      */
     static reset() {
         try {
-            localStorage.removeItem(STORAGE_KEY);
+            localStorage.removeItem(_globalKey());
         } catch (err) {
             console.warn('[SettingsManager] reset 失败：', err);
         }
@@ -133,12 +149,11 @@ export class SettingsManager {
 
     // ========== 按厂商（provider）保存/恢复设置 ==========
     // 每个厂商独立保存：apiKey、modelHost、models（模型列表）、currentModel
-    static #PROVIDER_KEY = Constants.STORAGE_KEYS.PROVIDER_SETTINGS;
 
     /** @returns {Object} 所有厂商的保存状态 */
     static #_readProviderStates() {
         try {
-            const raw = localStorage.getItem(this.#PROVIDER_KEY);
+            const raw = localStorage.getItem(_providerKey());
             if (!raw) return {};
             return JSON.parse(raw) || {};
         } catch { return {}; }
@@ -146,7 +161,8 @@ export class SettingsManager {
 
     static #_writeProviderStates(states) {
         try {
-            localStorage.setItem(this.#PROVIDER_KEY, JSON.stringify(states));
+            localStorage.setItem(_providerKey(), JSON.stringify(states));
+            this._notifySync();
             return true;
         } catch (err) {
             console.warn('[SettingsManager] 保存厂商设置失败：', err);
@@ -211,6 +227,58 @@ export class SettingsManager {
 
     static getShortcuts()   { return this._read().shortcuts ?? DEFAULTS.shortcuts; }
     static getAutoScrollAfterSend() {return this._read().autoScrollAfterSend ?? DEFAULTS.autoScrollAfterSend;}
+
+    // ========== 云同步 ==========
+    /** 注册设置变更回调（localStorage 写入后触发，参数为可同步子集）。 */
+    static setSyncHook(fn) { _syncHook = fn; }
+
+    static _notifySync() {
+        if (_suppressSync || !_syncHook) return;
+        try { _syncHook(this.getSyncableSettings()); } catch (e) { console.warn('[SettingsManager] 同步回调失败：', e); }
+    }
+
+    /** 返回「可同步设置子集」：global_settings 剔除 API Key；provider_settings 剔除各厂商 apiKey。 */
+    static getSyncableSettings() {
+        const all = this.get();
+        const out = {};
+        for (const [k, v] of Object.entries(all)) {
+            if (k === 'apiKey' || k === 'ttsApiKey' || k === 'imgApiKey') continue;
+            out[k] = v;
+        }
+        const providers = this.#_readProviderStates();
+        const providersOut = {};
+        for (const [pid, st] of Object.entries(providers || {})) {
+            const { apiKey, ...rest } = st || {};
+            providersOut[pid] = rest;
+        }
+        out.providers = providersOut;
+        return out;
+    }
+
+    /** 应用服务端拉取的设置（可同步字段以服务端为准，本地 API Key 保留不覆盖）。 */
+    static applySyncableSettings(syncable) {
+        if (!syncable || typeof syncable !== 'object') return;
+        const { providers, ...global } = syncable;
+        const current = this._read();
+        const merged = { ...global };
+        for (const key of ['apiKey', 'ttsApiKey', 'imgApiKey']) {
+            if (current[key]) merged[key] = current[key];
+        }
+        _suppressSync = true;
+        try {
+            this._write(merged);
+            if (providers && typeof providers === 'object') {
+                const curP = this.#_readProviderStates();
+                for (const [pid, st] of Object.entries(providers)) {
+                    const cur = curP[pid] || {};
+                    curP[pid] = { ...st, apiKey: cur.apiKey || '' };
+                }
+                this.#_writeProviderStates(curP);
+            }
+        } finally {
+            _suppressSync = false;
+        }
+    }
 }
 
 export default SettingsManager;

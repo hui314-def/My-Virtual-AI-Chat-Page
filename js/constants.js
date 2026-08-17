@@ -12,6 +12,8 @@ class Constants {
             GLOBAL_SETTINGS: 'global_settings',
             PROVIDER_SETTINGS: 'provider_settings',
             TOKEN_USAGE_STATS: 'token_usage_stats',
+            SYNC_API_URL: 'sync_api_url',
+            GUEST_CLAIMED: 'guest_data_claimed',
         };
     }
 

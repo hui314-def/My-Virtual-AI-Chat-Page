@@ -16,8 +16,8 @@ audio_cache/
 .vscode/
 .claude/
 
-# Ignore my thought files
-改善想法.txt
+# Ignore plans
+plans/
 
 # Ignore environment files
 .env
@@ -27,4 +27,4 @@ audio_cache/
 
 # Ignore others
 conda_start.bat
-重构计划-script模块拆分.md
+backend_code/tts/voice_map.json

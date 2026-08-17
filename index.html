@@ -27,15 +27,15 @@
 <div class="chat-app">
     <!-- 左侧栏：对话历史 + 左上用户信息 + 左下设置 -->
     <aside class="sidebar">
-        <!-- 左上角用户信息 -->
-        <div class="user-profile">
+        <!-- 左上角用户信息（点击进入账号/云同步管理） -->
+        <div class="user-profile" id="user-profile" title="账号 · 云同步">
             <div class="user-card">
-                <div class="avatar">
+                <div class="avatar" id="profile-avatar">
                     <i class="fas fa-user-astronaut"></i>
                 </div>
                 <div class="user-details">
-                    <h4>星尘观测者</h4>
-                    <p><i class="fas fa-circle"></i> 在线 · AI 共生体</p>
+                    <h4 id="profile-name">星尘观测者</h4>
+                    <p id="profile-status"><i class="fas fa-circle"></i> 在线 · AI 共生体</p>
                 </div>
             </div>
         </div>
@@ -198,6 +198,8 @@
             <!-- 输入框区域 -->
             <div class="input-container">
                 <textarea rows="1" placeholder="试着发送一句话吧..." class="auto-expand-textarea"></textarea>
+                <!-- 消息建议按钮：聚焦输入框时从右向左滑出 -->
+                <button class="suggest-btn" id="suggest-btn" title="消息建议：让 AI 帮你想 3 种回复"><i class="fas fa-wand-magic-sparkles"></i></button>
                 <div class="send-btn"><i class="fas fa-paper-plane"></i></div>
             </div>
 
@@ -254,6 +256,9 @@
                 <div class="settings-menu-item active" data-tab="user">
                     <i class="fas fa-user"></i> 用户个性
                 </div>
+                <div class="settings-menu-item" data-tab="account">
+                    <i class="fas fa-cloud"></i> 账号·云同步
+                </div>
                 <div class="settings-menu-item" data-tab="model">
                     <i class="fas fa-microchip"></i> 模型设置
                 </div>
@@ -290,6 +295,57 @@
                     <div class="form-group">
                         <label>个人简介</label>
                         <textarea id="global-bio" rows="3" placeholder="向对方介绍一下自己..."></textarea>
+                    </div>
+                </div>
+                <!-- 账号 · 云同步 -->
+                <div class="settings-tab-pane" id="tab-account">
+                    <h4>账号 · 云同步</h4>
+                    <div id="auth-logged-out">
+                        <div class="form-group">
+                            <label>账户用户名</label>
+                            <input type="text" id="auth-username" placeholder="用于登录/注册的用户名" autocomplete="username">
+                        </div>
+                        <div class="form-group">
+                            <label>密码</label>
+                            <input type="password" id="auth-password" placeholder="至少 4 位" autocomplete="current-password">
+                        </div>
+                        <div class="form-group" id="auth-confirm-group" style="display:none;">
+                            <label>确认密码</label>
+                            <input type="password" id="auth-password2" placeholder="再输入一次" autocomplete="new-password">
+                        </div>
+                        <div id="auth-error" style="color:#ff8f8f; font-size:0.85rem; margin-bottom:8px;"></div>
+                        <div style="display:flex; gap:10px;">
+                            <button class="modal-btn save" id="auth-login-btn" style="flex:1;">登录</button>
+                            <button class="modal-btn save" id="auth-register-btn" style="flex:1;">注册</button>
+                        </div>
+                        <div style="text-align:center; margin-top:10px; font-size:0.8rem; color:#8e8eb3;">登录后聊天记录与设置将同步到 MySQL，支持多设备共享</div>
+                    </div>
+                    <div id="auth-logged-in" style="display:none;">
+                        <div style="display:flex; align-items:center; gap:14px; margin-bottom:10px;">
+                            <div id="auth-avatar-preview" class="avatar" style="width:56px; height:56px; flex-shrink:0;">
+                                <i class="fas fa-user-astronaut"></i>
+                            </div>
+                            <div style="flex:1;">
+                                <div style="font-size:1rem; color:#ccd6ff;" id="auth-current-user"></div>
+                                <div style="display:flex; gap:8px; margin-top:8px;">
+                                    <button class="modal-btn" id="auth-avatar-upload" style="padding:4px 12px; font-size:0.8rem; background: rgba(45,55,85,0.6); border:1px solid rgba(100,130,255,0.4); color:#ccd6ff;">设置头像</button>
+                                    <button class="modal-btn" id="auth-avatar-reuse" style="padding:4px 12px; font-size:0.8rem; background: rgba(45,55,85,0.6); border:1px solid rgba(100,130,255,0.4); color:#ccd6ff;">复用聊天头像</button>
+                                </div>
+                            </div>
+                        </div>
+                        <div style="text-align:center; font-size:0.8rem; color:#8e8eb3;">已登录 · 数据自动同步</div>
+
+                        <!-- 账户管理 -->
+                        <div style="margin-top:16px; padding-top:14px; border-top:1px solid rgba(100,120,200,0.25);">
+                            <h5 style="margin:0 0 12px; color:#ccd6ff; font-size:0.9rem;"><i class="fas fa-user-cog"></i> 账户管理</h5>
+                            <button class="modal-btn" id="auth-rename-btn" style="width:100%; margin-bottom:10px; background: rgba(45,55,85,0.6); border:1px solid rgba(100,130,255,0.4); color:#ccd6ff;">修改用户名</button>
+                            <button class="modal-btn" id="auth-change-password-btn" style="width:100%; margin-bottom:10px; background: rgba(45,55,85,0.6); border:1px solid rgba(100,130,255,0.4); color:#ccd6ff;">修改密码</button>
+                            <button class="modal-btn" id="auth-delete-account-btn" style="width:100%; background: rgba(180,60,60,0.35); border:1px solid rgba(255,120,120,0.45); color:#ffb3b3;">注销账户</button>
+                        </div>
+
+                        <div style="display:flex; gap:10px; margin-top:14px;">
+                            <button class="modal-btn cancel" id="auth-logout-btn" style="flex:1;">退出登录</button>
+                        </div>
                     </div>
                 </div>
                 <!-- 模型设置 -->
@@ -554,14 +610,6 @@
         </div>
         <div class="modal-body">
             <div class="form-group">
-                <label>模型选择</label>
-                <select id="image-gen-model" style="width:100%;">
-                    <option value="flux">Flux (推荐)</option>
-                    <option value="sd3">Stable Diffusion 3</option>
-                    <option value="dalle">DALL·E 3</option>
-                </select>
-            </div>
-            <div class="form-group">
                 <label>图片描述</label>
                 <textarea id="image-gen-prompt" rows="3" placeholder="例如：一只穿着宇航服的柴犬，站在月球表面，数字艺术风格"></textarea>
             </div>
@@ -609,6 +657,22 @@
         </div>
     </div>
 </div>
+<!-- 账户操作弹窗（修改用户名 / 修改密码 / 注销账户） -->
+<div id="account-action-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 420px;">
+        <div class="modal-header">
+            <h3 id="account-action-title">账户操作</h3>
+            <button class="modal-close" id="close-account-action">&times;</button>
+        </div>
+        <div class="modal-body" id="account-action-body" style="padding: 20px 24px; max-height: 60vh; overflow-y: auto;">
+            <!-- 由 JS 动态填充 -->
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" id="account-action-cancel">取消</button>
+            <button class="modal-btn save" id="account-action-confirm">确认</button>
+        </div>
+    </div>
+</div>
 <!-- 知识库选择弹窗（放在 </body> 前） -->
 <div id="kb-select-modal" class="settings-modal" style="display: none;">
     <div class="modal-content" style="max-width: 620px;">
@@ -630,6 +694,22 @@
                 <button class="modal-btn cancel" id="cancel-kb-select-btn">取消</button>
                 <button class="modal-btn save" id="confirm-kb-select-btn">确认使用</button>
             </div>
+        </div>
+    </div>
+</div>
+<!-- 消息建议弹窗 -->
+<div id="suggest-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 480px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-wand-magic-sparkles"></i> 消息建议</h3>
+            <button class="modal-close" id="close-suggest-modal">&times;</button>
+        </div>
+        <div class="modal-body" id="suggest-body">
+            <!-- 3 条建议卡片 / 加载中 / 错误提示,三态由 JS 渲染 -->
+        </div>
+        <div class="modal-footer" style="justify-content: space-between;">
+            <button class="modal-btn" id="regenerate-suggest-btn" style="background: rgba(45,55,85,0.6); border: 1px solid rgba(100,130,255,0.4); color: #ccd6ff;"><i class="fas fa-sync-alt"></i> 重新生成</button>
+            <button class="modal-btn cancel" id="cancel-suggest-btn">关闭</button>
         </div>
     </div>
 </div>

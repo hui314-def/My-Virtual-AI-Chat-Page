@@ -76,6 +76,9 @@
     .action-buttons { gap: 10px; flex-wrap: wrap; }
     .action-btn { padding: 4px 10px; font-size: 0.7rem; }
     .auto-expand-textarea { font-size: 16px; }
+    /* 消息建议按钮：移动端略缩小，避免挤占输入框 */
+    .input-container { gap: 8px; }
+    .suggest-btn { width: 40px; height: 40px; font-size: 0.95rem; }
 
     /* 搜索 */
     .search-container input {
@@ -147,3 +150,54 @@
 @media (max-width: 480px) {
     .kb-select-grid { grid-template-columns: 1fr; }
 }
+
+/* ---------- 移动端折叠菜单(原 script.js 内联样式,已迁移至此) ---------- */
+.mobile-collapse-overlay {
+    position: fixed;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 9999;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    animation: fadeIn 0.2s ease;
+}
+.mobile-collapse-menu {
+    background: rgba(20, 24, 45, 0.95);
+    backdrop-filter: blur(12px);
+    border-radius: 20px 20px 0 0;
+    padding: 20px 16px 30px;
+    width: 100%; max-width: 500px;
+    box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.5);
+    animation: slideUp 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+button.mobile-collapse-item {
+    width: 100%;
+    padding: 14px 16px;
+    justify-content: center;
+    font-size: 1rem;
+    border-radius: 16px;
+    background: rgba(30, 34, 55, 0.6);
+    border: 1px solid rgba(100, 130, 255, 0.3);
+    color: #f0f3ff;
+    cursor: pointer;
+    transition: 0.2s;
+}
+button.mobile-collapse-close {
+    width: 100%;
+    padding: 12px;
+    justify-content: center;
+    background: rgba(255, 80, 80, 0.15);
+    border: 1px solid rgba(255, 80, 80, 0.3);
+    border-radius: 16px;
+    color: #ff8a7a;
+    cursor: pointer;
+    font-size: 0.9rem;
+    margin-top: 8px;
+}
+@keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }

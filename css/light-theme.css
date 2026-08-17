@@ -16,6 +16,9 @@ body.light-theme .user-profile {
     background: linear-gradient(180deg, #bbd5ff 0%, #c5d8ff 100%) !important;
     border-bottom: 1px solid #e5e9f0 !important;
 }
+body.light-theme .user-profile:hover {
+    background: linear-gradient(180deg, #aec9ff 0%, #b9d0ff 100%) !important;
+}
 body.light-theme .user-card .avatar {
     background: #eef2ff !important;
     box-shadow: 0 0 0 2px #d0d9ff !important;
@@ -107,6 +110,28 @@ body.light-theme .input-container {
 }
 body.light-theme .auto-expand-textarea { color: #1e3a8a !important; }
 body.light-theme .send-btn { background: #2563eb !important; color: white !important; }
+body.light-theme .suggest-btn {
+    background: linear-gradient(125deg, #dbe6ff, #c3d4ff) !important;
+    border-color: rgba(37, 99, 235, 0.35) !important;
+    color: #2563eb !important;
+    box-shadow: 0 0 8px rgba(37, 99, 235, 0.25) !important;
+}
+body.light-theme .suggest-btn:hover {
+    background: linear-gradient(125deg, #c9d9ff, #b3c9ff) !important;
+    color: #1d4ed8 !important;
+}
+body.light-theme .suggest-state { color: #64748b !important; }
+body.light-theme .suggest-state i { color: #2563eb !important; }
+body.light-theme .suggest-card {
+    background: rgba(255, 255, 255, 0.85) !important;
+    border-color: rgba(37, 99, 235, 0.25) !important;
+}
+body.light-theme .suggest-card:hover {
+    background: #ffffff !important;
+    border-color: rgba(37, 99, 235, 0.5) !important;
+}
+body.light-theme .suggest-kind { color: #2563eb !important; }
+body.light-theme .suggest-content { color: #1e293b !important; }
 body.light-theme .action-btn {
     background: rgba(255, 255, 255, 0.8) !important;
     border-color: #cdd9ff !important;
@@ -281,6 +306,7 @@ body.light-theme .chat-messages::-webkit-scrollbar-track,
 body.light-theme .auto-expand-textarea::-webkit-scrollbar-track,
 body.light-theme .modal-body::-webkit-scrollbar-track,
 body.light-theme .settings-content::-webkit-scrollbar-track,
+body.light-theme .settings-sidebar::-webkit-scrollbar-track,
 body.light-theme .search-dropdown::-webkit-scrollbar-track { background: #eef2ff !important; }
 
 body.light-theme .history-list::-webkit-scrollbar-thumb,
@@ -288,6 +314,7 @@ body.light-theme .chat-messages::-webkit-scrollbar-thumb,
 body.light-theme .auto-expand-textarea::-webkit-scrollbar-thumb,
 body.light-theme .modal-body::-webkit-scrollbar-thumb,
 body.light-theme .settings-content::-webkit-scrollbar-thumb,
+body.light-theme .settings-sidebar::-webkit-scrollbar-thumb,
 body.light-theme .search-dropdown::-webkit-scrollbar-thumb { background: #b9c8ff !important; }
 
 body.light-theme .history-list::-webkit-scrollbar-thumb:hover,
@@ -295,6 +322,7 @@ body.light-theme .chat-messages::-webkit-scrollbar-thumb:hover,
 body.light-theme .auto-expand-textarea::-webkit-scrollbar-thumb:hover,
 body.light-theme .modal-body::-webkit-scrollbar-thumb:hover,
 body.light-theme .settings-content::-webkit-scrollbar-thumb:hover,
+body.light-theme .settings-sidebar::-webkit-scrollbar-thumb:hover,
 body.light-theme .search-dropdown::-webkit-scrollbar-thumb:hover { background: #8aa9ff !important; }
 
 /* ---- Select ---- */

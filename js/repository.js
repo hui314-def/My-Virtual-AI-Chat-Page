@@ -1,17 +1,29 @@
 // 聊天数据持久化仓库（IndexedDB）负责 chats 数据的保存、加载、删除
 export class ChatRepository {
-    constructor() {
+    /**
+     * @param {() => string} [getDbName] 动态返回 IndexedDB 库名（用于按账号命名空间分库）
+     */
+    constructor(getDbName = () => 'ChatAppDB') {
         this.db = null;
-        this.dbName = 'ChatAppDB';
-        this.dbVersion = 1;
+        this.getDbName = getDbName;
+        this.dbVersion = 2;
         this.storeName = 'chats';
+        this.snapshotStoreName = 'snapshots';
+    }
+
+    // 切换命名空间：关闭旧连接，下次 #openDB 用新库名重新打开
+    switchNamespace() {
+        if (this.db) {
+            try { this.db.close(); } catch (e) { /* ignore */ }
+            this.db = null;
+        }
     }
 
     // 打开数据库连接
     async #openDB() {
         if (this.db) return this.db;
         return new Promise((resolve, reject) => {
-            const request = indexedDB.open(this.dbName, this.dbVersion);
+            const request = indexedDB.open(this.getDbName(), this.dbVersion);
             request.onerror = () => reject(request.error);
             request.onsuccess = () => {
                 this.db = request.result;
@@ -21,6 +33,9 @@ export class ChatRepository {
                 const db = event.target.result;
                 if (!db.objectStoreNames.contains(this.storeName)) {
                     db.createObjectStore(this.storeName, { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains(this.snapshotStoreName)) {
+                    db.createObjectStore(this.snapshotStoreName, { keyPath: 'id' });
                 }
             };
         });
@@ -82,6 +97,41 @@ export class ChatRepository {
         const db = await this.#openDB();
         const tx = db.transaction(this.storeName, 'readwrite');
         const store = tx.objectStore(this.storeName);
+        store.delete(chatId);
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    // ===== 同步快照（话题级增量 diff 的基线） =====
+
+    async saveSnapshot(chatId, snapshot) {
+        const db = await this.#openDB();
+        const tx = db.transaction(this.snapshotStoreName, 'readwrite');
+        const store = tx.objectStore(this.snapshotStoreName);
+        store.put({ id: chatId, data: snapshot });
+        return new Promise((resolve, reject) => {
+            tx.oncomplete = resolve;
+            tx.onerror = () => reject(tx.error);
+        });
+    }
+
+    async getSnapshot(chatId) {
+        const db = await this.#openDB();
+        const tx = db.transaction(this.snapshotStoreName, 'readonly');
+        const store = tx.objectStore(this.snapshotStoreName);
+        const request = store.get(chatId);
+        return new Promise((resolve, reject) => {
+            request.onsuccess = () => resolve(request.result ? request.result.data : null);
+            request.onerror = () => reject(request.error);
+        });
+    }
+
+    async deleteSnapshot(chatId) {
+        const db = await this.#openDB();
+        const tx = db.transaction(this.snapshotStoreName, 'readwrite');
+        const store = tx.objectStore(this.snapshotStoreName);
         store.delete(chatId);
         return new Promise((resolve, reject) => {
             tx.oncomplete = resolve;

@@ -7,6 +7,11 @@
     padding: 24px 20px 16px 20px;
     border-bottom: 1px solid rgba(80, 80, 110, 0.3);
     background: linear-gradient(135deg, rgba(20, 20, 30, 0.6) 0%, rgba(8, 8, 14, 0.4) 100%);
+    cursor: pointer;
+    transition: background 0.2s ease;
+}
+.user-profile:hover {
+    background: linear-gradient(135deg, rgba(40, 42, 60, 0.7) 0%, rgba(12, 12, 22, 0.5) 100%);
 }
 
 .user-card {

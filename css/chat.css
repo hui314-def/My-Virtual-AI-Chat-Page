@@ -220,6 +220,99 @@
     animation: sendPulse 0.35s cubic-bezier(0.25, 0.8, 0.25, 1) forwards;
 }
 
+/* 消息建议按钮（聚焦输入框时从右向左滑出） */
+.suggest-btn {
+    background: linear-gradient(125deg, #2d3370cc, #1b1f48cc);
+    border: 1px solid rgba(100, 140, 255, 0.4);
+    width: 44px;
+    height: 44px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    color: #d0ddff;
+    font-size: 1.05rem;
+    box-shadow: 0 0 8px rgba(70, 100, 255, 0.25);
+    flex-shrink: 0;
+    /* 默认隐藏：从右侧（发送按钮方向）滑入 */
+    opacity: 0;
+    transform: translateX(14px);
+    pointer-events: none;
+    transition: opacity 0.25s cubic-bezier(0.25, 0.8, 0.25, 1),
+                transform 0.25s cubic-bezier(0.25, 0.8, 0.25, 1);
+}
+.suggest-btn.visible {
+    opacity: 1;
+    transform: translateX(0);
+    pointer-events: auto;
+}
+.suggest-btn:hover {
+    background: linear-gradient(125deg, #3a4188cc, #252a5ccc);
+    color: #ffffff;
+    box-shadow: 0 0 14px rgba(70, 100, 255, 0.45);
+}
+.suggest-btn:active {
+    transform: translateX(0) scale(0.94);
+}
+
+/* 消息建议弹窗：三态内容（加载 / 建议卡片 / 错误） */
+.suggest-state {
+    text-align: center;
+    color: #a8aad3;
+    padding: 30px 10px;
+    font-size: 0.9rem;
+}
+.suggest-state i { margin-right: 8px; color: #8fa8ff; }
+.suggest-card {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    width: 100%;
+    text-align: left;
+    background: rgba(25, 30, 52, 0.8);
+    border: 1px solid rgba(100, 140, 255, 0.3);
+    border-radius: 14px;
+    padding: 12px 14px;
+    margin-bottom: 12px;
+    cursor: pointer;
+    transition: 0.2s;
+    font-family: inherit;
+    color: inherit;
+}
+.suggest-card:hover {
+    background: rgba(38, 46, 82, 0.9);
+    border-color: rgba(120, 160, 255, 0.6);
+    box-shadow: 0 2px 12px rgba(70, 100, 255, 0.2);
+}
+.suggest-card:last-child { margin-bottom: 0; }
+.suggest-kind {
+    font-size: 0.72rem;
+    font-weight: 600;
+    letter-spacing: 0.5px;
+    color: #8fa8ff;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+}
+.suggest-kind::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: #5f7eff;
+    box-shadow: 0 0 6px rgba(95, 126, 255, 0.8);
+}
+.suggest-content {
+    font-size: 0.9rem;
+    color: #e8ecff;
+    line-height: 1.55;
+    white-space: pre-wrap;
+    word-break: break-word;
+    max-height: 160px;
+    overflow-y: auto;
+}
+
 .input-hint {
     font-size: 0.65rem;
     margin-top: 12px;

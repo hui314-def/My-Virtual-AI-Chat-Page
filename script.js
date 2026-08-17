@@ -1,11 +1,15 @@
 // 聊天页面核心交互功能
 import { 
-    escapeHtml, getCurrentTime, formatDate, parseThinkContent,renderMessageWithThink, genMsgUid,
-    parseParenthesesContent, compressImage, isImageUrl, eventToShortcutString,
+    escapeHtml, getCurrentTime, parseThinkContent, renderMessageWithThink, genMsgUid,
+    parseParenthesesContent, eventToShortcutString,
 } from './js/utils.js';
 import Constants from './js/constants.js'
 import { ModelService } from './js/model-service.js';
 import { ChatRepository } from './js/repository.js';
+import { BackendClient } from './js/backend-client.js';
+import { SyncedChatRepository } from './js/sync-repository.js';
+import { ensureChatIdentity } from './js/chat-diff.js';
+import { AuthManager } from './js/auth-manager.js';
 import { TTsService } from './js/tts-service.js';
 import { ChatIO } from './js/chat-io.js';
 import { FileUploadService } from './js/file-upload.js';
@@ -27,6 +31,8 @@ import { ChatManager } from './js/chat-manager.js';
 import { TopicManager } from './js/topic-manager.js';
 import { HistoryList } from './js/history-list.js';
 import { KnowledgeRetriever } from './js/knowledge-retriever.js';
+import { UploadBindings } from './js/upload-bindings.js';
+import { MessageSuggest } from './js/message-suggest.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -40,7 +46,18 @@ const DB_NAME = Constants.DB_NAME;
 const DB_VERSION = Constants.DB_VERSION;
 const STORE_NAME = Constants.STORE_NAME;
 const DEFAULT_SHORTCUTS = Constants.DEFAULT_SHORTCUTS
-const chatRepo = new ChatRepository();
+const localChatRepo = new ChatRepository(() => getChatRepoDbName());
+const guestChatRepo = new ChatRepository(() => 'ChatAppDB');  // 固定访客库，登录「认领」时读取
+const backendClient = new BackendClient({
+    getBaseUrl: () => getSyncApiUrl(),
+    onUnauthorized: () => authManager.handleUnauthorized(),
+});
+const chatRepo = new SyncedChatRepository({
+    localRepo: localChatRepo,
+    backendClient,
+    getIsLoggedIn: () => authManager.isLoggedIn(),
+    getNamespace: () => authManager.getNamespace(),
+});
 const ttsService = new TTsService();
 const chatIO = new ChatIO({
     saveAllChats: (chats) => chatRepo.saveAllChats(chats),  // 传递保存函数
@@ -127,6 +144,24 @@ const historyListUI = new HistoryList({
 });
 const knowledgeRetriever = new KnowledgeRetriever({ getModalManager: () => modalManager });
 
+// ==================== 上传与媒体预览绑定 ====================
+const uploadBindings = new UploadBindings({ fileUpload, getModalManager: () => modalManager });
+
+// ==================== 消息建议 ====================
+const suggestManager = new MessageSuggest({
+    messageInputEl: messageInput,
+    suggestBtnEl: document.getElementById('suggest-btn'),
+    modalEl: document.getElementById('suggest-modal'),
+    getModalManager: () => modalManager,
+    getModelService,
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getCurrentTopicIndex: () => topicManager.getCurrentTopicIndex(),
+    getSettingsManager: () => SettingsManager,
+    getIsProcessing: () => uiScroll.isProcessing,
+    sendUserMessage,
+});
+
 // ==================== 弹窗管理器 ====================
 // 注意：ctx 中的回调函数（renderMessages 等）由 function 声明定义在下方，JS 会提升声明，因此引用安全。
 const modalManager = new ModalManager({
@@ -165,6 +200,13 @@ const modalManager = new ModalManager({
     sendMessageWithoutAI: () => sendMessageWithoutAI(),
     toggleImmersiveMode: () => toggleImmersiveMode(),
     executeAction: (action) => shortcutManager.executeAction(action),
+});
+
+// ==================== 账号 / 云同步 ====================
+const authManager = new AuthManager({
+    backendClient,
+    getModalManager: () => modalManager,
+    onAuthChanged: () => refreshAfterAuth(),
 });
 
 // 注入 customAlert（modalManager 创建后才能引用）
@@ -236,6 +278,47 @@ function setCurrentChatId(id) {
     localStorage.setItem(Constants.STORAGE_KEYS.LAST_CHAT_ID, id);
 }
 
+// 后端地址：可被 localStorage 覆盖；默认取当前访问地址同机 8001 端口（局域网其它设备也能用）
+function getSyncApiUrl() {
+    const override = localStorage.getItem(Constants.STORAGE_KEYS.SYNC_API_URL);
+    if (override) return override;
+    return `http://${location.hostname}:8001`;
+}
+
+// 本地 IndexedDB 库名（按账号命名空间分库）
+function getChatRepoDbName() {
+    const ns = authManager.getNamespace();
+    return ns ? `ChatAppDB_${ns}` : 'ChatAppDB';
+}
+
+// 切换本地缓存命名空间（IndexedDB 库 + 设置键）
+function applyNamespace() {
+    const ns = authManager.getNamespace();
+    localChatRepo.switchNamespace();
+    SettingsManager.setNamespace(ns);
+}
+
+// 首次登录「认领」：仅认领一次（全局标记）。首次登录把访客本地数据迁移到该账号，
+// 之后的新账号不再认领、从空开始；访客数据保留不删（登出仍可见）。
+async function claimGuestData() {
+    if (!authManager.isLoggedIn()) return;
+    try {
+        if (localStorage.getItem(Constants.STORAGE_KEYS.GUEST_CLAIMED) === '1') return;  // 已认领过
+        const { chats: serverChats } = await backendClient.getChats();
+        const guestChats = await guestChatRepo.loadAllChats();  // 固定读访客库
+        const guestSettings = SettingsManager.getSyncableSettings();  // 此刻仍是访客命名空间
+        const { settings } = await backendClient.getSettings();
+
+        if ((!serverChats || serverChats.length === 0) && guestChats && guestChats.length > 0) {
+            await backendClient.putChats(guestChats);
+        }
+        if (!settings || Object.keys(settings).length === 0) {
+            await backendClient.putSettings(guestSettings);
+        }
+        localStorage.setItem(Constants.STORAGE_KEYS.GUEST_CLAIMED, '1');
+    } catch (e) { /* 离线：不标记，下次登录再试 */ }
+}
+
 // (请求锁与滚动控制已迁移至 js/ui-scroll.js —— UiScroll)
 
 // (模型配置 UI 已迁移至 js/model-config-ui.js —— ModelConfigUI)
@@ -292,13 +375,13 @@ async function loadFromStorage() {
     try {
         const storedChats = await chatRepo.loadAllChats();
         if (storedChats && storedChats.length > 0) {
-            // 恢复日期对象（JSON 序列化会丢失 Date 类型）
-            return storedChats.map(chat => ({
+            // 恢复日期对象（JSON 序列化会丢失 Date 类型）+ 补齐话题/消息身份标识
+            return storedChats.map(chat => ensureChatIdentity({
                 ...chat,
                 date: new Date(chat.date),
                 topics: (chat.topics || []).map(topic => ({
                     ...topic,
-                    messages: topic.messages.map(msg => ({ ...msg }))
+                    messages: (topic.messages || []).map(msg => ({ ...msg }))
                 })),
                 settings: { ...Constants.DEFAULT_SETTINGS, ...(chat.settings || {}) }
             }));
@@ -988,6 +1071,11 @@ async function sendUserMessage() {
 async function initData() {
     // 应用已保存的字体大小
     uiAppearance.applyFontSize(SettingsManager.getFontSize());
+    await reloadChatsIntoState();
+}
+
+// 加载聊天数据到内存并渲染（启动与登录/登出后复用）
+async function reloadChatsIntoState() {
     const stored = await loadFromStorage();
     if (stored && stored.length > 0) {
         chats = stored;
@@ -1011,10 +1099,37 @@ async function initData() {
         };
         chats = [defaultChat];
         setCurrentChatId(defaultChat.id);
+        await chatRepo.saveAllChats(chats);
     }
     historyListUI.renderHistoryList();
     renderMessages(currentChatId, topicManager.getCurrentTopicIndex());
     applyCurrentChatSettings();
+}
+
+// 从后端拉取设置并应用（可同步字段覆盖本地，API Key 保留）
+async function syncSettingsFromServer() {
+    if (!authManager.isLoggedIn()) return;
+    try {
+        const { settings } = await backendClient.getSettings();
+        if (settings && Object.keys(settings).length > 0) {
+            SettingsManager.applySyncableSettings(settings);
+        }
+    } catch (e) { /* 离线，忽略 */ }
+}
+
+// 登录 / 登出后刷新：认领 → 切换命名空间 → 拉设置 → 重载聊天 → 重应用外观
+async function refreshAfterAuth() {
+    authManager.render();
+    if (authManager.isLoggedIn()) {
+        await claimGuestData();  // 首次登录认领（须在切换命名空间前读访客数据）
+    }
+    applyNamespace();  // 切换本地缓存命名空间（换抽屉）
+    await syncSettingsFromServer();
+    authManager.render();  // 此时已是账号命名空间 + 账号设置，重新渲染账号头像
+    await reloadChatsIntoState();
+    uiAppearance.applyTheme(SettingsManager.getTheme());
+    uiAppearance.applyFontSize(SettingsManager.getFontSize());
+    modelConfigUI.updateModelSelector();
 }
 
 function closeSidebarOnMobile() {
@@ -1092,68 +1207,12 @@ function bindMessageInput() {
 
 // —— 工具栏按钮：上传 / 语音 / 知识库 / 折叠菜单 / 图片生成 ——
 function bindToolbarButtons() {
-    // 背景图片上传
-    const bgUpload = document.getElementById('bg-upload');
-    if (bgUpload) {
-        bgUpload.addEventListener('change', (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            modalManager.showCropModal(file, NaN, { maxWidth: Constants.BG_CROP_MAX_WIDTH, mimeType: 'image/jpeg' }, (croppedDataUrl) => {
-                const bgImgEl = document.getElementById('bg-img');
-                if (bgImgEl) { bgImgEl.src = croppedDataUrl; bgImgEl.setAttribute('data-custom', 'true'); }
-                // 确保 bg-type 切换到静态图片
-                const bgTypeSel = document.getElementById('bg-type');
-                if (bgTypeSel) bgTypeSel.value = 'image';
-                document.getElementById('bg-image-section').style.display = 'block';
-                // 实时预览
-                BackgroundManager.apply({ bgType: 'image', bgImageUrl: croppedDataUrl });
-            });
-        });
-    }
+    // 上传与媒体预览(背景/头像/文件上传/粘贴/拖拽/图片放大)已迁移至 js/upload-bindings.js —— UploadBindings
+    uploadBindings.bind();
 
-    // 头像上传
-    const avatarUpload = document.getElementById('global-avatar-upload');
-    if (avatarUpload) {
-        avatarUpload.addEventListener('change', async (e) => {
-            const file = e.target.files[0];
-            if (!file) return;
-            try {
-                const compressedUrl = await compressImage(file, Constants.AVATAR_MAX_WIDTH, Constants.AVATAR_JPEG_QUALITY);
-                document.getElementById('global-avatar-img').src = compressedUrl;
-            } catch (err) {
-                console.error('头像压缩失败', err);
-                modalManager.customAlert('头像处理失败，请重试', 'error');
-            }
-        });
-    }
-
-    // 文件上传 / 清除 / 语音
-    const uploadBtn = document.getElementById('upload-file-btn');
-    if (uploadBtn) uploadBtn.addEventListener('click', () => fileUpload.selectFileOrImage());
-    const removeFileBtn = document.getElementById('remove-file-btn');
-    if (removeFileBtn) removeFileBtn.addEventListener('click', () => fileUpload.clearFile());
+    // 语音输入
     const voiceBtn = document.getElementById('voice-input-btn');
     if (voiceBtn) voiceBtn.addEventListener('click', startVoiceInput);
-
-    // 粘贴图片（Ctrl+V）
-    const chatInput = document.querySelector('.auto-expand-textarea');
-    if (chatInput) {
-        chatInput.addEventListener('paste', (e) => {
-            const items = e.clipboardData?.items;
-            if (!items) return;
-            for (const item of items) {
-                if (item.type.startsWith('image/')) {
-                    e.preventDefault();
-                    const file = item.getAsFile();
-                    fileUpload.handleFile(file);
-                }
-            }
-        });
-    }
-
-    // 拖拽上传
-    const dropZone = document.querySelector('.chat-messages');
-    if (dropZone) fileUpload.setupDragAndDrop(dropZone);
 
     // 知识库选择
     const kbSelectBtn = document.getElementById('kb-select-btn');
@@ -1164,24 +1223,6 @@ function bindToolbarButtons() {
 
     // 图片生成
     imageGenService.bindImageGeneration();
-
-    // 点击消息中的图片放大查看
-    const chatMessages = document.querySelector('.chat-messages');
-    if (chatMessages) {
-        chatMessages.addEventListener('click', (e) => {
-            const img = e.target.closest('.message-image');
-            if (!img) return;
-            // 优先使用完整图（data-full-img），回退到 src（旧格式兼容）
-            const src = img.dataset.fullImg || img.src;
-            if (!src) return;
-            // 全屏预览
-            const overlay = document.createElement('div');
-            overlay.className = 'fullscreen-overlay';
-            overlay.innerHTML = `<img src="${src}" style="max-width:90vw;max-height:90vh;border-radius:12px;box-shadow:0 0 40px rgba(0,0,0,0.6);">`;
-            overlay.addEventListener('click', () => overlay.remove());
-            document.body.appendChild(overlay);
-        });
-    }
 }
 
 // —— 折叠按钮逻辑（从 bindToolbarButtons 中抽出） ——
@@ -1213,35 +1254,14 @@ function showMobileCollapseMenu() {
     ];
 
     const overlay = document.createElement('div');
-    overlay.className = 'mobile-collapse-overlay';
-    overlay.style.cssText = `
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        background: rgba(0,0,0,0.4); z-index: 9999;
-        display: flex; align-items: flex-end; justify-content: center;
-        animation: fadeIn 0.2s ease;
-    `;
+    overlay.className = 'mobile-collapse-overlay'; // 样式见 css/responsive.css
 
     const menu = document.createElement('div');
-    menu.className = 'mobile-collapse-menu';
-    menu.style.cssText = `
-        background: rgba(20,24,45,0.95); backdrop-filter: blur(12px);
-        border-radius: 20px 20px 0 0; padding: 20px 16px 30px;
-        width: 100%; max-width: 500px;
-        box-shadow: 0 -8px 30px rgba(0,0,0,0.5);
-        animation: slideUp 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-        display: flex; flex-direction: column; gap: 12px;
-    `;
+    menu.className = 'mobile-collapse-menu'; // 样式见 css/responsive.css
 
     btns.forEach((btnData) => {
         const btn = document.createElement('button');
-        btn.className = 'action-btn mobile-collapse-item';
-        btn.style.cssText = `
-            width: 100%; padding: 14px 16px; justify-content: center;
-            font-size: 1rem; border-radius: 16px;
-            background: rgba(30,34,55,0.6);
-            border: 1px solid rgba(100,130,255,0.3);
-            color: #f0f3ff; cursor: pointer; transition: 0.2s;
-        `;
+        btn.className = 'action-btn mobile-collapse-item'; // 样式见 css/responsive.css
         btn.innerHTML = btnData.label;
         btn.addEventListener('click', () => {
             const originalBtn = document.getElementById(btnData.id);
@@ -1252,14 +1272,7 @@ function showMobileCollapseMenu() {
     });
 
     const closeBtn = document.createElement('button');
-    closeBtn.className = 'action-btn';
-    closeBtn.style.cssText = `
-        width: 100%; padding: 12px; justify-content: center;
-        background: rgba(255,80,80,0.15);
-        border: 1px solid rgba(255,80,80,0.3);
-        border-radius: 16px; color: #ff8a7a;
-        cursor: pointer; font-size: 0.9rem; margin-top: 8px;
-    `;
+    closeBtn.className = 'action-btn mobile-collapse-close'; // 样式见 css/responsive.css
     closeBtn.innerHTML = '<i class="fas fa-times"></i> 取消';
     closeBtn.addEventListener('click', closeMobileMenu);
     menu.appendChild(closeBtn);
@@ -1273,16 +1286,6 @@ function showMobileCollapseMenu() {
 
     function closeMobileMenu() {
         if (overlay.parentNode) overlay.remove();
-    }
-
-    if (!document.getElementById('mobile-collapse-styles')) {
-        const style = document.createElement('style');
-        style.id = 'mobile-collapse-styles';
-        style.textContent = `
-            @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
-            @keyframes slideUp { from { transform: translateY(100%); } to { transform: translateY(0); } }
-        `;
-        document.head.appendChild(style);
     }
 }
 
@@ -1543,6 +1546,7 @@ function bindEvents() {
     bindModalControls();
     bindSettingsPanel();
     bindChatActions();
+    suggestManager.bind();  // 消息建议按钮（聚焦输入框时从右向左滑出）
 }
 
 // (话题管理已迁移至 js/topic-manager.js;历史菜单/置顶/删除已迁移至 js/history-list.js 与 js/chat-manager.js)
@@ -1667,7 +1671,20 @@ async function init() {
     document.head.appendChild(styleSheet);
     document.body.insertAdjacentHTML('beforeend', Constants.MODAL_HTML); // 动态创建弹窗 HTML 
 
+    // 云同步：先同步恢复 token + 应用命名空间（让 loadModelListAndInit 读到正确账号的设置）
+    authManager.restoreTokenSync();
+    applyNamespace();
+
     modelConfigUI.loadModelListAndInit();
+    // 异步校验登录态（token 失效则清除）→ 校验后重应用命名空间 → 注册推送钩子 → 拉设置 → 加载聊天
+    await authManager.init();
+    applyNamespace();
+    SettingsManager.setSyncHook((syncable) => {
+        authManager.renderProfileAvatar();  // 聊天头像变化时同步刷新账号头像（复用模式）
+        if (!authManager.isLoggedIn()) return;
+        backendClient.putSettings(syncable).catch(() => {});
+    });
+    await syncSettingsFromServer();
     await initData();
     uiAppearance.applyTheme(SettingsManager.getTheme());
     initResizer();

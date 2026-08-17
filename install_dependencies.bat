@@ -64,11 +64,12 @@ REM ---------- 安装菜单（支持多选） ----------
 echo  ------------------------------------------------------------
 echo   请选择要安装的服务（可多选，例如输入 234 或 2 3 4）：
 echo.
-echo    [1] 全部安装（图片生成 + 知识库 + 语音合成）
+echo    [1] 全部安装（图片生成 + 知识库 + 两种语音合成）
 echo    [2] 图片生成服务  （image_gen，需配合 ComfyUI）
 echo    [3] 知识库服务    （knowledge_base，含向量数据库）
 echo    [4] 千问语音合成服务  （qwen_tts，本地模型体积较大，建议 Python 3.12）
 echo    [5] moss语音合成服务  （调用云端moss_tts）
+echo    [6] 聊天存储服务  （端口 8001）   %S6%
 echo    [0] 退出
 echo  ------------------------------------------------------------
 set "choice="
@@ -90,6 +91,7 @@ if defined INSTALL_ALL (
     call :do_install "知识库"   "backend_code\requestments\knowledge_base_requirements.txt"
     call :do_install "千问语音合成" "backend_code\requestments\qwen_tts_requirements.txt"
     call :do_install "moss语音合成" "backend_code\requestments\moss_tts_requirements.txt"
+    call :do_install "聊天存储服务" "backend_code\requestments\chat_store_requirements.txt"
     goto finish
 )
 
@@ -117,12 +119,18 @@ if not errorlevel 1 (
     set "HAS_ANY=1"
 )
 
+echo %choice% | findstr "6" >nul
+if not errorlevel 1 (
+    call :do_install "moss语音合成" "backend_code\requestments\chat_store_requirements.txt"
+    set "HAS_ANY=1"
+)
+
 if not defined HAS_ANY goto invalid
 goto finish
 
 :invalid
     echo.
-    echo  [提示] 输入无效，请重新输入 0~5 的组合（如 2、23、234、1）。
+    echo  [提示] 输入无效，请重新输入 0~6 的组合（如 2、23、234、1）。
     echo.
     goto menu
 
@@ -174,6 +182,16 @@ REM ---------- 生成 .env 模板 ----------
         echo IMG_API_KEY=
         echo # Qwen3-TTS 模型路径（按实际情况填写，即模型权重所在文件夹）
         echo QWEN_TTS_MODEL_PATH=
+        echo # MOSI 云端 API 密钥（用于 MossClient 调用）
+        echo MOSS_API_KEY=
+        echo # ===== 聊天存储服务（MySQL 云同步）=====
+        echo DB_HOST=localhost
+        echo DB_PORT=3306
+        echo DB_USER=root
+        echo DB_PASSWORD=
+        echo DB_NAME=ai_chat_sync
+        echo JWT_SECRET=
+        echo CHAT_STORE_PORT=8001
     ) > ".env"
     echo  [完成] 已生成 .env 文件，可按需填写 API Key 与模型路径。
     goto :eof

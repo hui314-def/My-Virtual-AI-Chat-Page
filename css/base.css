@@ -108,6 +108,7 @@ body {
 .auto-expand-textarea::-webkit-scrollbar,
 .modal-body::-webkit-scrollbar,
 .settings-content::-webkit-scrollbar,
+.settings-sidebar::-webkit-scrollbar,
 .search-dropdown::-webkit-scrollbar {
     width: 6px;
 }
@@ -117,6 +118,7 @@ body {
 .auto-expand-textarea::-webkit-scrollbar-track,
 .modal-body::-webkit-scrollbar-track,
 .settings-content::-webkit-scrollbar-track,
+.settings-sidebar::-webkit-scrollbar-track,
 .search-dropdown::-webkit-scrollbar-track {
     background: #16161f;
     border-radius: 10px;
@@ -127,19 +129,22 @@ body {
 .auto-expand-textarea::-webkit-scrollbar-thumb,
 .modal-body::-webkit-scrollbar-thumb,
 .settings-content::-webkit-scrollbar-thumb,
+.settings-sidebar::-webkit-scrollbar-thumb,
 .search-dropdown::-webkit-scrollbar-thumb {
     background: #4a4a6e;
     border-radius: 10px;
 }
 
 .modal-body::-webkit-scrollbar-thumb:hover,
-.settings-content::-webkit-scrollbar-thumb:hover {
+.settings-content::-webkit-scrollbar-thumb:hover,
+.settings-sidebar::-webkit-scrollbar-thumb:hover {
     background: #6c7eff;
 }
 
 /* Firefox 兼容 */
 .modal-body,
-.settings-content {
+.settings-content,
+.settings-sidebar {
     scrollbar-width: thin;
     scrollbar-color: #4a4a6e rgba(20, 24, 45, 0.6);
 }
@@ -277,6 +282,14 @@ input:checked + .slider:before {
 }
 .modal-btn.save:hover {
     background: #3d4590;
+}
+.modal-btn.danger {
+    background: rgba(180, 60, 60, 0.5);
+    border: 1px solid rgba(255, 120, 120, 0.6);
+    color: #ffd9d9;
+}
+.modal-btn.danger:hover {
+    background: rgba(200, 70, 70, 0.7);
 }
 
 .mini-btn {
