@@ -14,7 +14,6 @@ export class ModelService {
     // 实例属性
     #currentStreamController = null;  // 用于取消当前流式请求
     #isStreaming = false;
-    #inThinking = false;                // 跟踪 Ollama thinking 阶段
     #currentThinkLevel = 0;             // 当前请求的思考深度
     
     constructor(config, initialModels = []) {
@@ -78,7 +77,6 @@ export class ModelService {
         const controller = new AbortController();
         this.#currentStreamController = controller;
         this.#isStreaming = true;
-        this.#inThinking = false;
         this.#currentThinkLevel = options.thinkLevel ?? 0;
         
         try {
@@ -125,8 +123,10 @@ export class ModelService {
                     if (usage) {
                         ModelService.#reportUsage(usage.promptTokens, usage.completionTokens);
                     }
-                    const chunk = this.parseChunk(line);
-                    if (chunk) yield chunk;
+                    const chunks = this.parseChunk(line);
+                    if (chunks) {
+                        for (const c of chunks) yield c;
+                    }
                 }
             }
             if (buffer.trim()) {
@@ -135,8 +135,10 @@ export class ModelService {
                 if (usage) {
                     ModelService.#reportUsage(usage.promptTokens, usage.completionTokens);
                 }
-                const chunk = this.parseChunk(buffer);
-                if (chunk) yield chunk;
+                const chunks = this.parseChunk(buffer);
+                if (chunks) {
+                    for (const c of chunks) yield c;
+                }
             }
         } finally {
             reader.releaseLock();
@@ -330,9 +332,9 @@ export class ModelService {
     }
 
     /**
-     * 解析流式响应的一行数据，返回文本块
+     * 解析流式响应的一行数据，返回结构化的文本块列表
      * @param {string} line - 原始行字符串
-     * @returns {string|null} 解析出的文本块，如果没有则返回 null
+     * @returns {Array<{type: 'thinking'|'content', text: string}>|null} 解析出的文本块数组，没有则返回 null
      */
     parseChunk(line) {
         if (!line.trim()) return null;
@@ -347,25 +349,13 @@ export class ModelService {
                 // 思考深度关闭时，完全丢弃 thinking 内容，仅返回回复
                 if (this.#currentThinkLevel === 0) {
                     if (thinking) return null;  // 跳过思考阶段的 chunk
-                    return content || null;
+                    return content ? [{ type: 'content', text: content }] : null;
                 }
 
-                let result = '';
-                if (thinking) {
-                    if (!this.#inThinking) {
-                        this.#inThinking = true;
-                        result += '<think>';
-                    }
-                    result += thinking;
-                }
-                if (content) {
-                    if (this.#inThinking) {
-                        this.#inThinking = false;
-                        result += '</think>';
-                    }
-                    result += content;
-                }
-                return result || null;
+                const blocks = [];
+                if (thinking) blocks.push({ type: 'thinking', text: thinking });
+                if (content) blocks.push({ type: 'content', text: content });
+                return blocks.length > 0 ? blocks : null;
             } catch { return null; }
         } else {
             // OpenAI 兼容格式：data: {"choices":[{"delta":{"content":"..."}}]}
@@ -374,7 +364,8 @@ export class ModelService {
             if (jsonStr === '[DONE]') return null;
             try {
                 const data = JSON.parse(jsonStr);
-                return data.choices?.[0]?.delta?.content || null;
+                const text = data.choices?.[0]?.delta?.content;
+                return text ? [{ type: 'content', text }] : null;
             } catch { return null; }
         }
     }

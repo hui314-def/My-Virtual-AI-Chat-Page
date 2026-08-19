@@ -57,7 +57,6 @@ export class ImageGenService {
         const negative = document.getElementById('image-gen-negative').value;
         const size = document.getElementById('image-gen-ratio').value;
         const count = parseInt(document.getElementById('image-gen-count').value);
-        const model = document.getElementById('image-gen-model').value;
         const imgApiUrl = this.ctx.getImgApiUrl();
         const imgApiKey = this.ctx.getImgApiKey();
         const headers = { 'Content-Type': 'application/json' };
@@ -70,7 +69,7 @@ export class ImageGenService {
         try {
             const response = await fetch(`${imgApiUrl}/generate_image`, {
                 method: 'POST', headers,
-                body: JSON.stringify({ prompt, negative, size, count, model })
+                body: JSON.stringify({ prompt, negative, size, count })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || '生成失败');

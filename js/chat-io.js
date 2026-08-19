@@ -1,5 +1,5 @@
 // js/chat-io.js
-import { escapeHtml, getCurrentTime, formatDate, renderMessageWithThink } from './utils.js';
+import { escapeHtml, getCurrentTime, formatDate, renderMessageWithThink, renderTextWithActions } from './utils.js';
 import { SettingsManager } from './settings-manager.js';
 import Constants from './constants.js';
 
@@ -122,7 +122,7 @@ export class ChatIO {
             }
             html += topic.messages.map(msg => {
                 const isAi = msg.type === 'ai';
-                const bubbleContent = isAi ? renderMessageWithThink(msg.text) : `<p>${escapeHtml(msg.text).replace(/\n/g, '<br>')}</p>`;
+                const bubbleContent = isAi ? renderMessageWithThink(msg.text, true, msg.thinkSeconds ?? null) : renderTextWithActions(msg.text);
                 const timeHtml = `<div class="msg-time">${escapeHtml(msg.time || '')}${isAi && msg.modelName ? `<span>🤖 ${escapeHtml(msg.modelName)}</span>` : ''}</div>`;
                 const avatarHtml = isAi
                     ? (settings.avatarUrl ? `<img src="${settings.avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>')

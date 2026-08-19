@@ -55,6 +55,11 @@
 .chat-messages.no-entry-animation .message .bubble {
     animation: none !important;
 }
+/* 切换话题时：跌落动画优先于容器级入场抑制（否则 topic-drop-in 会被 no-entry-animation 压掉） */
+.chat-messages.no-entry-animation .message.topic-drop-in,
+.chat-messages.no-entry-animation .topic-divider.topic-drop-in {
+    animation: dropIn 0.5s cubic-bezier(0.2, 0.9, 0.4, 1.1) forwards !important;
+}
 
 /* ---------- 消息头像 ---------- */
 .avatar-msg {
@@ -702,6 +707,7 @@
     border-radius: 8px;
     margin-bottom: 10px;
     padding: 4px 8px;
+    transition: border-color 0.3s ease;
 }
 .think-details summary {
     cursor: pointer;
@@ -709,9 +715,40 @@
     font-size: 0.8rem;
     font-weight: normal;
     outline: none;
+    user-select: none;
+    padding: 2px 0;
+}
+.think-details summary:hover {
+    color: #c4d2ff;
 }
 .think-details summary::-webkit-details-marker {
     color: #5f7eff;
+}
+.think-title {
+    color: #9bb0ff;
+}
+.think-timer {
+    color: #7c8fd8;
+    font-size: 0.75rem;
+    margin-left: 2px;
+}
+/* 思考中状态：呼吸指示点 + 高亮边框 */
+.think-details.thinking {
+    border: 1px solid rgba(100, 130, 255, 0.35);
+}
+.think-indicator {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #5f7eff;
+    margin-left: 6px;
+    vertical-align: middle;
+    animation: thinkPulse 1s ease-in-out infinite;
+}
+@keyframes thinkPulse {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.15); }
 }
 .think-content {
     padding: 8px 0 4px 0;
@@ -809,6 +846,11 @@
 @keyframes fadeInWord {
     from { opacity: 0; }
     to   { opacity: 1; }
+}
+/* 括号动作文字：斜体 + 半透明（生成完成后统一渲染） */
+.action-text {
+    font-style: italic;
+    opacity: 0.8;
 }
 
 /* 话题生成开场白按钮 */

@@ -127,7 +127,9 @@ class Constants {
             temperature: 0.7,
             topP: 0.9,
             thinkLevel: 0,          // 0=关闭, 1=低, 2=中, 3=高, 4=最高
-            maxTokens: 500          // 最大生成 token 数
+            maxTokens: 500,         // 最大生成 token 数
+            userProfileName: '',    // 对话级用户昵称（留空 = 跟随全局「对话设定」）
+            userProfileBio: ''      // 对话级用户简介（留空 = 跟随全局「对话设定」）
         };
     }
 
@@ -438,6 +440,16 @@ class Constants {
                             <button type="button" id="generate-greeting-btn" class="mini-btn" title="根据角色名称和设定自动生成开场白">✨ 生成</button>
                         </label>
                         <textarea id="role-greeting" rows="2" placeholder="每次新对话时显示的开场白"></textarea>
+                    </div>
+                    <!-- 用户画像（对话级，留空则跟随全局「对话设定」） -->
+                    <div class="form-group" style="border-top: 1px dashed rgba(100,130,255,0.3); padding-top: 14px;">
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            <i class="fas fa-user-astronaut"></i> 用户画像
+                            <small style="font-weight: normal; color: #8e8eb3;">(留空 = 跟随全局「对话设定」)</small>
+                        </label>
+                        <input type="text" id="user-profile-name" placeholder="留空则使用全局昵称">
+                        <textarea id="user-profile-bio" rows="2" placeholder="留空则使用全局简介" style="margin-top: 8px;"></textarea>
+                        <small>本对话优先使用此处的用户画像，让角色更了解你；头像仍跟随全局设定</small>
                     </div>
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: 12px;">

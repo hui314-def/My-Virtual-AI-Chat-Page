@@ -14,6 +14,7 @@ export class KnowledgeBaseManager {
         this.kbListCache = null;
         this.kbCustomName = localStorage.getItem(Constants.STORAGE_KEYS.KB_NAME_DEFAULT) || '默认知识库';
         this.apiBase = localStorage.getItem(Constants.STORAGE_KEYS.KB_API_BASE) || 'http://localhost:5051';
+        this._tabLoaded = false;   // 懒加载标志：本次打开设置会话内，知识库标签是否已加载过
     }
 
     _api(path) {
@@ -21,6 +22,18 @@ export class KnowledgeBaseManager {
     }
 
     // ==================== 知识库列表 ====================
+
+    /** 懒加载：首次切换到「知识库」标签时才请求列表，避免打开设置就发送请求 */
+    async ensureKnowledgeBaseLoaded() {
+        if (this._tabLoaded) return;
+        this._tabLoaded = true;
+        await this.renderKnowledgeBase();
+    }
+
+    /** 打开设置弹窗时重置懒加载标志（下次点击知识库标签时重新请求） */
+    resetTabLoaded() {
+        this._tabLoaded = false;
+    }
 
     async renderKnowledgeBase() {
         const container = document.getElementById('knowledge-base-container');

@@ -160,16 +160,23 @@ export class TopicManager {
         this.setCurrentTopicIndex(topicIndex);
         this.renderMessages(this.currentChatId, topicIndex);
 
-        // 4. 为新消息添加跌落动画（错开延迟）
+        // 4. 为新消息添加跌落动画：只对最后几条做动画，前面的静默显示
+        //    （消息过多时逐条错开延迟会拉长动画链并造成卡顿，限制动画条数可保持流畅）
+        const MAX_ANIMATED = 6;
         const newMessages = Array.from(messagesContainer.children).filter(
             child => child.classList && (child.classList.contains('message') || child.classList.contains('topic-divider'))
         );
+        const animStartIdx = Math.max(0, newMessages.length - MAX_ANIMATED);
         newMessages.forEach((msg, idx) => {
-            msg.classList.add('topic-drop-in');
-            msg.style.animationDelay = `${idx * 0.05}s`;
+            if (idx >= animStartIdx) {
+                msg.classList.add('topic-drop-in');
+                msg.style.animationDelay = `${(idx - animStartIdx) * 0.05}s`;
+            } else {
+                msg.classList.add('no-animation');
+            }
         });
 
-        // 5. 动画结束后清理样式
+        // 5. 动画结束后清理样式（等最后一条播完：延迟最多 (MAX-1)*0.05s + 动画 0.5s + 余量）
         // 先给当前消息加上 no-animation 防止移除 no-entry-animation 时重新触发入场动画
         setTimeout(() => {
             newMessages.forEach(msg => {
@@ -178,7 +185,7 @@ export class TopicManager {
                 msg.style.animationDelay = '';
             });
             messagesContainer.classList.remove('no-entry-animation');
-        }, 500);
+        }, 500 + (MAX_ANIMATED - 1) * 50 + 100);
     }
 
     // 生成话题摘要

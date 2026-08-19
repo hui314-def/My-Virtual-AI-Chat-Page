@@ -254,7 +254,7 @@
             <!-- 左侧菜单 -->
             <div class="settings-sidebar">
                 <div class="settings-menu-item active" data-tab="user">
-                    <i class="fas fa-user"></i> 用户个性
+                    <i class="fas fa-user"></i> 对话设定
                 </div>
                 <div class="settings-menu-item" data-tab="account">
                     <i class="fas fa-cloud"></i> 账号·云同步
@@ -279,10 +279,10 @@
             <div class="settings-content">
                 <!-- 用户个性 -->
                 <div class="settings-tab-pane active" id="tab-user">
-                    <h4>用户信息（将关于你的信息发给智能体）</h4>
+                    <h4>全局用户画像信息设定（用于对话时角色对你的认知）</h4>
                     <div class="form-group">
-                        <label>用户名</label>
-                        <input type="text" id="global-username" placeholder="请输入用户名">
+                        <label>昵称</label>
+                        <input type="text" id="global-username" placeholder="请输入昵称">
                     </div>
                     <div class="form-group">
                         <label>头像</label>
@@ -579,6 +579,11 @@
             </div>
         </div>
         <div class="modal-footer">
+            <div style="flex: 1; display: flex; align-items: center;">
+                <span id="global-settings-dirty" style="display: none; color: #ffb84d; font-size: 0.85rem; align-items: center; gap: 6px;">
+                    <i class="fas fa-exclamation-triangle"></i> 设置发生变动
+                </span>
+            </div>
             <button class="modal-btn cancel" id="cancel-global-settings">取消</button>
             <button class="modal-btn save" id="save-global-settings">保存设置</button>
         </div>

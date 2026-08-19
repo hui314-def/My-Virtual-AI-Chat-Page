@@ -28,15 +28,23 @@ export class ModelConfigUI {
             container.innerHTML = '<div style="padding: 8px; text-align: center; opacity: 0.6;">暂无模型，请添加</div>';
             return;
         }
-        container.innerHTML = models.map(model => `
-            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-bottom: 1px solid rgba(100,130,255,0.2);">
-                <span>🤖 ${escapeHtml(model)}</span>
+        const currentModel = SettingsManager.getModelName();
+        // 当前选中的模型置顶显示，其余保持原顺序（仅影响渲染，不改动存储顺序）
+        const sortedModels = [...models].sort((a, b) => (b === currentModel) - (a === currentModel));
+        container.innerHTML = sortedModels.map(model => {
+            const isCurrent = model === currentModel;
+            return `
+            <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-bottom: 1px solid rgba(100,130,255,0.2); ${isCurrent ? 'background: rgba(95,126,255,0.16); border-radius: 8px; border-left: 3px solid #5f7eff;' : ''}">
+                <span style="${isCurrent ? 'color: #9db4ff; font-weight: 600;' : ''}">🤖 ${escapeHtml(model)}${isCurrent ? ' <span style="font-size:0.72rem; color:#5f7eff; border:1px solid rgba(95,126,255,0.5); border-radius:10px; padding:0 6px; margin-left:4px;">当前</span>' : ''}</span>
                 <div>
-                    <button class="select-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: #5f7eff; cursor: pointer; margin-right: 8px;">✓ 使用</button>
+                    ${isCurrent
+                        ? '<span style="color: #7f9eff; margin-right: 8px;">✓ 使用中</span>'
+                        : `<button class="select-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: #5f7eff; cursor: pointer; margin-right: 8px;">✓ 使用</button>`}
                     <button class="delete-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: #ff8a7a; cursor: pointer;">🗑 删除</button>
                 </div>
             </div>
-        `).join('');
+        `;
+        }).join('');
 
         // 绑定使用和删除事件
         document.querySelectorAll('.select-model-btn').forEach(btn => {
@@ -49,6 +57,7 @@ export class ModelConfigUI {
                 if (modelNameInput) modelNameInput.value = modelName;
                 // 刷新快速切换下拉菜单
                 this.updateModelSelector();
+                this.renderModelListUI();    // 刷新列表（当前模型置顶高亮）
                 this.modalManager.customAlert(`已切换到模型：${modelName}`, 'success');
             });
         });
@@ -104,6 +113,8 @@ export class ModelConfigUI {
             // 同步更新全局设置弹窗中的输入框
             const modelNameInput = document.getElementById('global-model-name');
             if (modelNameInput) modelNameInput.value = newModel;
+            // 刷新模型列表高亮（若列表已渲染）
+            this.renderModelListUI();
             // 显示提示
             this.modalManager.showBriefToast(`已切换到模型：${newModel}`)
         });

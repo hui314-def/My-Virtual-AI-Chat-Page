@@ -187,7 +187,7 @@ select {
     font-size: 0.9rem;
     outline: none;
     cursor: pointer;
-    transition: border-color 0.25s ease, background 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
+    transition: border-color 0.25s ease, background-color 0.25s ease, box-shadow 0.25s ease, transform 0.25s ease;
     transform: scale(1);
     appearance: none;
     -webkit-appearance: none;
@@ -200,13 +200,13 @@ select {
 }
 select:hover {
     border-color: #7f9eff;
-    background: rgba(40, 45, 70, 0.8);
+    background-color: rgba(40, 45, 70, 0.8);
     transform: scale(1.02);
     box-shadow: 0 0 12px rgba(95, 126, 255, 0.25);
 }
 select:focus {
     border-color: #7f9eff;
-    background: rgba(40, 45, 70, 0.9);
+    background-color: rgba(40, 45, 70, 0.9);
     box-shadow: 0 0 16px rgba(95, 126, 255, 0.4);
     transform: scale(1.02);
     animation: focusGlow 0.6s ease-out;

@@ -47,12 +47,16 @@ export function parseThinkContent(rawText) {
 /** 将原始文本渲染为带折叠区域的 HTML
  * @param {string} rawText - 原始文本
  * @param {boolean} showThinking - 是否显示思考内容，false 时直接丢弃 <think> 部分
+ * @param {number|null} thinkSeconds - 思考用时（秒），用于历史消息回显
  */
-export function renderMessageWithThink(rawText, showThinking = true) {
+export function renderMessageWithThink(rawText, showThinking = true, thinkSeconds = null) {
     const { thinkContent, replyContent } = parseThinkContent(rawText);
     let html = '';
     if (showThinking && thinkContent) {
-        html += `<details class="think-details"><summary>🤔 思考过程</summary><div class="think-content">${escapeHtml(thinkContent).replace(/\n/g, '<br>')}</div></details>`;
+        const timeHtml = thinkSeconds != null
+            ? ` <span class="think-timer">· ${thinkSeconds}s</span>`
+            : '';
+        html += `<details class="think-details"><summary><span class="think-title">🤔 思考过程</span>${timeHtml}</summary><div class="think-content">${escapeHtml(thinkContent).replace(/\n/g, '<br>')}</div></details>`;
     }
     // 处理括号斜体
     const parts = parseParenthesesContent(replyContent);
@@ -90,6 +94,22 @@ export function parseParenthesesContent(text) {
         parts.push({ type: 'speech', text: text.substring(lastIndex) });
     }
     return parts;
+}
+/** 将普通文本渲染为 HTML，括号内容斜体化（用于用户消息等不含 <think> 标签的文本）
+ * @param {string} text - 原始文本
+ * @returns {string} 包含 <p> 包裹的 HTML
+ */
+export function renderTextWithActions(text) {
+    const parts = parseParenthesesContent(text);
+    let html = '';
+    for (const part of parts) {
+        if (part.type === 'action') {
+            html += `<span class="action-text">${escapeHtml(part.raw)}</span>`;
+        } else {
+            html += escapeHtml(part.text).replace(/\n/g, '<br>');
+        }
+    }
+    return `<p>${html}</p>`;
 }
 /** 压缩图片：限制最大宽度，输出为 JPEG 格式（质量可调）*/ 
 export function compressImage(file, maxWidth = 200, quality = 0.7) {

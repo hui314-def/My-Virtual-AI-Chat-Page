@@ -1,7 +1,7 @@
 // 聊天页面核心交互功能
 import { 
     escapeHtml, getCurrentTime, parseThinkContent, renderMessageWithThink, genMsgUid,
-    parseParenthesesContent, eventToShortcutString,
+    parseParenthesesContent, eventToShortcutString, renderTextWithActions,
 } from './js/utils.js';
 import Constants from './js/constants.js'
 import { ModelService } from './js/model-service.js';
@@ -418,7 +418,7 @@ function applyCurrentChatSettings() {
 // (历史列表渲染已迁移至 js/history-list.js —— HistoryList)
 
 // 追加消息到DOM
-async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null, imageAttachments = null) {
+async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null, imageAttachments = null, thinkSeconds = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
     if (msgUid) messageDiv.dataset.msgUid = msgUid;
@@ -451,9 +451,10 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     // 消息气泡内容
     let bubbleContent = '';
     if (type === 'ai') {
-        bubbleContent = renderMessageWithThink(text);
+        bubbleContent = renderMessageWithThink(text, true, thinkSeconds);
     } else {
-        bubbleContent = `<p>${escapeHtml(text).replace(/\n/g, '<br>')}</p>`;
+        // 用户消息：括号内容同样做斜体处理
+        bubbleContent = renderTextWithActions(text);
     }
     // 引用消息块（在文本前显示）
     if (quoteRef) {
@@ -660,7 +661,7 @@ function renderMessages(chatId, topicIndex = null) {
             } else {
                 const fileAttachment = msg.file || null;
                 const imageAttachments = msg.images || null;
-                appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null, imageAttachments);
+                appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null, imageAttachments, msg.thinkSeconds ?? null);
             }
         });
         if (topicMessages.length === 0) {
@@ -684,7 +685,7 @@ function renderMessages(chatId, topicIndex = null) {
                 } else {
                     const fileAttachment = msg.file || null;
                     const imageAttachments = msg.images || null;
-                    appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null, imageAttachments);
+                    appendMessageToDOM(msg.type, msg.text, msg.time, false, null, currentAvatarUrl, fileAttachment, msg.modelName || null, msg.uid, msg.quoteRef || null, msg.knowledgeSources || null, imageAttachments, msg.thinkSeconds ?? null);
                 }
             });
         }
@@ -722,6 +723,8 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
     typingDiv.innerHTML = `<div class="avatar-msg"><i class="fas fa-robot"></i></div><div class="bubble typing-bubble"><div class="typing-indicator"><i class="fas fa-ellipsis-h"></i> ${roleName} 正在思考...</div></div>`;
     chatMessages.appendChild(typingDiv);
     if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
+    // 思考计时器句柄：必须在 try 外声明（finally 清理时需要访问）
+    let thinkTickTimer = null;
 
     try {
         // 获取对话历史（支持话题视图）
@@ -743,9 +746,14 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
 
         // 构建 API 消息列表
         const messages = [];
+        // 用户画像：优先使用当前对话设置中的用户画像，留空则回退全局「对话设定」
         // 系统提示中的用户名默认值与设置面板不同：系统提示用 '用户'，设置面板用 '访客'，保持原行为
-        const userName = SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername();
-        const userBio = SettingsManager.getBio();
+        const chatProfileName = (settings.userProfileName || '').trim();
+        const chatProfileBio = (settings.userProfileBio || '').trim();
+        const globalUserName = SettingsManager.getUsername();
+        const globalUserBio = SettingsManager.getBio();
+        const userName = chatProfileName || (globalUserName === Constants.DEFAULT_USERNAME ? '用户' : globalUserName);
+        const userBio = chatProfileBio || globalUserBio || '';
 
         let systemPrompt = `你是一位角色扮演者，你的姓名是“ ${roleName} ”。关于你的角色简介是：\n\n${rolePersona ? rolePersona : ''}\n\n总之你需要始终以“ ${roleName} ”的身份和口吻回应\n\n`;
         if (userBio) systemPrompt += `关于和你对话的当前用户的名称是：${userName}，简介：${userBio}`;
@@ -821,70 +829,134 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         let fullReply = '';
         let isFirstChunk = true;
         let messageDiv = null;
-        let bubbleP = null;
+        let bubble = null;
+        let contentP = null;         // 正文流式容器 <p>
+        let replyRaw = '';           // 正文原始文本（流式累积，生成完成后统一斜体化）
+        let thinkDetails = null;     // 思考面板 <details>
+        let thinkContentEl = null;   // 思考内容 <div>
+        let thinkTimerEl = null;     // 思考用时 <span>
+        let thinkIndicatorEl = null; // 思考中呼吸指示点 <span>
+        let thinkStartTime = null;   // 思考开始时间（performance.now）
+        let thinkEndTime = null;     // 思考结束时间
+        let thinkClosed = false;     // 思考阶段是否已结束（收到正文 / 流结束）
+
+        // 更新思考计时显示（思考中实时跳动）
+        const updateThinkTimer = () => {
+            if (!thinkTimerEl || thinkStartTime == null) return;
+            const end = thinkEndTime ?? performance.now();
+            thinkTimerEl.textContent = ` · ${((end - thinkStartTime) / 1000).toFixed(1)}s`;
+        };
+        // 结束思考阶段：停止计时、定格用时、自动折叠面板
+        const finalizeThink = () => {
+            if (thinkTickTimer) { clearInterval(thinkTickTimer); thinkTickTimer = null; }
+            if (!thinkDetails || thinkClosed) return;
+            thinkClosed = true;
+            thinkEndTime = performance.now();
+            updateThinkTimer();
+            if (thinkIndicatorEl) { thinkIndicatorEl.remove(); thinkIndicatorEl = null; }
+            thinkDetails.classList.remove('thinking');
+            thinkDetails.open = false;  // 思考输出完成后自动折叠
+        };
 
         for await (const chunk of generator) {
             if (isFirstChunk) {
                 // 第一次收到数据时，移除指示器并创建消息气泡
                 if (typingDiv.parentNode) typingDiv.remove();
-                // 创建消息气泡（复用原 createMessageBubble 或直接构建）
                 const modelNameForDisplay = SettingsManager.getModelName();
                 messageDiv = createMessageBubble('ai', '', getCurrentTime(), currentChat.settings?.avatarUrl, modelNameForDisplay, knowledgeSources);
-                bubbleP = messageDiv.querySelector('.bubble p');
-                bubbleP.innerHTML = '';  // 清空占位
-                bubbleP.style.whiteSpace = 'pre-wrap';
+                bubble = messageDiv.querySelector('.bubble');
+                // 移除空占位 <p>，改用流式正文容器（保留 msg-time 与 kb-sources）
+                const placeholderP = bubble.querySelector('p');
+                if (placeholderP) placeholderP.remove();
+                contentP = document.createElement('p');
+                contentP.style.whiteSpace = 'pre-wrap';
+                bubble.insertBefore(contentP, bubble.querySelector('.msg-time') || null);
                 chatMessages.appendChild(messageDiv);
                 if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
                 isFirstChunk = false;
             }
-            fullReply += chunk;
-            const span = document.createElement('span');
-            span.className = 'fade-in-text';
-            span.textContent = chunk;
-            bubbleP.appendChild(span);
+
+            if (chunk.type === 'thinking') {
+                // ---- 思考内容：实时渲染到思考面板，用户可随时折叠/展开 ----
+                if (!thinkDetails) {
+                    fullReply += '<think>';
+                    thinkStartTime = performance.now();
+                    thinkDetails = document.createElement('details');
+                    thinkDetails.className = 'think-details thinking';
+                    thinkDetails.open = true;   // 思考过程中默认展开
+                    const summary = document.createElement('summary');
+                    const titleSpan = document.createElement('span');
+                    titleSpan.className = 'think-title';
+                    titleSpan.textContent = '🤔 思考过程';
+                    thinkIndicatorEl = document.createElement('span');
+                    thinkIndicatorEl.className = 'think-indicator';
+                    thinkTimerEl = document.createElement('span');
+                    thinkTimerEl.className = 'think-timer';
+                    summary.appendChild(titleSpan);
+                    summary.appendChild(thinkIndicatorEl);
+                    summary.appendChild(thinkTimerEl);
+                    thinkDetails.appendChild(summary);
+                    thinkContentEl = document.createElement('div');
+                    thinkContentEl.className = 'think-content';
+                    thinkDetails.appendChild(thinkContentEl);
+                    bubble.insertBefore(thinkDetails, contentP);
+                    // 思考期间每 100ms 刷新一次用时
+                    thinkTickTimer = setInterval(updateThinkTimer, 100);
+                }
+                fullReply += chunk.text;
+                thinkContentEl.appendChild(document.createTextNode(chunk.text));
+                updateThinkTimer();
+            } else {
+                // ---- 正文内容：思考结束则自动折叠思考面板，逐字实时输出正文 ----
+                if (!thinkClosed) {
+                    if (thinkDetails) fullReply += '</think>';
+                    finalizeThink();
+                }
+                fullReply += chunk.text;
+                replyRaw += chunk.text;
+                const span = document.createElement('span');
+                span.className = 'fade-in-text';
+                span.textContent = chunk.text;
+                contentP.appendChild(span);
+            }
             uiScroll.conditionalScrollToBottom();
-            
+
             // 控制打字速度
             const speed = getTypingSpeed();
             if (speed < 1) {
                 await new Promise(resolve => setTimeout(resolve, (1 - speed) * 150));
             }
         }
-        // 最终更新消息气泡内容（解析思考标签）
-        const bubble = messageDiv.querySelector('.bubble');
-        const showThinking = (currentChat.settings?.thinkLevel ?? 0) > 0;
-        const newHtml = renderMessageWithThink(fullReply, showThinking);
-        // 保留原有的模型名称（如果存在）
-        const oldMsgTime = bubble.querySelector('.msg-time');
-        let modelNameSpan = '';
-        if (oldMsgTime) {
-            const modelSpan = oldMsgTime.querySelector('span');
-            if (modelSpan) {
-                modelNameSpan = modelSpan.outerHTML;
+        // 流结束：若仍处于思考阶段（如被截断），补全标签并折叠
+        if (thinkDetails && !thinkClosed) {
+            fullReply += '</think>';
+            finalizeThink();
+        }
+        // 生成完成后，将正文重新渲染为括号斜体样式（流式阶段保持纯文本逐字输出）
+        if (bubble && contentP && replyRaw) {
+            const parts = parseParenthesesContent(replyRaw);
+            contentP.innerHTML = '';
+            for (const part of parts) {
+                const span = document.createElement('span');
+                if (part.type === 'action') span.className = 'action-text';
+                span.textContent = part.type === 'action' ? part.raw : part.text;
+                contentP.appendChild(span);
             }
         }
-        const newTimeHtml = `<div class="msg-time">${modelNameSpan}${getCurrentTime()}</div>`;
+        // 更新消息时间（保留模型名），并重新绑定气泡双击事件
+        if (messageDiv && bubble) {
+            const oldMsgTime = bubble.querySelector('.msg-time');
+            let modelNameSpan = '';
+            if (oldMsgTime) {
+                const modelSpan = oldMsgTime.querySelector('span');
+                if (modelSpan) {
+                    modelNameSpan = modelSpan.outerHTML;
+                }
+            }
+            const newTimeHtml = `<div class="msg-time">${modelNameSpan}${getCurrentTime()}</div>`;
+            if (oldMsgTime) oldMsgTime.outerHTML = newTimeHtml;
 
-        const oldKbSources = bubble.querySelector('.kb-sources');
-        let kbSourcesHtml = '';
-        if (oldKbSources) {
-            kbSourcesHtml = oldKbSources.outerHTML;
-        } else if (knowledgeSources && knowledgeSources.length > 0) {
-            // 如果当前消息有知识库引用但尚未渲染，则重新生成
-            kbSourcesHtml = `<div class="kb-sources">` +
-                knowledgeSources.map(src =>
-                    `<span class="kb-source-tag" title="相似度: ${src.score}">
-                        <i class="fas fa-database"></i> ${escapeHtml(src.filename)}
-                    </span>`
-                ).join('') +
-                `</div>`;
-        }
-
-        bubble.innerHTML = newHtml + newTimeHtml + kbSourcesHtml;
-        // 重新绑定气泡点击事件（因为 innerHTML 会清除原有监听）
-        const newBubble = messageDiv.querySelector('.bubble');
-        if (newBubble) {
-            newBubble.addEventListener('dblclick', (e) => {
+            bubble.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
                 showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
             });
@@ -905,6 +977,10 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                     modelName: modelName,
                     uid: msgUid
                 };
+                // 记录思考用时（秒），用于历史消息回显
+                if (thinkStartTime != null) {
+                    msgData.thinkSeconds = Math.round(((thinkEndTime ?? performance.now()) - thinkStartTime) / 1000 * 10) / 10;
+                }
                 // 如果有知识库引用，添加该字段
                 if (knowledgeSources && knowledgeSources.length > 0) {
                     msgData.knowledgeSources = knowledgeSources;
@@ -940,6 +1016,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         }
     } finally {
         // 🔓 请求结束，恢复输入并清理控制器
+        if (thinkTickTimer) { clearInterval(thinkTickTimer); thinkTickTimer = null; }
         if (typingDiv && typingDiv.parentNode) typingDiv.remove();
         uiScroll.releaseRequestLock();
     }
@@ -1372,6 +1449,10 @@ function bindSettingsPanel() {
             item.classList.add('active');
             panes.forEach(pane => pane.classList.remove('active'));
             document.getElementById(`tab-${tabId}`).classList.add('active');
+            // 知识库懒加载：首次点击该标签时才请求列表
+            if (tabId === 'knowledge') {
+                modalManager.kbManager.ensureKnowledgeBaseLoaded();
+            }
         });
     });
 

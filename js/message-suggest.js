@@ -160,9 +160,11 @@ export class MessageSuggest {
         const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
         const rolePersona = settings.persona || '';
         const settingsManager = this.getSettingsManager();
+        // 用户画像：优先当前对话设置，留空则回退全局「对话设定」。
         // 与 simulateAIResponse 一致：默认用户名在系统提示中显示为「用户」
-        const userName = settingsManager.getUsername() === Constants.DEFAULT_USERNAME
-            ? '用户' : settingsManager.getUsername();
+        const chatProfileName = (settings.userProfileName || '').trim();
+        const userName = chatProfileName || (settingsManager.getUsername() === Constants.DEFAULT_USERNAME
+            ? '用户' : settingsManager.getUsername());
 
         // 历史消息（当前话题；"显示全部"则拍平所有话题）
         let history = [];

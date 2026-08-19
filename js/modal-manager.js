@@ -415,6 +415,22 @@ export class ModalManager {
         if (settings.avatarUrl) { avatarImg.src = settings.avatarUrl; avatarImg.setAttribute('data-custom', 'true'); }
         else { avatarImg.src = Constants.DEFAULT_AI_AVATAR; avatarImg.removeAttribute('data-custom'); }
 
+        // ---- 用户画像（对话级，留空则跟随全局「对话设定」）----
+        const userProfileNameInput = document.getElementById('user-profile-name');
+        const userProfileBioInput = document.getElementById('user-profile-bio');
+        const globalUserName = SettingsManager.getUsername();
+        const globalUserBio = SettingsManager.getBio();
+        if (userProfileNameInput) {
+            userProfileNameInput.value = settings.userProfileName || '';
+            userProfileNameInput.placeholder = (globalUserName && globalUserName !== Constants.DEFAULT_USERNAME)
+                ? `留空则使用全局昵称：${globalUserName}` : '留空则使用全局昵称';
+        }
+        if (userProfileBioInput) {
+            userProfileBioInput.value = settings.userProfileBio || '';
+            userProfileBioInput.placeholder = globalUserBio
+                ? `留空则使用全局简介：${globalUserBio}` : '留空则使用全局简介';
+        }
+
         // ---- 生成开场白按钮 ----
         const generateGreetingBtn = document.getElementById('generate-greeting-btn');
         if (generateGreetingBtn) {
@@ -427,8 +443,11 @@ export class ModalManager {
                     this.customAlert('请先填写"角色名称"和"角色设定"后再生成开场白。', 'warning');
                     return;
                 }
-                const userName = SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '' : SettingsManager.getUsername();
-                const userBio = SettingsManager.getBio().trim();
+                // 用户画像：优先使用弹窗中填写的对话级画像，留空则回退全局「对话设定」
+                const chatProfileName = (document.getElementById('user-profile-name')?.value || '').trim();
+                const chatProfileBio = (document.getElementById('user-profile-bio')?.value || '').trim();
+                const userName = chatProfileName || (SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '' : SettingsManager.getUsername());
+                const userBio = chatProfileBio || SettingsManager.getBio().trim();
 
                 let userInfo = '';
                 if (userName) userInfo += `用户名称：${userName}\n`;
@@ -680,6 +699,8 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
         if (!currentChat) return;
         const oldGreeting = currentChat.settings?.greeting || Constants.DEFAULT_SETTINGS.greeting;
+        // 记录写入前的旧值（浅拷贝，用于判断是否需要重建聊天框）
+        const oldSettings = { ...(currentChat.settings || {}) };
 
         const newRoleName = document.getElementById('role-name').value.trim() || Constants.DEFAULT_ROLE_NAME;
         const newPersona = document.getElementById('role-persona').value.trim() || '暂无设定';
@@ -702,6 +723,9 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         currentChat.settings.roleName = newRoleName;
         currentChat.settings.persona = newPersona;
         currentChat.settings.greeting = newGreeting;
+        // 对话级用户画像（留空 = 跟随全局「对话设定」）
+        currentChat.settings.userProfileName = document.getElementById('user-profile-name')?.value?.trim() || '';
+        currentChat.settings.userProfileBio = document.getElementById('user-profile-bio')?.value?.trim() || '';
 
         const avatarImg = document.getElementById('avatar-img');
         const newAvatarUrl = avatarImg && avatarImg.hasAttribute('data-custom') ? avatarImg.src : null;
@@ -775,13 +799,27 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         currentChat.settings.ttsVoice = ttsVoice;
 
         ctx.applyCurrentChatSettings();
-        ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
         ctx.renderHistoryList();
         await ctx.chatRepo.saveChat(currentChat);
         if (oldGreeting !== newGreeting) {
-            ctx.startNewTopic();
+            ctx.startNewTopic();   // 内部会重新渲染新话题的消息
+        } else if (this.#chatUiSettingsChanged(oldSettings)) {
+            // 仅当 UI 显示相关设置（角色头像 / 角色名称 / 背景）变化时才重建聊天框
+            ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
         }
         this.closeSettingsModal();
+    }
+
+    /** 判断对话设置中「UI 显示相关」字段是否发生变化（角色头像 / 角色名称 / 背景） */
+    #chatUiSettingsChanged(oldSettings) {
+        const s = this.ctx.chats.find(c => c.id == this.ctx.currentChatId)?.settings || {};
+        return (s.avatarUrl ?? null) !== (oldSettings.avatarUrl ?? null)
+            || s.roleName !== (oldSettings.roleName ?? Constants.DEFAULT_ROLE_NAME)
+            || (s.bgType ?? null) !== (oldSettings.bgType ?? null)
+            || (s.bgImageUrl ?? null) !== (oldSettings.bgImageUrl ?? null)
+            || (s.bgVideoUrl ?? '') !== (oldSettings.bgVideoUrl ?? '')
+            || (s.bgVideoName ?? '') !== (oldSettings.bgVideoName ?? '')
+            || (s.bgVideoMode ?? 'url') !== (oldSettings.bgVideoMode ?? 'url');
     }
 
     // ==================== 全局设置弹窗 ====================
@@ -1018,7 +1056,8 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
             autoScrollCheck.checked = SettingsManager.getAutoScrollAfterSend();
         }
 
-        await this.kbManager.renderKnowledgeBase();
+        // 知识库改为懒加载：打开设置不请求，点击「知识库」标签时才加载
+        this.kbManager.resetTabLoaded();
 
         // 渲染 Token 用量统计
         this.#renderTokenUsageTab();
@@ -1043,6 +1082,9 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
                 }
             });
         }
+
+        // 初始化「设置发生变动」追踪：捕获快照并绑定变更监听
+        this.initGlobalSettingsDirtyTracking();
     }
 
     /** 渲染 Token 用量统计标签页 */
@@ -1059,6 +1101,83 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         setStat('token-total', stats.totalTokens);
         setStat('token-api-calls', stats.apiCalls);
         setStat('token-session', sessionTokens);
+    }
+
+    // ==================== 「设置发生变动」提示（个性化设置弹窗） ====================
+    // saveGlobalSettings 实际读取并写入存储的表单控件（用于判定设置是否发生变动）
+    #GLOBAL_SETTINGS_FIELD_IDS = [
+        'model-host', 'api-key', 'global-username', 'global-bio', 'global-avatar-upload',
+        'global-context-limit', 'global-context-unlimited', 'quick-model-select',
+        'global-temperature', 'global-top-p', 'global-think-level', 'global-max-tokens',
+        'global-theme', 'global-font-size', 'tts-api-url', 'tts-api-key',
+        'img-api-url', 'img-api-key', 'global-typing-speed', 'global-auto-scroll',
+        'model-provider',
+    ];
+
+    /** 捕获当前设置快照（表单控件值 + 头像 + 快捷键） */
+    captureGlobalSettingsSnapshot() {
+        const controls = new Map();
+        for (const id of this.#GLOBAL_SETTINGS_FIELD_IDS) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            controls.set(id, el.type === 'checkbox' ? el.checked : el.value);
+        }
+        const avatarImg = document.getElementById('global-avatar-img');
+        this._globalSettingsSnapshot = {
+            controls,
+            avatarSrc: avatarImg ? avatarImg.src : '',
+            shortcuts: JSON.stringify(this.ctx.getShortcuts()),
+        };
+    }
+
+    /** 判断设置是否发生了变动（与打开弹窗时的快照对比） */
+    isGlobalSettingsDirty() {
+        const snap = this._globalSettingsSnapshot;
+        if (!snap) return false;
+        for (const [id, initial] of snap.controls) {
+            const el = document.getElementById(id);
+            if (!el) continue;
+            const now = el.type === 'checkbox' ? el.checked : el.value;
+            if (now !== initial) return true;
+        }
+        const avatarImg = document.getElementById('global-avatar-img');
+        if (avatarImg && avatarImg.src !== snap.avatarSrc) return true;
+        if (JSON.stringify(this.ctx.getShortcuts()) !== snap.shortcuts) return true;
+        return false;
+    }
+
+    /** 根据变动状态显示/隐藏「设置发生变动」提示 */
+    refreshGlobalSettingsDirtyHint() {
+        const hint = document.getElementById('global-settings-dirty');
+        if (!hint) return;
+        hint.style.display = this.isGlobalSettingsDirty() ? 'flex' : 'none';
+    }
+
+    /** 初始化变动追踪：捕获快照 + 绑定变更监听（打开弹窗时调用，幂等） */
+    initGlobalSettingsDirtyTracking() {
+        this.captureGlobalSettingsSnapshot();
+        this.refreshGlobalSettingsDirtyHint();
+
+        const modal = document.getElementById('global-settings-modal');
+        if (!modal || modal._dirtyTrackingBound) return;
+        modal._dirtyTrackingBound = true;
+
+        const fieldIds = new Set(this.#GLOBAL_SETTINGS_FIELD_IDS);
+        const check = () => this.refreshGlobalSettingsDirtyHint();
+        // 事件委托：只对设置字段的 input/change 触发检查
+        modal.addEventListener('input', (e) => { if (fieldIds.has(e.target?.id)) check(); });
+        modal.addEventListener('change', (e) => { if (fieldIds.has(e.target?.id)) check(); });
+
+        // 头像裁剪完成后 src 更新（img 重新加载时触发）
+        const avatarImg = document.getElementById('global-avatar-img');
+        if (avatarImg) avatarImg.addEventListener('load', check);
+
+        // 快捷键：录制完成 / 恢复默认时面板结构或文本变化（MutationObserver 触发）
+        const shortcutsList = document.getElementById('shortcuts-list');
+        if (shortcutsList && !shortcutsList._dirtyObserver) {
+            shortcutsList._dirtyObserver = new MutationObserver(check);
+            shortcutsList._dirtyObserver.observe(shortcutsList, { childList: true, subtree: true, characterData: true });
+        }
     }
 
     closeGlobalModal() {
@@ -1154,7 +1273,10 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         ctx.applyTheme(globalSettings.theme);
         ctx.applyFontSize(fontSize);
         if (ctx.currentChatId) ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
-        this.closeGlobalModal();
+        // 保存成功：刷新快照（隐藏「设置发生变动」提示），不自动关闭弹窗
+        this.captureGlobalSettingsSnapshot();
+        this.refreshGlobalSettingsDirtyHint();
+        this.showBriefToast('设置已保存');
     }
 
     // ==================== 话题管理弹窗 ====================
