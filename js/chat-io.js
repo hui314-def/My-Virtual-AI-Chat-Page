@@ -2,6 +2,7 @@
 import { escapeHtml, getCurrentTime, formatDate, renderMessageWithThink, renderTextWithActions } from './utils.js';
 import { SettingsManager } from './settings-manager.js';
 import Constants from './constants.js';
+import { resolveAssetUrl } from './asset-sync.js';
 
 export class ChatIO {
     /**
@@ -110,7 +111,7 @@ export class ChatIO {
         const title = `${roleName} · 对话记录`;
         const dateStr = chat.date.toLocaleString(Constants.SPEECH_RECOGNITION_LANG);
         const userAvatar = SettingsManager.getAvatar();
-        const bgImageUrl = chat.settings?.bgImageUrl || chat.settings?.bgUrl; // 兼容旧数据
+        const bgImageUrl = resolveAssetUrl(chat.settings?.bgImageUrl || chat.settings?.bgUrl); // 兼容旧数据
         const bodyBgStyle = bgImageUrl
             ? `background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${bgImageUrl}) center/cover no-repeat fixed;`
             : `background: #030305;`;
@@ -125,7 +126,7 @@ export class ChatIO {
                 const bubbleContent = isAi ? renderMessageWithThink(msg.text, true, msg.thinkSeconds ?? null) : renderTextWithActions(msg.text);
                 const timeHtml = `<div class="msg-time">${escapeHtml(msg.time || '')}${isAi && msg.modelName ? `<span>🤖 ${escapeHtml(msg.modelName)}</span>` : ''}</div>`;
                 const avatarHtml = isAi
-                    ? (settings.avatarUrl ? `<img src="${settings.avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>')
+                    ? (settings.avatarUrl ? `<img src="${resolveAssetUrl(settings.avatarUrl)}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>')
                     : (userAvatar && userAvatar.startsWith('data:image')
                         ? `<img src="${userAvatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
                         : '<i class="fas fa-user-astronaut"></i>');

@@ -278,7 +278,7 @@ export class KnowledgeBaseManager {
             document.getElementById('upload-doc-btn').addEventListener('click', () => {
                 const input = document.createElement('input');
                 input.type = 'file';
-                input.accept = '.txt,.pdf,.docx';
+                input.accept = '.txt,.pdf,.docx,.md,.csv,.json,.log';
                 input.onchange = async (e) => {
                     const file = e.target.files[0];
                     if (!file) return;

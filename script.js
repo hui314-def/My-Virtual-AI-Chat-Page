@@ -9,6 +9,7 @@ import { ChatRepository } from './js/repository.js';
 import { BackendClient } from './js/backend-client.js';
 import { SyncedChatRepository } from './js/sync-repository.js';
 import { ensureChatIdentity } from './js/chat-diff.js';
+import { setAssetBackendClient, resolveAssetUrl, resolveToDataUrl } from './js/asset-sync.js';
 import { AuthManager } from './js/auth-manager.js';
 import { TTsService } from './js/tts-service.js';
 import { ChatIO } from './js/chat-io.js';
@@ -33,6 +34,7 @@ import { HistoryList } from './js/history-list.js';
 import { KnowledgeRetriever } from './js/knowledge-retriever.js';
 import { UploadBindings } from './js/upload-bindings.js';
 import { MessageSuggest } from './js/message-suggest.js';
+import { CharacterCard } from './js/character-card.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -52,6 +54,7 @@ const backendClient = new BackendClient({
     getBaseUrl: () => getSyncApiUrl(),
     onUnauthorized: () => authManager.handleUnauthorized(),
 });
+setAssetBackendClient(backendClient);
 const chatRepo = new SyncedChatRepository({
     localRepo: localChatRepo,
     backendClient,
@@ -195,6 +198,7 @@ const modalManager = new ModalManager({
     focusChatInput: () => focusChatInput(),
     focusSearchInput: () => searchManager.focusSearchInput(),
     createNewChat: () => chatManager.createNewChat(),
+    createNewChatWithSettings: (settings) => chatManager.createNewChatWithSettings(settings),
     switchToPreviousChat: () => chatManager.switchToPreviousChat(),
     switchToNextChat: () => chatManager.switchToNextChat(),
     sendMessageWithoutAI: () => sendMessageWithoutAI(),
@@ -434,7 +438,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
             }
         }
         if (avatarUrl) {
-            avatarHtml = `<img src="${avatarUrl}" style="width:50px; height:50px; border-radius:50%; object-fit:cover;">`;
+            avatarHtml = `<img src="${resolveAssetUrl(avatarUrl)}" style="width:50px; height:50px; border-radius:50%; object-fit:cover;">`;
         } else {
             avatarHtml = '<i class="fas fa-robot"></i>';
         }
@@ -469,8 +473,8 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     if (type === 'user' && imageAttachments && imageAttachments.length > 0) {
         bubbleContent += '<div class="message-images">';
         for (const img of imageAttachments) {
-            const thumbSrc = img.dataUrl;                        // 缩略图（旧格式兼容：即为完整图）
-            const fullSrc = img.fullDataUrl || img.dataUrl;      // 完整图用于点击放大
+            const thumbSrc = resolveAssetUrl(img.dataUrl);                        // 缩略图（旧格式兼容：即为完整图）
+            const fullSrc = resolveAssetUrl(img.fullDataUrl || img.dataUrl);      // 完整图用于点击放大
             bubbleContent += `<img src="${thumbSrc}" class="message-image" data-full-img="${fullSrc}" alt="${escapeHtml(img.name || '图片')}" title="${escapeHtml(img.name || '图片')}">`;
         }
         bubbleContent += '</div>';
@@ -565,6 +569,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
 
 // 向聊天区追加一张图片（支持 base64 或 URL）
 async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
+    const displaySrc = resolveAssetUrl(imgSrc);
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
 
@@ -573,7 +578,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     if (type === 'ai') {
         const currentChat = chats.find(c => c.id == currentChatId);
         const avatarUrl = currentChat?.settings?.avatarUrl;
-        avatarHtml = avatarUrl ? `<img src="${avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` 
+        avatarHtml = avatarUrl ? `<img src="${resolveAssetUrl(avatarUrl)}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` 
                             : '<i class="fas fa-robot"></i>';
     } else {
         const userAvatar = SettingsManager.getAvatar();
@@ -583,7 +588,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     }
 
     // 气泡：图片 + 时间
-    const imgTag = `<img src="${imgSrc}" class="message-image" alt="生成图片">`;
+    const imgTag = `<img src="${displaySrc}" class="message-image" alt="生成图片">`;
     const timeHtml = `<div class="msg-time">${escapeHtml(time || getCurrentTime())}</div>`;
     messageDiv.innerHTML = `
         <div class="avatar-msg">${avatarHtml}</div>
@@ -600,7 +605,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     if (imgElement) {
         imgElement.addEventListener('click', (e) => {
             e.stopPropagation();
-            modalManager.showFullscreenImage(imgSrc);
+            modalManager.showFullscreenImage(displaySrc);
         });
     }
 
@@ -759,6 +764,9 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         if (userBio) systemPrompt += `关于和你对话的当前用户的名称是：${userName}，简介：${userBio}`;
         else systemPrompt += `关于和你对话的当前用户名称叫：${userName}。`;
         systemPrompt += '\n\n重要：请严格根据上述角色设定进行角色扮演，不要打破角色，不要以助手或AI的身份回答。必须始终以角色的身份和语气回复。\n\n回复格式规则：你的回复可以包含人物动作、环境描写、情绪描述等非语言表达内容，当你的回复中包含这样的的内容时，请使用括号（）将这些内容包裹起来。例如：“（轻轻叹气）我相信你能做到”。或“（窗外的雨声淅沥）今天的任务完成得不错。”';
+        // 角色卡附加字段(SillyTavern 角色卡导入):system_prompt 与示例对话
+        if (settings.cardSystemPrompt) systemPrompt += `\n\n【附加系统设定】\n${settings.cardSystemPrompt}`;
+        if (settings.cardExampleMessages) systemPrompt += `\n\n【角色对话示例(用于模仿语气与风格)】\n${settings.cardExampleMessages.replace(/\{\{char\}\}/g, roleName).replace(/\{\{user\}\}/g, userName)}`;
         messages.push({ role: 'system', content: systemPrompt });
         let lastUserMsgContent = '';
         for (const msg of messagesToUse) {
@@ -1026,7 +1034,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
 function createMessageBubble(type, text, time, avatarUrl, modelName = null, knowledgeSources = null) {
     const div = document.createElement('div');
     div.className = `message ${type}`;
-    const avatarHtml = avatarUrl ? `<img src="${avatarUrl}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>';
+    const avatarHtml = avatarUrl ? `<img src="${resolveAssetUrl(avatarUrl)}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>';
     let timeHtml = `<div class="msg-time">`;
     if (type === 'ai' && modelName) {
         timeHtml += `<span style="margin-right: 8px; font-size: 0.65rem; opacity: 0.7;">🤖 ${escapeHtml(modelName)}</span>`;
@@ -1088,7 +1096,7 @@ async function sendUserMessage() {
     // 如果引用中包含图片 URL，追加到图片列表传递给模型
     if (quoteRef && quoteRef.imageUrls && quoteRef.imageUrls.length > 0) {
         for (const url of quoteRef.imageUrls) {
-            imageUrls.push(url);
+            imageUrls.push(await resolveToDataUrl(url));  // asset:// → data URL（模型需要字节）
         }
     }
 
@@ -1115,6 +1123,7 @@ async function sendUserMessage() {
     if (fileAttachment) {
         modelUserMsg = modelUserMsg + `\n\n文件内容如下：\n\`\`\`\n${fileAttachment.content}\n\`\`\``;
     }
+
     if (targetChat) {
         const activeTopic = topicManager.getActiveTopic(targetChat);
         if (activeTopic) {
@@ -1376,7 +1385,7 @@ function bindModalControls() {
     if (closeModalBtn) closeModalBtn.addEventListener('click', () => modalManager.closeSettingsModal());
     if (cancelBtn) cancelBtn.addEventListener('click', () => modalManager.closeSettingsModal());
     if (saveBtn) saveBtn.addEventListener('click', () => modalManager.saveSettings());
-    if (modal) modalManager.bindModalOverlayClose(modal, () => modalManager.closeModalWithAnimation(modal));
+    if (modal) modalManager.bindModalOverlayClose(modal, () => modalManager.closeSettingsModal());
 
     // 对话设置入口按钮
     const chatSettingsBtn = document.getElementById('chat-settings-btn');
@@ -1562,29 +1571,86 @@ function bindChatActions() {
     const newChatBtn = document.querySelector('.new-chat-btn');
     if (newChatBtn) newChatBtn.addEventListener('click', () => chatManager.createNewChat());
 
-    // 导入 JSON
+    // —— 角色卡导入辅助:PNG 角色卡解析 + 确认 + 裁剪 + 建对话 ——
+    function buildCardPreviewLines(card) {
+        return [
+            `角色名：${card.name}`,
+            card.persona ? `人设：${card.persona.slice(0, 150)}${card.persona.length > 150 ? '…' : ''}` : null,
+            card.greeting ? `开场白：${card.greeting.slice(0, 80)}${card.greeting.length > 80 ? '…' : ''}` : null,
+        ].filter(Boolean);
+    }
+
+    // 确认后真正创建对话(PNG 分支的裁剪回调也会走这里)
+    async function finalizeCharacterCardImport(card, avatarUrl) {
+        const newChat = CharacterCard.buildChatFromCard(card, avatarUrl, chats);
+        chats.unshift(newChat);
+        setCurrentChatId(newChat.id);
+        topicManager.setCurrentTopicIndex(null);
+        historyListUI.renderHistoryList();
+        renderMessages(currentChatId);
+        applyCurrentChatSettings();
+        await chatRepo.saveAllChats(chats);
+        modalManager.customAlert(`角色「${card.name}」导入成功`, 'success');
+    }
+
+    async function handlePngCharacterCard(file) {
+        try {
+            const parsed = await CharacterCard.parseCharacterCardFile(file);
+            if (!parsed) {
+                modalManager.customAlert('未能识别的 PNG 文件：未找到内嵌角色卡数据（chara chunk）。', 'error');
+                return;
+            }
+            const card = parsed.card;
+            if (!confirm(`确认导入该角色卡？\n\n${buildCardPreviewLines(card).join('\n')}\n\n将创建一个新对话并应用该角色设定。`)) return;
+            // 确定导入后,弹出头像裁剪弹窗(1:1 方形),裁剪结果作为角色头像
+            modalManager.showCropModal(file, 1, { maxWidth: 512, mimeType: 'image/jpeg', quality: 0.9 }, async (croppedDataUrl) => {
+                await finalizeCharacterCardImport(card, croppedDataUrl);
+            });
+        } catch (err) {
+            modalManager.customAlert('角色卡解析失败：' + err.message, 'error');
+        }
+    }
+
+    async function handleCharacterCardData(card, avatarDataUrl) {
+        if (!confirm(`确认导入该角色卡？\n\n${buildCardPreviewLines(card).join('\n')}\n\n将创建一个新对话并应用该角色设定。`)) return;
+        await finalizeCharacterCardImport(card, avatarDataUrl);
+    }
+
+    // 导入(支持:本项目对话 JSON、SillyTavern 社区标准角色卡 PNG / JSON)
     const importBtn = document.querySelector('.import-chat-btn');
     if (importBtn) {
         importBtn.addEventListener('click', () => {
             const fileInput = document.createElement('input');
             fileInput.type = 'file';
-            fileInput.accept = 'application/json';
+            fileInput.accept = '.json,.png,application/json,image/png';
             fileInput.onchange = async (e) => {
                 const file = e.target.files[0];
                 if (!file) return;
+
+                // —— 分支一:PNG 角色卡(内嵌 chara JSON) ——
+                if (file.type === 'image/png' || /\.png$/i.test(file.name)) {
+                    await handlePngCharacterCard(file);
+                    return;
+                }
+
+                // —— JSON 文件:角色卡 JSON 或本项目对话 JSON ——
                 const reader = new FileReader();
                 reader.onload = async (ev) => {
                     try {
                         const importedData = JSON.parse(ev.target.result);
-                        const newChat = await chatIO.importFromJSON(importedData, chats);
-                        chats.unshift(newChat);
-                        setCurrentChatId(newChat.id);
-                        topicManager.setCurrentTopicIndex(null);
-                        historyListUI.renderHistoryList();
-                        renderMessages(currentChatId);
-                        applyCurrentChatSettings();
-                        await chatRepo.saveAllChats(chats);
-                        modalManager.customAlert('导入成功', 'success');
+                        if (CharacterCard.isCharacterCardJSON(importedData)) {
+                            await handleCharacterCardData(CharacterCard.normalizeCard(importedData), null);
+                        } else {
+                            const newChat = await chatIO.importFromJSON(importedData, chats);
+                            chats.unshift(newChat);
+                            setCurrentChatId(newChat.id);
+                            topicManager.setCurrentTopicIndex(null);
+                            historyListUI.renderHistoryList();
+                            renderMessages(currentChatId);
+                            applyCurrentChatSettings();
+                            await chatRepo.saveAllChats(chats);
+                            modalManager.customAlert('导入成功', 'success');
+                        }
                     } catch (err) {
                         modalManager.customAlert('JSON 解析失败：' + err.message, 'error');
                     }

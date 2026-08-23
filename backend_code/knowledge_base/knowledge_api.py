@@ -1,6 +1,8 @@
 import uuid
 import re
 import io
+import csv
+import json
 from datetime import datetime
 from fastapi import FastAPI, Request, HTTPException, UploadFile, File
 from fastapi.middleware.cors import CORSMiddleware
@@ -73,10 +75,75 @@ def _get_embedding_pool():
     return _embedding_pool
 
 # ========== 辅助函数 ==========
-def split_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) -> list:
-    """按句子边界分块"""
+CODE_EXTENSIONS = {
+    'py', 'js', 'jsx', 'ts', 'tsx', 'java', 'c', 'h', 'cpp', 'cc', 'cxx',
+    'hpp', 'cs', 'go', 'rs', 'php', 'rb', 'swift', 'kt', 'kts', 'sql',
+    'sh', 'bash', 'vue'
+}
+
+
+def split_code_text(text: str, chunk_size: int = CHUNK_SIZE,
+                    overlap: int = OVERLAP) -> list:
+    """按代码块/函数边界分块，尽量避免从一行或一个函数中间截断。"""
+    lines = text.splitlines()
+    blocks = []
+    current = []
+    brace_depth = 0
+
+    for line in lines:
+        stripped = line.strip()
+        # 顶层声明通常是一个新的语义单元；保留注释和缩进代码在原块中。
+        is_declaration = bool(re.match(
+            r'^(async\s+def|def|class|function|export\s+(default\s+)?(async\s+)?function|'
+            r'(public|private|protected|static|virtual|class|struct|namespace|func)\b)',
+            stripped, re.IGNORECASE)) and (not line.startswith((' ', '\t')))
+        if current and (not stripped or (is_declaration and brace_depth == 0)):
+            blocks.append('\n'.join(current).strip())
+            current = []
+            brace_depth = 0
+        if stripped or current:
+            current.append(line)
+        brace_depth += line.count('{') - line.count('}')
+        if brace_depth < 0:
+            brace_depth = 0
+    if current:
+        blocks.append('\n'.join(current).strip())
+
+    chunks = []
+    current_lines = []
+    current_len = 0
+    for block in blocks:
+        block_len = len(block)
+        if current_lines and current_len + block_len + 1 > chunk_size:
+            chunks.append('\n'.join(current_lines))
+            # 只重叠完整代码块，而不是截断字符，保留上下文且避免破坏语法。
+            overlap_lines = []
+            overlap_len = 0
+            for old_block in reversed(current_lines):
+                if overlap_len + len(old_block) + 1 > overlap:
+                    break
+                overlap_lines.insert(0, old_block)
+                overlap_len += len(old_block) + 1
+            current_lines = overlap_lines
+            current_len = overlap_len
+        current_lines.append(block)
+        current_len += block_len + 1
+        # 单个超长函数也必须落块，避免后续内容不断累积。
+        if current_len >= chunk_size and len(current_lines) == 1:
+            chunks.append('\n'.join(current_lines))
+            current_lines, current_len = [], 0
+    if current_lines:
+        chunks.append('\n'.join(current_lines))
+    return chunks
+
+
+def split_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP,
+               file_ext: str = '') -> list:
+    """普通文本按句子分块，源代码按函数/类等代码块分块。"""
     if not text.strip():
         return []
+    if file_ext.lower().lstrip('.') in CODE_EXTENSIONS:
+        return split_code_text(text, chunk_size, overlap)
     sentences = re.split(r'(?<=[。！？；])', text)
     chunks = []
     current_chunk = []
@@ -99,10 +166,31 @@ def split_text(text: str, chunk_size: int = CHUNK_SIZE, overlap: int = OVERLAP) 
     return chunks
 
 def parse_file(filename: str, content: bytes) -> str:
-    """解析上传文件为纯文本"""
+    """解析上传文件为纯文本，仅支持使用 UTF-8 解码，支持常见文本、CSV、JSON、PDF、DOCX 等格式"""
     ext = filename.split('.')[-1].lower()
-    if ext == 'txt':
+    if ext in ('txt', 'md', 'markdown', 'log') or ext in CODE_EXTENSIONS:
         return content.decode('utf-8')
+    elif ext == 'csv':
+        # 将 CSV 转为易读的文本：每行用逗号分隔，并用换行分隔行
+        try:
+            # 尝试用 utf-8-sig 处理可能的 BOM
+            csv_content = content.decode('utf-8-sig')
+        except UnicodeDecodeError:
+            csv_content = content.decode('latin-1')
+        csv_io = io.StringIO(csv_content)
+        reader = csv.reader(csv_io)
+        rows = []
+        for row in reader:
+            rows.append(', '.join(row))
+        return '\n'.join(rows)
+    elif ext == 'json':
+        try:
+            data = json.loads(content.decode('utf-8'))
+            # 将 JSON 转为格式化的字符串（保留缩进，便于阅读）
+            return json.dumps(data, ensure_ascii=False, indent=2)
+        except Exception:
+            # 如果不是标准 JSON，也许是个 JSONL？
+            return content.decode('utf-8', errors='ignore')
     elif ext == 'pdf':
         reader = PyPDF2.PdfReader(io.BytesIO(content))
         text = ''
@@ -318,7 +406,7 @@ async def upload_document(kb_id: str, file: UploadFile = File(...)):
         if not text.strip():
             raise HTTPException(status_code=400, detail="文件内容为空或无法解析")
 
-        chunks = split_text(text)
+        chunks = split_text(text, file_ext=file.filename.rsplit('.', 1)[-1])
         if not chunks:
             raise HTTPException(status_code=400, detail="分块结果为空")
 

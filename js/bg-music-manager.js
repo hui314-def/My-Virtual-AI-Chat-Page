@@ -1,6 +1,7 @@
 // 背景音乐管理器：按对话设置播放背景音乐（URL 或本地文件）
 // 由 applyCurrentChatSettings() 调用，传入当前对话的 settings
 import AssetStore from './asset-store.js';
+import { resolveAssetUrl } from './asset-sync.js';
 
 class BgMusicManager {
     static #audio = null;           // HTMLAudioElement
@@ -46,15 +47,17 @@ class BgMusicManager {
 
         let src = null;
         if (bgMusicMode === 'file' && chatId != null) {
-            const blob = await AssetStore.getAudio(chatId);
+            const blob = await AssetStore.getAudio(chatId);   // 优先本地 IndexedDB（离线可用）
             if (blob) {
                 if (this.#currentSrc && this.#currentSrc.startsWith('blob:')) {
                     URL.revokeObjectURL(this.#currentSrc);
                 }
                 src = URL.createObjectURL(blob);
+            } else if (bgMusicUrl && bgMusicUrl.startsWith('asset://')) {
+                src = resolveAssetUrl(bgMusicUrl);   // 本地缺失 → 后端文件系统（跨设备）
             }
         } else if (bgMusicMode === 'url' && bgMusicUrl) {
-            src = bgMusicUrl;
+            src = resolveAssetUrl(bgMusicUrl);
         }
 
         if (!src) {

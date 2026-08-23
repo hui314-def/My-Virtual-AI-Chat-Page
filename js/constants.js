@@ -295,6 +295,55 @@ class Constants {
                 resize: vertical;
                 font-family: inherit;
             }
+            /* 角色设定折叠态：只显示约 5 行文字，底部渐隐，不可编辑 */
+            .persona-field-wrap {
+                position: relative;
+            }
+            .persona-field-wrap::after {
+                content: '';
+                position: absolute;
+                left: 2px;
+                right: 2px;
+                bottom: 30px;             /* 折叠按钮之上，覆盖最后一行文字，让其渐隐 */
+                height: 40px;
+                background: linear-gradient(to bottom, rgba(26, 29, 48, 0), rgba(26, 29, 48, 0.95));
+                pointer-events: none;
+                opacity: 0;
+                transition: opacity 0.2s;
+                border-radius: 0 0 18px 18px;
+                z-index: 1;
+            }
+            .persona-field-wrap.persona-masked::after {
+                opacity: 1;
+            }
+            .persona-collapsed {
+                height: 118px !important;
+                overflow: hidden;
+                resize: none;
+                cursor: pointer;
+            }
+            .persona-collapsed:focus {
+                border-color: rgba(100, 130, 255, 0.4);
+                background: rgba(30, 34, 55, 0.7);
+            }
+            .persona-toggle-btn {
+                display: block;
+                margin: 4px auto 0;
+                padding: 1px 16px;
+                font-size: 0.72rem;
+                line-height: 1.7;
+                border-radius: 20px;
+                background: rgba(45, 55, 85, 0.5);
+                border: 1px solid rgba(100, 130, 255, 0.4);
+                color: #ccd6ff;
+                cursor: pointer;
+                transition: 0.2s;
+                position: relative;
+                z-index: 2;               /* 确保在渐隐遮罩之上，三角形始终可见 */
+            }
+            .persona-toggle-btn:hover {
+                background: rgba(60, 75, 115, 0.7);
+            }
             input:focus, textarea:focus {
                 border-color: #7f9eff;
                 background: rgba(40, 45, 70, 0.8);
@@ -409,6 +458,9 @@ class Constants {
                                 <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
                                     <input type="radio" name="chat-bg-music-mode" value="file"> 上传文件
                                 </label>
+                                <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                    <input type="radio" name="chat-bg-music-mode" value="ai"> AI 生成
+                                </label>
                             </div>
                             <div id="chat-bg-music-url-row">
                                 <input type="text" id="chat-bg-music-url" placeholder="https://example.com/bgm.mp3">
@@ -416,6 +468,16 @@ class Constants {
                             <div id="chat-bg-music-file-row" style="display:none;">
                                 <input type="file" id="chat-bg-music-file" accept=".mp3,.wav,.ogg,.flac,.m4a,.weba,.aac">
                                 <span id="chat-bg-music-file-name" style="font-size:0.75rem;color:#8e8eb3;"></span>
+                            </div>
+                            <!-- AI 生成区：输入风格 → 生成英文提示词 → 调后端 ComfyUI 生成音乐 -->
+                            <div id="chat-bg-music-ai-row" style="display:none;">
+                                <input type="text" id="chat-bg-music-ai-style" placeholder="例如：治愈系钢琴曲，舒缓温柔...">
+                                <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+                                    <button type="button" id="chat-bg-music-ai-generate" class="mini-btn" style="background: linear-gradient(125deg, #2d3370, #1b1f48); border: 1px solid #6c7eff; color: white;">🎵 生成音乐</button>
+                                    <button type="button" id="chat-bg-music-ai-play" class="mini-btn" style="display:none; background: rgba(45,85,55,0.6); border: 1px solid rgba(80,200,120,0.5); color: #b9f0cd;">▶ 试听</button>
+                                    <span id="chat-bg-music-ai-status" style="font-size:0.75rem; color:#8e8eb3;"></span>
+                                </div>
+                                <small>输入想要的音乐风格，AI 先生成细致具体的英文提示词，再调用后端生成音乐</small>
                             </div>
                             <small>支持 mp3/wav/ogg/flac/m4a，建议 ≤50MB，自动循环播放</small>
                             <label style="margin-top: 8px;">音量</label>
@@ -431,8 +493,22 @@ class Constants {
                         <input type="text" id="role-name" placeholder="输入角色名称">
                     </div>
                     <div class="form-group">
-                        <label>角色设定</label>
-                        <textarea id="role-persona" rows="3" placeholder="例如：Nova 是一位来自未来星系的AI助手，喜欢用诗意的语言回答问题..."></textarea>
+                        <label style="display: flex; align-items: center; gap: 8px;">
+                            角色设定
+                            <button type="button" id="generate-persona-btn" class="mini-btn" title="根据你的描述自动生成角色设定">✨ 生成</button>
+                        </label>
+                        <!-- 角色设定生成输入区（点击生成按钮后内联展开，再点一次按钮收起） -->
+                        <div id="persona-gen-controls" style="display:none; margin-bottom: 8px; padding: 10px; border: 1px solid rgba(100,130,255,0.35); border-radius: 12px; background: rgba(30,34,55,0.6);">
+                            <small style="color:#a5b9ff;">描述你想要的角色设定（性格、背景、说话风格等）</small>
+                            <textarea id="persona-gen-input" rows="2" placeholder="例如：毒舌又傲娇的魔法师，喜欢吐槽但关键时刻很可靠..."></textarea>
+                            <div style="display:flex; gap:8px; margin-top:8px;">
+                                <button type="button" id="persona-gen-confirm" class="mini-btn" style="background: linear-gradient(125deg, #2d3370, #1b1f48); border: 1px solid #6c7eff; color: white;">确定生成</button>
+                            </div>
+                        </div>
+                        <div class="persona-field-wrap">
+                            <textarea id="role-persona" rows="3" placeholder="例如：Nova 是一位来自未来星系的AI助手，喜欢用诗意的语言回答问题..." readonly class="persona-collapsed"></textarea>
+                            <button type="button" id="persona-toggle-btn" class="persona-toggle-btn" title="展开/收起角色设定">▼</button>
+                        </div>
                     </div>
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: 8px;">

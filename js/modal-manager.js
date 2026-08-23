@@ -9,6 +9,7 @@ import { TokenTracker } from './token-tracker.js';
 import { escapeHtml } from './utils.js';
 import AssetStore from './asset-store.js';
 import BgMusicManager from './bg-music-manager.js';
+import { resolveAssetUrl, uploadFile } from './asset-sync.js';
 
 export class ModalManager {
     /**
@@ -324,11 +325,22 @@ export class ModalManager {
 
     // ==================== 对话设置弹窗（per-chat settings） ====================
 
-    openSettingsModal() {
+    /**
+     * 打开对话设置弹窗。
+     * @param {Object} [options]
+     * @param {boolean} [options.newChat] - true 表示「新建对话」模式：编辑的是一份临时设置，
+     *   点击保存设置后才真正创建对话；直接关闭则取消新建。
+     */
+    openSettingsModal(options = {}) {
         const ctx = this.ctx;
+        const newChatMode = !!(options && options.newChat);
+        this._newChatMode = newChatMode;
         const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
-        if (!currentChat) return;
-        const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
+        // 新建模式：使用临时默认设置（基于默认 + 全局模型参数），尚未创建对话
+        const settings = newChatMode
+            ? this._buildNewChatSettings()
+            : (currentChat ? (currentChat.settings || Constants.DEFAULT_SETTINGS) : null);
+        if (!settings) return;
 
         const contextLimit = settings.contextLimit !== undefined ? settings.contextLimit : Constants.DEFAULT_SETTINGS.contextLimit;
         const contextUnlimited = (settings.contextLimit === -1);
@@ -412,7 +424,7 @@ export class ModalManager {
         roleNameInput.value = settings.roleName;
         rolePersona.value = settings.persona;
         roleGreeting.value = settings.greeting;
-        if (settings.avatarUrl) { avatarImg.src = settings.avatarUrl; avatarImg.setAttribute('data-custom', 'true'); }
+        if (settings.avatarUrl) { avatarImg.src = resolveAssetUrl(settings.avatarUrl); avatarImg.setAttribute('data-custom', 'true'); }
         else { avatarImg.src = Constants.DEFAULT_AI_AVATAR; avatarImg.removeAttribute('data-custom'); }
 
         // ---- 用户画像（对话级，留空则跟随全局「对话设定」）----
@@ -493,6 +505,99 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
             };
         }
 
+        // ---- 角色设定折叠/展开（默认折叠只显示约 5 行、底部渐隐、不可编辑；点击下方三角形展开后可编辑）----
+        const personaToggleBtn = document.getElementById('persona-toggle-btn');
+        const personaFieldWrap = rolePersona.closest('.persona-field-wrap');
+        // 每次打开弹窗默认折叠
+        const setPersonaCollapsed = (collapsed) => {
+            rolePersona.classList.toggle('persona-collapsed', collapsed);
+            if (personaFieldWrap) personaFieldWrap.classList.toggle('persona-masked', collapsed);   // 控制底部渐隐遮罩（容器自身不限高）
+            rolePersona.readOnly = collapsed;
+            if (personaToggleBtn) personaToggleBtn.textContent = collapsed ? '▼' : '▲';
+            if (!collapsed) rolePersona.dispatchEvent(new Event('input'));   // 展开时触发自动高度调整
+        };
+        setPersonaCollapsed(true);
+        if (personaToggleBtn) {
+            personaToggleBtn.onclick = () => {
+                setPersonaCollapsed(!rolePersona.classList.contains('persona-collapsed'));
+            };
+        }
+
+        // ---- 生成角色设定按钮（点击后在下方展开输入区，再点一次按钮收起；确认后生成并填入）----
+        const generatePersonaBtn = document.getElementById('generate-persona-btn');
+        const personaGenControls = document.getElementById('persona-gen-controls');
+        const personaGenInput = document.getElementById('persona-gen-input');
+        const personaGenConfirm = document.getElementById('persona-gen-confirm');
+
+        // 每次打开弹窗时重置输入区状态
+        if (personaGenControls) personaGenControls.style.display = 'none';
+        if (personaGenInput) personaGenInput.value = '';
+        if (generatePersonaBtn) generatePersonaBtn.textContent = '✨ 生成';
+
+        if (generatePersonaBtn && personaGenControls) {
+            // 点击生成按钮：展开时按钮变为「✖ 取消」，再点一次收起并清空
+            generatePersonaBtn.onclick = () => {
+                const isHidden = personaGenControls.style.display === 'none' || !personaGenControls.style.display;
+                personaGenControls.style.display = isHidden ? 'block' : 'none';
+                if (isHidden) {
+                    generatePersonaBtn.textContent = '✖ 取消';
+                    if (personaGenInput) personaGenInput.focus();
+                } else {
+                    if (personaGenInput) personaGenInput.value = '';
+                    generatePersonaBtn.textContent = '✨ 生成';
+                }
+            };
+        }
+
+        if (personaGenConfirm && personaGenControls) {
+            personaGenConfirm.onclick = async () => {
+                const requirement = personaGenInput ? personaGenInput.value.trim() : '';
+                if (!requirement) {
+                    this.customAlert('请先输入角色设定要求。', 'warning');
+                    return;
+                }
+                const roleName = roleNameInput.value.trim();
+                const prompt = `你是一位角色设定专家。请根据以下要求，为AI角色生成一段详细的角色设定。
+
+要求：${requirement}
+${roleName ? `角色名称：${roleName}\n` : ''}
+角色设定应包含：性格特点、身份背景、说话风格、口头禅/常用语气等，内容详实生动，适合用于角色扮演对话。
+
+请直接输出角色设定文本本身，不要加任何解释、标题或引号。`;
+
+                personaGenConfirm.disabled = true;
+                personaGenConfirm.textContent = '⏳ 生成中...';
+                try {
+                    const modelService = ctx.getModelService();
+                    // 同步最新配置（模型名可能已切换）
+                    modelService.updateConfig({
+                        modelHost: SettingsManager.getModelHost(),
+                        apiKey: SettingsManager.getApiKey(),
+                        modelName: SettingsManager.getModelName(),
+                    });
+                    const persona = await modelService.generateText(prompt, {
+                        temperature: 0.8,
+                        maxTokens: 600
+                    });
+                    if (persona && persona.trim()) {
+                        rolePersona.value = persona.trim();
+                        rolePersona.dispatchEvent(new Event('input')); // 触发自动高度调整
+                        if (personaGenInput) personaGenInput.value = '';
+                        personaGenControls.style.display = 'none';
+                        if (generatePersonaBtn) generatePersonaBtn.textContent = '✨ 生成';
+                    } else {
+                        this.customAlert('生成失败，请重试', 'error');
+                    }
+                } catch (err) {
+                    console.error('生成角色设定失败:', err);
+                    this.customAlert('生成失败：' + (err.message || '未知错误'), 'error');
+                } finally {
+                    personaGenConfirm.disabled = false;
+                    personaGenConfirm.textContent = '确定生成';
+                }
+            };
+        }
+
         // ---- 背景类型选择 ----
         const bgTypeSelect = document.getElementById('bg-type');
         const bgImageSection = document.getElementById('bg-image-section');
@@ -511,7 +616,7 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
 
         // 静态图片：恢复已保存的图片
         if (bgImg) {
-            const savedImageUrl = settings.bgImageUrl || null;
+            const savedImageUrl = resolveAssetUrl(settings.bgImageUrl || null);
             if (savedImageUrl) {
                 bgImg.src = savedImageUrl;
                 bgImg.setAttribute('data-custom', 'true');
@@ -592,6 +697,7 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         const bgMusicModeRadios = document.querySelectorAll('input[name="chat-bg-music-mode"]');
         const bgMusicUrlRow = document.getElementById('chat-bg-music-url-row');
         const bgMusicFileRow = document.getElementById('chat-bg-music-file-row');
+        const bgMusicAiRow = document.getElementById('chat-bg-music-ai-row');
         const bgMusicUrlInput = document.getElementById('chat-bg-music-url');
         const bgMusicFileName = document.getElementById('chat-bg-music-file-name');
         const bgMusicVolumeSlider = document.getElementById('bg-music-volume');
@@ -613,11 +719,15 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
                 const mode = document.querySelector('input[name="chat-bg-music-mode"]:checked')?.value;
                 if (bgMusicUrlRow) bgMusicUrlRow.style.display = mode === 'url' ? 'block' : 'none';
                 if (bgMusicFileRow) bgMusicFileRow.style.display = mode === 'file' ? 'block' : 'none';
+                if (bgMusicAiRow) bgMusicAiRow.style.display = mode === 'ai' ? 'block' : 'none';
             });
         });
         if (savedMusicMode === 'file') {
             if (bgMusicUrlRow) bgMusicUrlRow.style.display = 'none';
             if (bgMusicFileRow) bgMusicFileRow.style.display = 'block';
+        } else if (savedMusicMode === 'ai') {
+            if (bgMusicUrlRow) bgMusicUrlRow.style.display = 'none';
+            if (bgMusicAiRow) bgMusicAiRow.style.display = 'block';
         }
         if (bgMusicUrlInput) {
             bgMusicUrlInput.value = (savedMusicMode === 'url') ? (settings.bgMusicUrl || '') : '';
@@ -656,6 +766,122 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
             });
         }
 
+        // ---- 背景音乐 AI 生成（输入风格 → 模型生成英文提示词 → 调后端 ComfyUI 生成音乐）----
+        this._pendingAiMusicBlob = null;   // 生成的音乐暂存，保存设置时才落库（用最终 chatId）
+        const bgMusicAiStyleInput = document.getElementById('chat-bg-music-ai-style');
+        const bgMusicAiGenerateBtn = document.getElementById('chat-bg-music-ai-generate');
+        const bgMusicAiPlayBtn = document.getElementById('chat-bg-music-ai-play');
+        const bgMusicAiStatus = document.getElementById('chat-bg-music-ai-status');
+
+        // 停止试听并清理资源
+        const stopAiPreview = () => {
+            if (this._aiPreviewAudio) {
+                this._aiPreviewAudio.pause();
+                this._aiPreviewAudio.src = '';
+                this._aiPreviewAudio = null;
+            }
+            if (this._aiPreviewUrl) {
+                URL.revokeObjectURL(this._aiPreviewUrl);
+                this._aiPreviewUrl = null;
+            }
+            if (bgMusicAiPlayBtn) bgMusicAiPlayBtn.textContent = '▶ 试听';
+        };
+
+        // 每次打开弹窗时清理上次的试听状态
+        stopAiPreview();
+
+        // 试听：播放当前已生成的音乐，再点停止
+        if (bgMusicAiPlayBtn) {
+            bgMusicAiPlayBtn.onclick = () => {
+                if (!this._pendingAiMusicBlob) return;
+                if (this._aiPreviewAudio && !this._aiPreviewAudio.paused) {
+                    stopAiPreview();
+                    return;
+                }
+                stopAiPreview();
+                const url = URL.createObjectURL(this._pendingAiMusicBlob);
+                this._aiPreviewUrl = url;
+                const audio = new Audio(url);
+                audio.onended = () => stopAiPreview();
+                audio.onerror = () => { stopAiPreview(); this.customAlert('试听失败，无法播放音频', 'error'); };
+                audio.play().catch(() => { stopAiPreview(); this.customAlert('试听失败，无法播放音频', 'error'); });
+                this._aiPreviewAudio = audio;
+                if (bgMusicAiPlayBtn) bgMusicAiPlayBtn.textContent = '⏹ 停止试听';
+            };
+        }
+
+        if (bgMusicAiGenerateBtn) {
+            bgMusicAiGenerateBtn.onclick = async () => {
+                const style = bgMusicAiStyleInput ? bgMusicAiStyleInput.value.trim() : '';
+                if (!style) {
+                    this.customAlert('请先输入想要的音乐风格。', 'warning');
+                    return;
+                }
+                stopAiPreview();   // 重新生成前停止旧试听
+                if (bgMusicAiPlayBtn) bgMusicAiPlayBtn.style.display = 'none';
+                bgMusicAiGenerateBtn.disabled = true;
+                if (bgMusicAiStatus) bgMusicAiStatus.textContent = '⏳ 正在生成英文提示词...';
+                try {
+                    // 1. 模型生成细致具体的英文提示词
+                    const modelService = ctx.getModelService();
+                    modelService.updateConfig({
+                        modelHost: SettingsManager.getModelHost(),
+                        apiKey: SettingsManager.getApiKey(),
+                        modelName: SettingsManager.getModelName(),
+                    });
+                    const promptText = `你是音乐提示词专家。根据用户的音乐风格描述，创作一段用于 AI 音乐生成（Stable Audio）的英文提示词。
+
+要求：
+- 全英文
+- 细致具体：包含音乐流派/风格、情绪氛围、主要乐器、节奏速度、音色质感、适用场景等
+- 2-3 句，总词数 30-80
+- 只输出提示词本身，不要任何解释、引号或多余文字
+
+用户的风格描述：${style}`;
+                    const englishPrompt = await modelService.generateText(promptText, { temperature: 0.7, maxTokens: 300 });
+                    if (!englishPrompt || !englishPrompt.trim()) throw new Error('提示词生成失败');
+                    if (bgMusicAiStatus) bgMusicAiStatus.textContent = '🎵 正在生成音乐（约 40 秒）...';
+
+                    // 2. 请求后端 ComfyUI 生成音乐（返回 MP3 二进制）
+                    const imgApiUrl = SettingsManager.getImgApiUrl();
+                    const imgApiKey = SettingsManager.getImgApiKey();
+                    const headers = { 'Content-Type': 'application/json' };
+                    if (imgApiKey) headers['X-API-Key'] = imgApiKey;
+                    const resp = await fetch(`${imgApiUrl}/generate_audio`, {
+                        method: 'POST', headers,
+                        body: JSON.stringify({ positive_prompt: englishPrompt.trim(), negative_prompt: '', duration: 40 })
+                    });
+                    if (!resp.ok) {
+                        let msg = '生成失败';
+                        try { const e = await resp.json(); msg = e.error || msg; } catch { /* ignore */ }
+                        throw new Error(msg);
+                    }
+                    const blob = await resp.blob();
+                    if (!blob || blob.size === 0) throw new Error('生成的音频为空');
+
+                    // 3. 暂存 blob，保存设置时落库；保持 AI 生成模式可见（可试听 / 再次生成）
+                    this._pendingAiMusicBlob = blob;
+                    bgMusicModeRadios.forEach(r => { r.checked = (r.value === 'ai'); });
+                    if (bgMusicUrlRow) bgMusicUrlRow.style.display = 'none';
+                    if (bgMusicFileRow) bgMusicFileRow.style.display = 'none';
+                    if (bgMusicAiRow) bgMusicAiRow.style.display = 'block';
+                    if (bgMusicSwitch) {
+                        bgMusicSwitch.checked = true;
+                        if (bgMusicControls) bgMusicControls.style.display = 'block';
+                    }
+                    // 生成完成：显示试听按钮，可试听或修改风格再次生成
+                    if (bgMusicAiPlayBtn) bgMusicAiPlayBtn.style.display = 'inline-block';
+                    if (bgMusicAiStatus) bgMusicAiStatus.textContent = '✅ 生成完成，可试听；不满意可修改风格重新生成';
+                } catch (err) {
+                    console.error('AI 生成背景音乐失败:', err);
+                    if (bgMusicAiStatus) bgMusicAiStatus.textContent = '';
+                    this.customAlert('生成音乐失败：' + (err.message || '未知错误'), 'error');
+                } finally {
+                    bgMusicAiGenerateBtn.disabled = false;
+                }
+            };
+        }
+
         if (ttsSwitch) {
             ttsSwitch.checked = settings.ttsEnabled || false;
             if (ttsVoiceGroup) ttsVoiceGroup.style.display = ttsSwitch.checked ? 'block' : 'none';
@@ -672,28 +898,84 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
 
         const content = modal.querySelector('.modal-content');
         if (content) content.classList.remove('closing');
+        // 新建模式：标题提示「新建对话」
+        const headerTitle = modal.querySelector('.modal-header h3');
+        if (headerTitle) {
+            headerTitle.innerHTML = newChatMode
+                ? '<i class="fas fa-plus-circle"></i> 新建对话'
+                : '<i class="fas fa-sliders-h"></i> 对话设置';
+        }
         modal.style.display = 'flex';
         ctx.bindAutoResize(rolePersona);
         ctx.bindAutoResize(roleGreeting);
     }
 
+    // 新对话的临时默认设置：继承全局模型参数（与原 createNewChat 保持一致）
+    _buildNewChatSettings() {
+        const s = JSON.parse(JSON.stringify(Constants.DEFAULT_SETTINGS));
+        s.contextLimit = SettingsManager.getContextLimit();
+        s.temperature = SettingsManager.getTemperature();
+        s.topP = SettingsManager.getTopP();
+        s.thinkLevel = SettingsManager.getThinkLevel();
+        s.maxTokens = SettingsManager.getMaxTokens();
+        return s;
+    }
+
+    // 新建模式：从弹窗表单收集「创建对话时即需确定」的字段
+    _collectNewChatSettings() {
+        const s = this._buildNewChatSettings();
+        const contextUnlimited = document.getElementById('context-unlimited').checked;
+        let contextLimit = parseInt(document.getElementById('context-limit').value);
+        if (contextUnlimited) contextLimit = -1;
+        s.contextLimit = contextLimit;
+        s.temperature = parseFloat(document.getElementById('temperature').value);
+        s.topP = parseFloat(document.getElementById('top-p').value);
+        s.thinkLevel = parseInt(document.getElementById('think-level').value);
+        s.maxTokens = parseInt(document.getElementById('max-tokens').value);
+        s.roleName = document.getElementById('role-name').value.trim() || Constants.DEFAULT_ROLE_NAME;
+        s.persona = document.getElementById('role-persona').value.trim() || '暂无设定';
+        s.greeting = document.getElementById('role-greeting').value.trim() || '✨ 你好，我是你的虚拟AI伙伴。';
+        s.userProfileName = document.getElementById('user-profile-name')?.value?.trim() || '';
+        s.userProfileBio = document.getElementById('user-profile-bio')?.value?.trim() || '';
+        const avatarImg = document.getElementById('avatar-img');
+        s.avatarUrl = avatarImg && avatarImg.hasAttribute('data-custom') ? avatarImg.src : null;
+        const bgType = document.getElementById('bg-type')?.value || '';
+        s.bgType = bgType || null;
+        if (bgType === 'image') {
+            const bgImg = document.getElementById('bg-img');
+            s.bgImageUrl = (bgImg && bgImg.hasAttribute('data-custom')) ? bgImg.src : null;
+        }
+        s.ttsEnabled = document.getElementById('tts-switch').checked;
+        s.ttsVoice = document.getElementById('tts-voice-select').value;
+        return s;
+    }
+
     closeSettingsModal() {
         const modal = document.getElementById('settings-modal');
-        this.closeModalWithAnimation(modal);
+        this.closeModalWithAnimation(modal, () => {
+            // 关闭 = 取消新建模式（若未保存则不创建对话）
+            this._newChatMode = false;
+        });
     }
 
     async saveSettings() {
         const ctx = this.ctx;
-        const modelService = ctx.getModelService();
-        if (modelService.isStreaming()) {
-            if (confirm('当前对话正在生成回复，保存设置会中断该回复。是否继续？')) {
-                modelService.abortCurrentStream();
-                ctx.releaseRequestLock();
-                ctx.ttsService.stop();
-                await new Promise(resolve => setTimeout(resolve, 100));
-            } else {
-                this.closeSettingsModal();
-                return;
+        const isNewChat = !!this._newChatMode;
+        if (isNewChat) {
+            // 新建模式：点击「保存设置」= 真正创建对话（其余字段由下方逻辑继续写入）
+            await ctx.createNewChatWithSettings(this._collectNewChatSettings());
+        } else {
+            const modelService = ctx.getModelService();
+            if (modelService.isStreaming()) {
+                if (confirm('当前对话正在生成回复，保存设置会中断该回复。是否继续？')) {
+                    modelService.abortCurrentStream();
+                    ctx.releaseRequestLock();
+                    ctx.ttsService.stop();
+                    await new Promise(resolve => setTimeout(resolve, 100));
+                } else {
+                    this.closeSettingsModal();
+                    return;
+                }
             }
         }
         const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
@@ -751,11 +1033,13 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
                 // 切换到 URL 模式可清除旧的 IndexedDB 文件
                 AssetStore.deleteVideo(currentChat.id).catch(() => {});
             } else {
-                // 文件模式：有新文件则存入 IndexedDB
+                // 文件模式：本地 IndexedDB 留存（离线可用）+ 后端上传（跨设备共享，失败则仅本地）
                 if (this._pendingVideoFile) {
                     await AssetStore.saveVideo(currentChat.id, this._pendingVideoFile);
                     currentChat.settings.bgVideoName = this._pendingVideoFile.name;
-                    currentChat.settings.bgVideoUrl = '';  // 加载时从 IndexedDB 恢复
+                    currentChat.settings.bgVideoMode = 'file';
+                    const ref = await uploadFile(this._pendingVideoFile);
+                    currentChat.settings.bgVideoUrl = ref || '';
                     this._pendingVideoFile = null;
                 }
                 // 无新文件 → 保持已有设置不变
@@ -771,26 +1055,41 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         currentChat.settings.bgMusicEnabled = musicEnabled;
 
         if (musicEnabled) {
-            const musicMode = document.querySelector('input[name="chat-bg-music-mode"]:checked')?.value || 'url';
-            currentChat.settings.bgMusicMode = musicMode;
+            const rawMusicMode = document.querySelector('input[name="chat-bg-music-mode"]:checked')?.value || 'url';
+            // AI 模式但未生成音乐时按 URL 处理（无音乐）
+            const musicMode = rawMusicMode === 'ai' ? 'url' : rawMusicMode;
             const musicVolumeSlider = document.getElementById('bg-music-volume');
             currentChat.settings.bgMusicVolume = musicVolumeSlider ? parseInt(musicVolumeSlider.value) / 100 : 0.5;
 
-            if (musicMode === 'url') {
+            if (this._pendingAiMusicBlob) {
+                // AI 生成音乐：本地 IndexedDB 留存（离线可用）+ 后端上传（跨设备）
+                await AssetStore.saveAudio(currentChat.id, this._pendingAiMusicBlob);
+                const ref = await uploadFile(this._pendingAiMusicBlob);
+                currentChat.settings.bgMusicUrl = ref || '';
+                currentChat.settings.bgMusicName = 'AI 生成音乐';
+                currentChat.settings.bgMusicMode = 'file';
+                this._pendingAiMusicBlob = null;
+            } else if (musicMode === 'url') {
+                currentChat.settings.bgMusicMode = 'url';
                 currentChat.settings.bgMusicUrl = document.getElementById('chat-bg-music-url')?.value?.trim() || '';
                 currentChat.settings.bgMusicName = '';
                 AssetStore.deleteAudio(currentChat.id).catch(() => {});
             } else {
+                currentChat.settings.bgMusicMode = 'file';
                 if (this._pendingMusicFile) {
+                    // 本地 IndexedDB 留存（离线可用）+ 后端上传（跨设备）
                     await AssetStore.saveAudio(currentChat.id, this._pendingMusicFile);
                     currentChat.settings.bgMusicName = this._pendingMusicFile.name;
-                    currentChat.settings.bgMusicUrl = '';
+                    const ref = await uploadFile(this._pendingMusicFile);
+                    currentChat.settings.bgMusicUrl = ref || '';
                     this._pendingMusicFile = null;
                 }
+                // 无新文件 → 保持已有设置不变
             }
         } else {
             // 音乐关闭：停止播放（applyCurrentChatSettings 随后会移除播放器浮栏）
             BgMusicManager.stop();
+            this._pendingAiMusicBlob = null;   // 放弃未保存的 AI 生成音乐
         }
 
         const ttsEnabled = document.getElementById('tts-switch').checked;
@@ -801,6 +1100,16 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
         ctx.applyCurrentChatSettings();
         ctx.renderHistoryList();
         await ctx.chatRepo.saveChat(currentChat);
+        // 保存完成：停止 AI 音乐试听（避免与背景音乐重叠）
+        if (this._aiPreviewAudio) {
+            this._aiPreviewAudio.pause();
+            this._aiPreviewAudio.src = '';
+            this._aiPreviewAudio = null;
+        }
+        if (this._aiPreviewUrl) {
+            URL.revokeObjectURL(this._aiPreviewUrl);
+            this._aiPreviewUrl = null;
+        }
         if (oldGreeting !== newGreeting) {
             ctx.startNewTopic();   // 内部会重新渲染新话题的消息
         } else if (this.#chatUiSettingsChanged(oldSettings)) {

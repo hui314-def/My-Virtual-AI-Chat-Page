@@ -5,11 +5,13 @@ import os
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from dotenv import load_dotenv
 
 import db
 from auth import hash_password, verify_password, create_token, get_current_user_id
+import assets
 
 load_dotenv()
 
@@ -22,6 +24,8 @@ app.add_middleware(
     allow_methods=['*'],
     allow_headers=['*'],
 )
+# 聊天文本压缩率很高（尤其长文本），压缩后传输体积可降 5~10 倍
+app.add_middleware(GZipMiddleware, minimum_size=1000)
 
 PORT = int(os.getenv('CHAT_STORE_PORT', '8001'))
 
@@ -212,6 +216,34 @@ async def delete_account(request: Request, user_id: int = Depends(get_current_us
     finally:
         conn.close()
     return {'deleted': True}
+
+
+# ============ 图片/二进制资源（文件系统 + URL 引用） ============
+@app.post('/api/assets')
+async def upload_asset(request: Request, user_id: int = Depends(get_current_user_id)):
+    """上传一张图（data URL）→ 落盘 → 返回 assetId / url。"""
+    data = await request.json()
+    if not isinstance(data, dict):
+        raise HTTPException(status_code=400, detail='请求体需为对象')
+    data_url = data.get('dataUrl')
+    asset_id = assets.save_data_url(data_url)
+    return {'assetId': asset_id, 'url': f'/api/assets/{asset_id}'}
+
+
+@app.post('/api/assets/raw')
+async def upload_asset_raw(request: Request, user_id: int = Depends(get_current_user_id)):
+    """上传原始二进制（视频/音频等大文件，请求体即文件内容，Content-Type 决定扩展名）。"""
+    body = await request.body()
+    mime = (request.headers.get('content-type') or '').split(';')[0].strip().lower()
+    ext = assets.MIME_EXT.get(mime, 'bin')
+    asset_id = assets.save_bytes(body, ext)
+    return {'assetId': asset_id, 'url': f'/api/assets/{asset_id}'}
+
+
+@app.get('/api/assets/{asset_id}')
+def read_asset(asset_id: str):
+    """读取资源文件（局域网内匿名可读，便于 <img> 直接引用；asset_id 为随机不可猜）。"""
+    return assets.asset_file_response(asset_id)
 
 
 # ============ 聊天记录 ============

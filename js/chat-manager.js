@@ -1,8 +1,6 @@
 // 对话管理:新建 / 切换 / 置顶 / 删除 / 快捷键切换
 // 从 script.js 分离(阶段2),风格与其余 js/ 模块一致(构造注入依赖)
-import Constants from './constants.js';
 import { getCurrentTime } from './utils.js';
-import { SettingsManager } from './settings-manager.js';
 
 export class ChatManager {
     /**
@@ -60,18 +58,16 @@ export class ChatManager {
     get currentChatId() { return this.getCurrentChatId(); }
     get modalManager() { return this.getModalManager(); }
 
-    // 新建对话
+    // 新建对话：先弹出对话设置弹窗，用户点击「保存设置」后才真正创建对话
     async createNewChat() {
         this.closeSidebarOnMobile();
+        this.modalManager.openSettingsModal({ newChat: true });
+    }
+
+    // 使用传入的设置新建对话（供「新对话 → 先弹设置 → 保存后创建」流程使用）
+    async createNewChatWithSettings(settings) {
+        this.closeSidebarOnMobile();
         const newId = Date.now();
-        // 新对话的标题使用默认设置
-        const newSettings = JSON.parse(JSON.stringify(Constants.DEFAULT_SETTINGS));
-        newSettings.contextLimit = SettingsManager.getContextLimit();
-        newSettings.temperature = SettingsManager.getTemperature();
-        newSettings.topP = SettingsManager.getTopP();
-        newSettings.thinkLevel = SettingsManager.getThinkLevel();
-        newSettings.maxTokens = SettingsManager.getMaxTokens();
-        // 继承用户管理的用户名等
         const newChat = {
             id: newId,
             title: `新对话 ${this.chats.length + 1}`,
@@ -82,11 +78,11 @@ export class ChatManager {
                 createdAt: new Date().toISOString(),
                 summary: null,
                 messages: [
-                    { type: 'ai', text: newSettings.greeting, time: getCurrentTime() }
+                    { type: 'ai', text: settings.greeting, time: getCurrentTime() }
                 ]
             }],
             currentTopicIndex: 0,
-            settings: newSettings,
+            settings,
             pinned: false
         };
         this.chats.unshift(newChat);

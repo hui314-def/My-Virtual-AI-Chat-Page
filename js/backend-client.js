@@ -43,6 +43,32 @@ export class BackendClient {
         return data;
     }
 
+    /** 原始二进制请求（大文件上传：视频/音频）。 */
+    async #requestRaw(method, path, body, contentType) {
+        const headers = {};
+        if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
+        if (contentType) headers['Content-Type'] = contentType;
+
+        let resp;
+        try {
+            resp = await fetch(this.getBaseUrl() + path, { method, headers, body });
+        } catch (e) {
+            throw new Error('无法连接后端服务，请确认聊天存储服务已启动');
+        }
+
+        let data = null;
+        try { data = await resp.json(); } catch { /* 非 JSON 响应 */ }
+
+        if (!resp.ok) {
+            if (resp.status === 401) {
+                try { this.onUnauthorized(); } catch { /* ignore */ }
+            }
+            const msg = (data && (data.detail || data.message)) || `请求失败(${resp.status})`;
+            throw new Error(msg);
+        }
+        return data;
+    }
+
     // ===== 鉴权 =====
     register(username, password) {
         return this.#request('POST', '/api/auth/register', { username, password });
@@ -78,6 +104,14 @@ export class BackendClient {
     }
     deleteChat(chatId) {
         return this.#request('DELETE', `/api/chats/${encodeURIComponent(chatId)}`);
+    }
+
+    // ===== 图片资源（文件系统存储） =====
+    uploadAsset(dataUrl) {
+        return this.#request('POST', '/api/assets', { dataUrl });
+    }
+    uploadAssetRaw(file) {
+        return this.#requestRaw('POST', '/api/assets/raw', file, file?.type || 'application/octet-stream');
     }
 
     // ===== 设置 =====

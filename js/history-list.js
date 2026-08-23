@@ -2,6 +2,7 @@
 // 从 script.js 分离(阶段2),风格与其余 js/ 模块一致(构造注入依赖)
 import Constants from './constants.js';
 import { escapeHtml, formatDate } from './utils.js';
+import { resolveAssetUrl } from './asset-sync.js';
 
 export class HistoryList {
     /**
@@ -49,7 +50,7 @@ export class HistoryList {
 
             let avatarHtml = '';
             if (avatarUrl) {
-                avatarHtml = `<img src="${avatarUrl}" class="history-avatar-img" alt="avatar">`;
+                avatarHtml = `<img src="${resolveAssetUrl(avatarUrl)}" class="history-avatar-img" alt="avatar">`;
             } else {
                 avatarHtml = `<i class="fas fa-robot history-default-icon"></i>`;
             }

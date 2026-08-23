@@ -2,6 +2,7 @@
 // 由 applyCurrentChatSettings() 调用，传入当前对话的 settings
 import Constants from './constants.js';
 import AssetStore from './asset-store.js';
+import { resolveAssetUrl } from './asset-sync.js';
 
 class BackgroundManager {
     static #currentVideoSrc = null;
@@ -24,7 +25,7 @@ class BackgroundManager {
         if (!mainChat) return;
 
         // 兼容旧数据：如果 bgImageUrl 为空但 bgUrl 存在，用 bgUrl
-        const imageUrl = bgImageUrl || opts.bgUrl || null;
+        const imageUrl = resolveAssetUrl(bgImageUrl || opts.bgUrl || null);
 
         // 1. 静态图片
         if (bgType === 'image' && imageUrl) {
@@ -40,15 +41,17 @@ class BackgroundManager {
             let src = null;
 
             if (bgVideoMode === 'file' && chatId != null) {
-                const blob = await AssetStore.getVideo(chatId);
+                const blob = await AssetStore.getVideo(chatId);   // 优先本地 IndexedDB（离线可用）
                 if (blob) {
                     if (this.#currentVideoSrc && this.#currentVideoSrc.startsWith('blob:')) {
                         URL.revokeObjectURL(this.#currentVideoSrc);
                     }
                     src = URL.createObjectURL(blob);
+                } else if (bgVideoUrl && bgVideoUrl.startsWith('asset://')) {
+                    src = resolveAssetUrl(bgVideoUrl);   // 本地缺失 → 后端文件系统（跨设备）
                 }
             } else if (bgVideoMode === 'url' && (bgVideoUrl || opts.bgUrl)) {
-                src = bgVideoUrl || opts.bgUrl;
+                src = resolveAssetUrl(bgVideoUrl || opts.bgUrl);
             }
 
             if (src) {
