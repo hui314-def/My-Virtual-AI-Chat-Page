@@ -14,6 +14,7 @@ class Constants {
             TOKEN_USAGE_STATS: 'token_usage_stats',
             SYNC_API_URL: 'sync_api_url',
             GUEST_CLAIMED: 'guest_data_claimed',
+            PROMPT_INJECTIONS: 'prompt_injections',
         };
     }
 
@@ -129,12 +130,37 @@ class Constants {
             thinkLevel: 0,          // 0=关闭, 1=低, 2=中, 3=高, 4=最高
             maxTokens: 500,         // 最大生成 token 数
             userProfileName: '',    // 对话级用户昵称（留空 = 跟随全局「对话设定」）
-            userProfileBio: ''      // 对话级用户简介（留空 = 跟随全局「对话设定」）
+            userProfileBio: '',     // 对话级用户简介（留空 = 跟随全局「对话设定」）
+            memoryEnabled: true     // 对话级记忆开关：true/false/null(=跟随全局)
         };
     }
 
     // 思考深度档位标签
     static get THINK_LEVELS() { return ['关闭', '低', '中', '高', '最高']; }
+
+    // ==================== IndexedDB 版本 ====================
+    static get DB_VERSION() { return 3; }   // v2→v3:新增 memories / memories_archive / memory_events
+
+    // ==================== 记忆系统参数 ====================
+    static get MEMORY_EXTRACT_INTERVAL() { return 10; }        // 每累计 N 条新消息触发一次提取
+    static get MEMORY_EXTRACT_MIN_GAP() { return 5; }          // 距上次提取不足 N 条则跳过(防抖)
+    static get MEMORY_EXTRACT_CONTEXT_LEN() { return 40; }     // 提取时提供给模型的历史消息条数上限
+    static get MEMORY_EVENTS_MAX_PER_KIND() { return 200; }    // 每类事件日志保留条数(环形)
+    static get MEMORY_DEDUP_ENTITY_OVERLAP() { return 0.5; }   // 降级去重:实体重合率阈值
+    static get MEMORY_ACTIVATION_MAX() { return 100; }         // DMAE 活跃度上限
+    static get MEMORY_ACTIVE_THRESHOLD() { return 30; }        // DMAE Active 阈值
+    static get MEMORY_WAKEUP_BONUS() { return 5; }             // 归档唤醒补偿
+    static get MEMORY_B_U() { return 20; }                     // 用户命中基础奖励
+    static get MEMORY_B_M() { return 8; }                      // 模型上下文维护奖励
+    static get MEMORY_GAMMA() { return 0.5; }                  // 久别重逢增益系数
+    static get MEMORY_LAMBDA() { return 0.3; }                 // 模型奖励衰减系数
+    static get MEMORY_ALPHA() { return 1.0; }                  // 用户沉默衰减权重
+    static get MEMORY_BETA() { return 0.2; }                   // 模型沉默衰减权重
+    static get MEMORY_RHO() { return 0.5; }                    // 重复命中抑制强度
+    static get MEMORY_SATURATION_P() { return 2; }             // 饱和抑制幂次
+    static get MEMORY_REPEAT_WINDOW() { return 6; }            // 重复命中统计窗口轮数
+    static get MEMORY_L2_THRESHOLD() { return 0.55; }          // L2 向量召回相似度阈值
+    static get MEMORY_L2_TOP_K() { return 5; }                 // L2 向量召回 Top-K
 
     // ==================== 模型参数默认值 ====================
     static get DEFAULT_MODEL_HOST() { return 'http://localhost:11434'; }

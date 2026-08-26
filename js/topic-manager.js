@@ -1,6 +1,7 @@
 // 话题管理:话题索引辅助、开启新话题、切换话题(动画)、生成话题摘要
 // 从 script.js 分离(阶段2),风格与其余 js/ 模块一致(构造注入依赖)
 import Constants from './constants.js';
+import { SettingsManager } from './settings-manager.js';
 import { genMsgUid, getCurrentTime, parseThinkContent, parseParenthesesContent } from './utils.js';
 
 export class TopicManager {
@@ -29,6 +30,7 @@ export class TopicManager {
         renderHistoryList,
         renderMessages,
         getModalManager,
+        onTopicSwitch = () => {},
     }) {
         this.getChats = getChats;
         this.getCurrentChatId = getCurrentChatId;
@@ -41,6 +43,7 @@ export class TopicManager {
         this.renderHistoryList = renderHistoryList;
         this.renderMessages = renderMessages;
         this.getModalManager = getModalManager;
+        this.onTopicSwitch = onTopicSwitch;
     }
 
     get chats() { return this.getChats(); }
@@ -122,6 +125,9 @@ export class TopicManager {
                     .finally(() => this.uiAppearance.updateStatusIndicator('online'));
             }
         }
+
+        // 记忆提取(话题切换触发,异步,带防抖)
+        Promise.resolve(this.onTopicSwitch(currentChat.id)).catch(err => console.warn('[Memory] 话题切换提取失败：', err));
     }
 
     // 切换话题视图（带淡出/跌落动画）
@@ -193,13 +199,34 @@ export class TopicManager {
         const currentChat = this.chats.find(c => c.id == this.currentChatId);
         if (!currentChat) return null;
 
-        // 提取话题中所有用户和AI的消息文本
-        const conversationText = topicMessages.map(msg => `${msg.type === 'user' ? '用户' : '助手'}：${msg.text}`).join('\n');
+        // 提取话题中所有用户和AI的消息文本。
+        // 用户侧：优先对话级「用户画像」昵称 → 全局昵称（非默认值时）→ 兜底「用户」；
+        // AI侧：使用真实角色名称（与 message-suggest 的称呼解析规则保持一致）
+        const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
+        const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
+        const chatProfileName = (settings.userProfileName || '').trim();
+        const userName = chatProfileName
+            || (SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername());
+        const conversationText = topicMessages.map(msg => `${msg.type === 'user' ? userName : roleName}：${msg.text}`).join('\n');
         if (!conversationText.trim()) return '（无内容）';
 
-        const prompt = `请为以下对话生成一句简短的摘要（10-30字），简明扼要地概括主要内容：\n${conversationText}`;
+        const prompt = `请为以下对话生成一句简短的摘要，简明扼要地概括主要内容：\n${conversationText}
+        
+【格式要求】
+1、只需要生成摘要本身，不要包含其他说明性文字和任何符号；
+2、摘要应为一句话，字数控制在10-30字之间；
+3、语言应为中文，避免使用英文或其他语言；
+`;
 
         const modelService = this.getModelService();
+        // 使用「辅助任务模型」(话题摘要类轻量任务，可在模型设置中选择；未设置则跟随主模型)
+        if (modelService && typeof modelService.updateConfig === 'function') {
+            modelService.updateConfig({
+                modelHost: SettingsManager.getModelHost(),
+                apiKey: SettingsManager.getApiKey(),
+                modelName: SettingsManager.getAuxEffectiveModel(),
+            });
+        }
         try {
             const summary = await modelService.generateText(prompt, { temperature: 0.3, maxTokens: 100 });
             return summary.trim() || '生成失败';

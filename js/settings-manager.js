@@ -21,6 +21,8 @@ const DEFAULTS = Object.freeze({
     modelHost: Constants.DEFAULT_MODEL_HOST,
     apiKey: '',
     modelName: Constants.DEFAULT_MODEL_NAME,
+    // 辅助任务模型（话题摘要/消息建议/记忆提取/开场白/人设/英文提示词），空字符串 = 跟随主模型
+    auxModel: '',
 
     // 用户相关
     username: Constants.DEFAULT_USERNAME,
@@ -50,6 +52,8 @@ const DEFAULTS = Object.freeze({
     shortcuts: {},
     //自动滚动开关
     autoScrollAfterSend: true,
+    // 长期记忆开关（全局）
+    memoryEnabled: true,
 });
 
 export class SettingsManager {
@@ -205,6 +209,12 @@ export class SettingsManager {
     static getApiKey()      { return this._read().apiKey ?? DEFAULTS.apiKey; }
     static getModelName()   { return this._read().modelName ?? DEFAULTS.modelName; }
 
+    /** 辅助任务模型（话题摘要/消息建议/记忆提取/开场白/人设/英文提示词），空字符串表示跟随主模型 */
+    static getAuxModel()    { return this._read().auxModel ?? DEFAULTS.auxModel; }
+
+    /** 辅助任务实际生效的模型：配置了辅助模型则用之，否则跟随主模型 */
+    static getAuxEffectiveModel() { return this.getAuxModel() || this.getModelName(); }
+
     static getUsername()    { return this._read().username ?? DEFAULTS.username; }
     static getBio()         { return this._read().bio ?? DEFAULTS.bio; }
     static getAvatar()      { return this._read().avatar ?? DEFAULTS.avatar; }
@@ -227,6 +237,7 @@ export class SettingsManager {
 
     static getShortcuts()   { return this._read().shortcuts ?? DEFAULTS.shortcuts; }
     static getAutoScrollAfterSend() {return this._read().autoScrollAfterSend ?? DEFAULTS.autoScrollAfterSend;}
+    static getMemoryEnabled() { return this._read().memoryEnabled ?? DEFAULTS.memoryEnabled; }
 
     // ========== 云同步 ==========
     /** 注册设置变更回调（localStorage 写入后触发，参数为可同步子集）。 */

@@ -3,8 +3,8 @@
 文件目录默认在 backend_code/chat_store/assets（可用环境变量 ASSET_DIR 覆盖，如 D:\\ai_chat_assets）。"""
 import os
 import re
-import uuid
 import base64
+import hashlib
 import mimetypes
 from fastapi import HTTPException
 from fastapi.responses import FileResponse
@@ -27,15 +27,21 @@ MIME_EXT = {
     'video/webm': 'webm',
 }
 
-_SAFE_ID = re.compile(r'^[0-9a-f]{32}\.[A-Za-z0-9]{1,5}$')
+# 兼容旧 32 位 uuid 文件名 + 新 64 位 sha256 文件名
+_SAFE_ID = re.compile(r'^[0-9a-f]{32,64}\.[A-Za-z0-9]{1,5}$')
 
 
 def ensure_dir():
     os.makedirs(ASSET_DIR, exist_ok=True)
 
 
+def _asset_id_for(data: bytes, ext: str) -> str:
+    """内容寻址：同一份内容永远得到同一个文件名（sha256），避免重复文件。"""
+    return hashlib.sha256(data).hexdigest() + '.' + ext
+
+
 def save_data_url(data_url: str) -> str:
-    """解析 data URL 并落盘，返回 asset_id（含扩展名）。"""
+    """解析 data URL 并落盘（内容去重），返回 asset_id（含扩展名）。"""
     if not isinstance(data_url, str) or not data_url.startswith('data:'):
         raise HTTPException(status_code=400, detail='仅支持 data URL')
     m = re.match(r'^data:([^;,]*)?(;base64)?,(.*)$', data_url, re.S)
@@ -46,10 +52,6 @@ def save_data_url(data_url: str) -> str:
     payload = m.group(3)
 
     ext = MIME_EXT.get(mime, 'bin')
-    asset_id = uuid.uuid4().hex + '.' + ext
-    ensure_dir()
-    path = os.path.join(ASSET_DIR, asset_id)
-
     if is_b64:
         try:
             data = base64.b64decode(payload)
@@ -58,20 +60,26 @@ def save_data_url(data_url: str) -> str:
     else:
         data = payload.encode('utf-8')
 
-    with open(path, 'wb') as f:
-        f.write(data)
+    asset_id = _asset_id_for(data, ext)
+    path = os.path.join(ASSET_DIR, asset_id)
+    if not os.path.isfile(path):
+        ensure_dir()
+        with open(path, 'wb') as f:
+            f.write(data)
     return asset_id
 
 
 def save_bytes(data: bytes, ext: str = 'bin') -> str:
-    """直接保存原始二进制（大文件：视频/音频），返回 asset_id。"""
+    """直接保存原始二进制（大文件：视频/音频），内容去重，返回 asset_id。"""
     if not isinstance(data, (bytes, bytearray)):
         raise HTTPException(status_code=400, detail='请求体需为二进制')
-    asset_id = uuid.uuid4().hex + '.' + ext
-    ensure_dir()
+    data = bytes(data)
+    asset_id = _asset_id_for(data, ext)
     path = os.path.join(ASSET_DIR, asset_id)
-    with open(path, 'wb') as f:
-        f.write(data)
+    if not os.path.isfile(path):
+        ensure_dir()
+        with open(path, 'wb') as f:
+            f.write(data)
     return asset_id
 
 

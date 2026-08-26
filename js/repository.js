@@ -1,4 +1,6 @@
 // 聊天数据持久化仓库（IndexedDB）负责 chats 数据的保存、加载、删除
+import Constants from './constants.js';
+
 export class ChatRepository {
     /**
      * @param {() => string} [getDbName] 动态返回 IndexedDB 库名（用于按账号命名空间分库）
@@ -6,7 +8,7 @@ export class ChatRepository {
     constructor(getDbName = () => 'ChatAppDB') {
         this.db = null;
         this.getDbName = getDbName;
-        this.dbVersion = 2;
+        this.dbVersion = Constants.DB_VERSION;
         this.storeName = 'chats';
         this.snapshotStoreName = 'snapshots';
     }
@@ -37,8 +39,25 @@ export class ChatRepository {
                 if (!db.objectStoreNames.contains(this.snapshotStoreName)) {
                     db.createObjectStore(this.snapshotStoreName, { keyPath: 'id' });
                 }
+                // v3：记忆系统 store（热层 / 归档 / 事件日志）
+                if (!db.objectStoreNames.contains('memories')) {
+                    db.createObjectStore('memories', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('memories_archive')) {
+                    db.createObjectStore('memories_archive', { keyPath: 'id' });
+                }
+                if (!db.objectStoreNames.contains('memory_events')) {
+                    const eventsStore = db.createObjectStore('memory_events', { keyPath: 'id' });
+                    eventsStore.createIndex('kind', 'kind', { unique: false });
+                    eventsStore.createIndex('time', 'time', { unique: false });
+                }
             };
         });
+    }
+
+    /** 暴露已打开的 db 连接，供 MemoryRepository 等复用（避免多连接版本冲突）。 */
+    async getDb() {
+        return this.#openDB();
     }
 
     /**

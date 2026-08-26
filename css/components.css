@@ -592,3 +592,173 @@
     cursor: pointer;
     border: none;
 }
+
+/* ==================== 提示词注入系统 ==================== */
+.pi-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    margin-bottom: 12px;
+}
+.pi-status {
+    font-size: 0.78rem;
+    color: #8e8eb3;
+    margin-bottom: 8px;
+}
+.pi-card-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+.pi-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(30, 34, 55, 0.45);
+    border: 1px solid rgba(100, 130, 255, 0.25);
+    border-radius: 10px;
+    padding: 10px 12px;
+    transition: opacity 0.2s, box-shadow 0.15s;
+}
+.pi-card.pi-disabled {
+    opacity: 0.55;
+}
+.pi-card.pi-dragging {
+    opacity: 0.4;
+    border-color: #5f7eff;
+    box-shadow: 0 0 12px rgba(95, 126, 255, 0.35);
+}
+.pi-drag-handle {
+    display: flex;
+    align-items: center;
+    cursor: grab;
+    color: #6b6f8a;
+    font-size: 1rem;
+    letter-spacing: 2px;
+    padding: 6px 8px;
+    border-radius: 6px;
+    user-select: none;
+    flex-shrink: 0;
+}
+.pi-drag-handle:hover {
+    background: rgba(95, 126, 255, 0.15);
+    color: #a5b9ff;
+}
+.pi-drag-handle:active {
+    cursor: grabbing;
+}
+.pi-card-info {
+    flex: 1;
+    min-width: 0;
+}
+.pi-card-name {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-weight: 600;
+    color: #e6ebff;
+    font-size: 0.9rem;
+}
+.pi-name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.pi-card-sub {
+    font-size: 0.7rem;
+    color: #6b6f8a;
+    margin-top: 2px;
+}
+.pi-drop-indicator {
+    height: 3px;
+    border-radius: 2px;
+    background: #5f7eff;
+    box-shadow: 0 0 8px rgba(95, 126, 255, 0.6);
+    margin: 1px 0;
+}
+.pi-badge {
+    font-size: 0.68rem;
+    color: #a5b9ff;
+    background: rgba(95, 126, 255, 0.15);
+    border: 1px solid rgba(95, 126, 255, 0.3);
+    border-radius: 20px;
+    padding: 1px 8px;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+.pi-badge-warn {
+    color: #ffb84d;
+    background: rgba(255, 184, 77, 0.12);
+    border-color: rgba(255, 184, 77, 0.35);
+}
+.pi-actions {
+    display: flex;
+    gap: 4px;
+    flex-shrink: 0;
+}
+.pi-btn {
+    background: rgba(45, 55, 85, 0.6);
+    border: 1px solid rgba(100, 130, 255, 0.35);
+    color: #ccd6ff;
+    border-radius: 8px;
+    padding: 2px 8px;
+    cursor: pointer;
+    font-size: 0.78rem;
+    transition: 0.15s;
+}
+.pi-btn:hover {
+    background: rgba(70, 85, 140, 0.7);
+}
+.pi-btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+}
+.pi-btn-danger:hover {
+    background: rgba(200, 80, 90, 0.4);
+    border-color: rgba(255, 120, 130, 0.5);
+}
+.pi-empty {
+    text-align: center;
+    padding: 30px;
+    color: #6b6f8a;
+    font-size: 0.85rem;
+    border: 1px dashed rgba(100, 130, 255, 0.25);
+    border-radius: 10px;
+}
+.pi-form-hint {
+    font-size: 0.75rem;
+    color: #8e8eb3;
+    margin: 8px 0 0;
+}
+.pi-form-hint code {
+    background: rgba(95, 126, 255, 0.15);
+    padding: 1px 5px;
+    border-radius: 4px;
+    color: #a5b9ff;
+}
+/* —— 提示词编辑弹窗表单 —— */
+.pi-editor-form label {
+    display: block;
+    font-size: 0.8rem;
+    color: #ccd6ff;
+    margin: 10px 0 4px;
+}
+.pi-editor-form input[type="text"],
+.pi-editor-form textarea {
+    width: 100%;
+    box-sizing: border-box;
+    background: rgba(20, 24, 40, 0.7);
+    border: 1px solid rgba(100, 130, 255, 0.35);
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #ccd6ff;
+    font-size: 0.85rem;
+    font-family: inherit;
+    resize: vertical;
+}
+.pi-editor-form input[type="text"]:focus,
+.pi-editor-form textarea:focus {
+    outline: none;
+    border-color: #5f7eff;
+}

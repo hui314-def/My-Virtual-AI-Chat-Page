@@ -36,6 +36,7 @@ export class ChatManager {
         getCurrentTopicIndex,
         closeSidebarOnMobile,
         getModalManager,
+        onDeleteChat = () => {},
     }) {
         this.getChats = getChats;
         this.getCurrentChatId = getCurrentChatId;
@@ -52,6 +53,7 @@ export class ChatManager {
         this.getCurrentTopicIndex = getCurrentTopicIndex;
         this.closeSidebarOnMobile = closeSidebarOnMobile;
         this.getModalManager = getModalManager;
+        this.onDeleteChat = onDeleteChat;
     }
 
     get chats() { return this.getChats(); }
@@ -174,7 +176,7 @@ export class ChatManager {
             this.modalManager.customAlert('至少保留一个对话，无法删除最后一个。', 'warn');
             return;
         }
-        if (!confirm('确定要删除这个会话吗？此操作不可撤销。')) return;
+        if (!confirm('确定要删除这个会话吗？此操作不可撤销。\n\n该角色的专属记忆将一并删除。')) return;
 
         const item = document.querySelector(`.history-item[data-id="${chatId}"]`);
         if (item) {
@@ -216,6 +218,9 @@ export class ChatManager {
             }
             this.renderHistoryList();       // 重新渲染列表（此时已无删除动画，会平滑出现）
             await this.chatRepo.saveAllChats(this.chats);
+
+            // 级联删除该对话的专属记忆(热层+归档+日志;全局记忆不受影响)
+            try { await this.onDeleteChat(id); } catch (err) { console.warn('[Memory] 删除对话记忆失败：', err); }
 
             // 提示
             this.modalManager.showBriefToast('🗑️ 会话已删除')

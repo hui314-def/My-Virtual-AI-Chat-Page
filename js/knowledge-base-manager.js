@@ -104,6 +104,22 @@ export class KnowledgeBaseManager {
             html += `<div style="grid-column:1/-1; text-align:center; padding:40px; color:#8e8eb3;">暂无知识库，点击"新建知识库"创建</div>`;
         } else {
             for (const kb of kbList) {
+                // 角色记忆库:只读卡片(由记忆系统维护,无删除/改名按钮)
+                if (kb.is_memory || kb.id === '__memory__') {
+                    html += `
+                    <div class="knowledge-card" data-kb-id="${kb.id}" data-memory="1" style="background:rgba(124,88,255,0.08); border-radius:16px; padding:20px; border:1px solid rgba(124,88,255,0.5); cursor:pointer; transition:0.2s; position:relative;">
+                        <div style="display:flex; justify-content:space-between; align-items:flex-start;">
+                            <i class="fas fa-brain" style="font-size:1.5rem; color:#a78bfa;"></i>
+                            <span style="font-size:0.65rem; color:#a78bfa; background:rgba(124,88,255,0.15); border-radius:8px; padding:2px 8px;">🔒 系统维护</span>
+                        </div>
+                        <div class="kb-card-name" style="font-size:1.1rem; font-weight:500; margin:12px 0 4px; color:#d6ccff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(kb.name)}</div>
+                        ${kb.description ? `<div class="kb-card-desc" style="font-size:0.8rem; color:#c4b5fd; margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word;">${escapeHtml(kb.description)}</div>` : ''}
+                        <div style="font-size:0.8rem; color:#8e8eb3;">记忆条数：${kb.document_count || 0}</div>
+                        <div style="font-size:0.7rem; color:#6c7b9e; margin-top:4px;">⚠ 不可删除 / 不可改名</div>
+                    </div>
+                    `;
+                    continue;
+                }
                 html += `
                     <div class="knowledge-card" data-kb-id="${kb.id}" style="background:rgba(30,34,55,0.6); border-radius:16px; padding:20px; border:1px solid rgba(100,130,255,0.3); cursor:pointer; transition:0.2s; position:relative;">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
@@ -127,6 +143,10 @@ export class KnowledgeBaseManager {
         container.querySelectorAll('.knowledge-card').forEach(card => {
             card.addEventListener('click', (e) => {
                 if (e.target.closest('button')) return;
+                if (card.dataset.memory === '1') {
+                    this.customAlert('🧠 角色记忆库由记忆系统自动维护，用于存放各角色的长期记忆（全局记忆 + 各角色专属记忆）。不可删除、不可改名。', 'info');
+                    return;
+                }
                 this.showKnowledgeDetail(card.dataset.kbId);
             });
         });
@@ -179,6 +199,16 @@ export class KnowledgeBaseManager {
     async showKnowledgeDetail(kbId) {
         const container = document.getElementById('knowledge-base-container');
         if (!container) return;
+
+        // 角色记忆库:只读,不展示文档列表
+        if (kbId === '__memory__') {
+            this._renderKbContent(container, `<div style="grid-column:1/-1; text-align:center; padding:40px; color:#b7c4ff;">
+                <i class="fas fa-brain" style="font-size:2.5rem; color:#a78bfa; margin-bottom:12px; display:block;"></i>
+                角色记忆库<br>
+                <span style="font-size:0.8rem; color:#8e8eb3; line-height:1.8;">由记忆系统自动维护，用于存放各角色的长期记忆（全局记忆 + 各角色专属记忆）。<br>不可删除、不可改名、不可上传文档。</span>
+            </div>`);
+            return;
+        }
 
         // 获取知识库名称
         let kbName = '知识库';

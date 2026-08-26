@@ -138,11 +138,11 @@ export class MessageSuggest {
     async _fetchFromModel() {
         const settingsManager = this.getSettingsManager();
         const modelService = this.getModelService();
-        // 确保配置最新（与 simulateAIResponse 一致）
+        // 使用「辅助任务模型」(可在模型设置中选择；未设置则跟随主模型)
         modelService.updateConfig({
             modelHost: settingsManager.getModelHost(),
             apiKey: settingsManager.getApiKey(),
-            modelName: settingsManager.getModelName(),
+            modelName: settingsManager.getAuxEffectiveModel(),
         });
         return await modelService.generateText(this._buildPrompt(), {
             temperature: 1,    // 稍高温度，3 条建议更有差异性
@@ -194,14 +194,15 @@ ${contextLines || '（暂无对话记录）'}
 站在「${userName}」的视角，生成 3 条【用户接下来可以发送给角色】的候选消息，
 帮助用户自然地把对话继续下去。
 
-请只输出一个 JSON 对象，不要输出任何解释或多余文字，格式严格如下：
+请只输出一个 JSON 对象，格式严格如下：
 {"suggestions":[{"kind":"种类名","content":"消息内容"}]}
 
-要求：
+【要求】
 1. suggestions 数组包含 3 条候选消息，kind（种类名）各不相同（包括但不限于：关心对方 / 推进剧情 / 幽默调侃 / 提问互动等，根据语境自选更合适的角度）；
 2. content 以「${userName}」的第一人称口吻书写，贴合当前语境，不违背已有剧情。内容可以包含人物动作、环境描写、情绪描述等非语言表达内容，当你的回复中包含这样的的内容时，请使用括号（）将这些内容包裹起来；
 3. content 中的换行请用 \\n 转义，双引号用 \\" 转义，确保是合法 JSON；
-4. 不要输出任何 HTML 标签或 Markdown 语法，纯文本即可。`;
+4. 不要输出任何解释性文字或多余的符号，只需要输出JSON对象本身；
+5. “种类名”和“消息内容”的语言应为中文，避免使用英文或其他语言；`;
     }
 
     // ==================== 解析（JSON 优先，文本兜底） ====================

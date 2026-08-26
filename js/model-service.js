@@ -243,11 +243,13 @@ export class ModelService {
             return {
                 ...baseBody,
                 ...(jsonFormat ? { format: 'json' } : {}),
+                // Ollama 的 think 是【顶层字段】，不是 options 采样参数；
+                // 放在 options 里会被 Ollama 忽略，导致 think:false 不生效、模型照常输出 thinking
+                think: thinkValue,
                 options: {
                     temperature,
                     top_p: topP,
                     num_predict: maxTokens,
-                    think: thinkValue
                 }
             };
         } else {
@@ -403,6 +405,11 @@ export class ModelService {
             // 思考深度关闭时丢弃 thinking，否则包裹 <think> 标签
             if (thinking && thinkLevel > 0) {
                 return `<think>${thinking}</think>${content}`;
+            }
+            // 防御：thinkLevel=0 时本不该有 thinking，若 content 被 thinking 占满截断为空，
+            // 直接抛出可读错误，而不是让调用方拿到空串导致 JSON 解析失败
+            if (thinkLevel === 0 && !content && thinking) {
+                throw new Error('模型仍输出了 thinking 且占满了 token 预算（content 为空）。请改用非推理模型（如 gemma4/gemma2/gpt-oss），或增大 maxTokens');
             }
             return content;
         } else {

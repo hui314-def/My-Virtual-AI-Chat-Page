@@ -48,6 +48,9 @@ _schema_no_fts.create_index(config=VectorIndexConfig(space="cosine"))
 # 元数据集合（存储知识库信息）
 meta_collection = client.get_or_create_collection("kb_meta", schema=_schema_no_fts)
 
+# 记忆向量集合（长期记忆系统的 L2 语义召回，可选增强）
+mem_collection = client.get_or_create_collection("memories", schema=_schema_no_fts)
+
 # 嵌入模型（主进程保留一份，用于检索接口的实时查询 embedding，单条很快不阻塞）
 MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_model", "all-MiniLM-L6-v2")
 print("正在加载嵌入模型 all-MiniLM-L6-v2 ...")
@@ -275,14 +278,11 @@ def process_document_task(kb_id, filename, doc_id, chunks):
 
 @app.get('/knowledge_bases')
 def list_knowledge_bases():
-    """列出所有知识库（含文档数量）"""
+    """列出所有知识库（含文档数量）+ 只读的角色记忆库"""
     try:
         all_meta = meta_collection.get()
-        if not all_meta['ids']:
-            return {"knowledge_bases": []}
-
         result = []
-        for idx, kb_id in enumerate(all_meta['ids']):
+        for idx, kb_id in enumerate(all_meta['ids'] or []):
             meta = all_meta['metadatas'][idx]
             # 从文档元数据集合获取文档数（O(1)）
             try:
@@ -297,6 +297,20 @@ def list_knowledge_bases():
                 "created_at": meta.get('created_at', ''),
                 "document_count": doc_count
             })
+        # 附加：角色记忆库（由记忆系统自动维护，只读，不可删除/改名）
+        try:
+            mem_count = mem_collection.count()
+        except Exception:
+            mem_count = 0
+        result.append({
+            "id": "__memory__",
+            "name": "角色记忆库",
+            "description": "存放各角色长期记忆的知识库，由记忆系统自动维护，不可删除或改名",
+            "created_at": "",
+            "document_count": mem_count,
+            "is_memory": True,
+            "readonly": True,
+        })
         return {"knowledge_bases": result}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
@@ -337,6 +351,8 @@ async def create_knowledge_base(request: Request):
 @app.put('/knowledge_bases/{kb_id}')
 async def update_knowledge_base(kb_id: str, request: Request):
     """更新知识库名称或描述"""
+    if kb_id == '__memory__':
+        raise HTTPException(status_code=403, detail="角色记忆库由系统维护，不可改名")
     data = await request.json()
     name = data.get('name', '').strip()
     description = data.get('description', '').strip()
@@ -362,6 +378,8 @@ async def update_knowledge_base(kb_id: str, request: Request):
 @app.delete('/knowledge_bases/{kb_id}')
 def delete_knowledge_base(kb_id: str):
     """删除知识库及其所有文档"""
+    if kb_id == '__memory__':
+        raise HTTPException(status_code=403, detail="角色记忆库由系统维护，不可删除")
     # 检查是否存在
     existing = meta_collection.get(ids=[kb_id])
     if not existing['ids']:
@@ -385,6 +403,8 @@ def delete_knowledge_base(kb_id: str):
 @app.post('/knowledge_bases/{kb_id}/documents')
 async def upload_document(kb_id: str, file: UploadFile = File(...)):
     """上传文档到指定知识库"""
+    if kb_id == '__memory__':
+        raise HTTPException(status_code=403, detail="角色记忆库由系统维护，不可上传文档")
     if not file.filename:
         raise HTTPException(status_code=400, detail="文件名为空")
 
@@ -555,6 +575,75 @@ async def search_knowledge(kb_id: str, request: Request):
                 "score": 1 - dist / 2
             })
         return {"results": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+# ========== 记忆向量接口(L2 语义召回,长期记忆系统的可选增强) ==========
+
+@app.post('/memories/upsert')
+async def upsert_memory(request: Request):
+    """写入/更新一条记忆的 embedding(前端提取新记忆后调用)"""
+    data = await request.json()
+    mid = data.get('id')
+    content = data.get('content', '')
+    chat_id = data.get('chatId', '')
+    if not mid or not content:
+        raise HTTPException(status_code=400, detail="缺少 id 或 content")
+    try:
+        embedding = embedder.encode([content]).tolist()
+        mem_collection.upsert(
+            ids=[mid],
+            documents=[content],
+            embeddings=embedding,
+            metadatas=[{"chatId": str(chat_id)}]
+        )
+        return {"status": "ok", "id": mid}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.post('/memories/search')
+async def search_memories(request: Request):
+    """按语义检索记忆,返回命中的记忆 id 与相似度分数"""
+    data = await request.json()
+    query = data.get('query', '')
+    chat_id = data.get('chatId', '')
+    top_k = data.get('top_k', 5)
+    if not query:
+        raise HTTPException(status_code=400, detail="缺少 query")
+    try:
+        embedding = embedder.encode([query]).tolist()
+        where = {"chatId": str(chat_id)} if chat_id not in (None, '') else None
+        results = mem_collection.query(
+            query_embeddings=embedding,
+            n_results=top_k,
+            where=where,
+            include=["distances"]
+        )
+        ids = results['ids'][0] if results['ids'] else []
+        distances = results['distances'][0] if results['distances'] else []
+        items = [{"id": mid, "score": 1 - d / 2} for mid, d in zip(ids, distances)]
+        return {"results": items}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/memories/{memory_id}')
+def delete_memory(memory_id: str):
+    """删除单条记忆的 embedding"""
+    try:
+        mem_collection.delete(ids=[memory_id])
+        return {"status": "deleted"}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.delete('/memories/by-chat/{chat_id}')
+def delete_memories_by_chat(chat_id: str):
+    """按对话删除该角色的全部记忆 embedding(删除对话时级联)"""
+    try:
+        mem_collection.delete(where={"chatId": str(chat_id)})
+        return {"status": "deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 

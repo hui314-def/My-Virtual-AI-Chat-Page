@@ -28,5 +28,4 @@ plans/
 # Ignore others
 conda_start.bat
 backend_code/tts/voice_map.json
-parse_character_card.py
 assets/

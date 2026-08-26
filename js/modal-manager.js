@@ -480,11 +480,11 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
                 generateGreetingBtn.textContent = '⏳ 生成中...';
                 try {
                     const modelService = ctx.getModelService();
-                    // 同步最新配置（模型名可能已切换）
+                    // 同步最新配置（辅助任务使用「辅助任务模型」，未设置则跟随主模型）
                     modelService.updateConfig({
                         modelHost: SettingsManager.getModelHost(),
                         apiKey: SettingsManager.getApiKey(),
-                        modelName: SettingsManager.getModelName(),
+                        modelName: SettingsManager.getAuxEffectiveModel(),
                     });
                     const greeting = await modelService.generateText(prompt, {
                         temperature: 0.8,
@@ -569,11 +569,11 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 personaGenConfirm.textContent = '⏳ 生成中...';
                 try {
                     const modelService = ctx.getModelService();
-                    // 同步最新配置（模型名可能已切换）
+                    // 同步最新配置（辅助任务使用「辅助任务模型」，未设置则跟随主模型）
                     modelService.updateConfig({
                         modelHost: SettingsManager.getModelHost(),
                         apiKey: SettingsManager.getApiKey(),
-                        modelName: SettingsManager.getModelName(),
+                        modelName: SettingsManager.getAuxEffectiveModel(),
                     });
                     const persona = await modelService.generateText(prompt, {
                         temperature: 0.8,
@@ -822,12 +822,12 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 bgMusicAiGenerateBtn.disabled = true;
                 if (bgMusicAiStatus) bgMusicAiStatus.textContent = '⏳ 正在生成英文提示词...';
                 try {
-                    // 1. 模型生成细致具体的英文提示词
+                    // 1. 模型生成细致具体的英文提示词（辅助任务使用「辅助任务模型」，未设置则跟随主模型）
                     const modelService = ctx.getModelService();
                     modelService.updateConfig({
                         modelHost: SettingsManager.getModelHost(),
                         apiKey: SettingsManager.getApiKey(),
-                        modelName: SettingsManager.getModelName(),
+                        modelName: SettingsManager.getAuxEffectiveModel(),
                     });
                     const promptText = `你是音乐提示词专家。根据用户的音乐风格描述，创作一段用于 AI 音乐生成（Stable Audio）的英文提示词。
 
@@ -1420,10 +1420,10 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         'global-temperature', 'global-top-p', 'global-think-level', 'global-max-tokens',
         'global-theme', 'global-font-size', 'tts-api-url', 'tts-api-key',
         'img-api-url', 'img-api-key', 'global-typing-speed', 'global-auto-scroll',
-        'model-provider',
+        'model-provider', 'global-aux-model',
     ];
 
-    /** 捕获当前设置快照（表单控件值 + 头像 + 快捷键） */
+    /** 捕获当前设置快照（表单控件值 + 头像 + 快捷键 + 提示词注入） */
     captureGlobalSettingsSnapshot() {
         const controls = new Map();
         for (const id of this.#GLOBAL_SETTINGS_FIELD_IDS) {
@@ -1436,6 +1436,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             controls,
             avatarSrc: avatarImg ? avatarImg.src : '',
             shortcuts: JSON.stringify(this.ctx.getShortcuts()),
+            promptInject: JSON.stringify(this.ctx.promptInjectManager?.items || []),
         };
     }
 
@@ -1452,6 +1453,8 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         const avatarImg = document.getElementById('global-avatar-img');
         if (avatarImg && avatarImg.src !== snap.avatarSrc) return true;
         if (JSON.stringify(this.ctx.getShortcuts()) !== snap.shortcuts) return true;
+        // 提示词注入：开关/增删改/排序变化也计入「设置发生变动」
+        if (JSON.stringify(this.ctx.promptInjectManager?.items || []) !== snap.promptInject) return true;
         return false;
     }
 
@@ -1540,6 +1543,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             topP: parseFloat(document.getElementById('global-top-p').value),
             thinkLevel: parseInt(document.getElementById('global-think-level').value),
             maxTokens: parseInt(document.getElementById('global-max-tokens').value),
+            auxModel: (document.getElementById('global-aux-model')?.value) || '',
             theme: document.getElementById('global-theme').value,
             fontSize: fontSize,
             modelName: currentModel,

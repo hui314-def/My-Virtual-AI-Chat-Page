@@ -35,6 +35,13 @@ import { KnowledgeRetriever } from './js/knowledge-retriever.js';
 import { UploadBindings } from './js/upload-bindings.js';
 import { MessageSuggest } from './js/message-suggest.js';
 import { CharacterCard } from './js/character-card.js';
+import { MemoryRepository } from './js/memory-repository.js';
+import { MemoryExtractor } from './js/memory-extractor.js';
+import { MemoryPanel } from './js/memory-panel.js';
+import { MemoryLifecycle } from './js/memory-lifecycle.js';
+import { MemoryRetriever } from './js/memory-retriever.js';
+import { MemoryScheduler } from './js/memory-scheduler.js';
+import { PromptInjectManager } from './js/prompt-inject.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -50,6 +57,7 @@ const STORE_NAME = Constants.STORE_NAME;
 const DEFAULT_SHORTCUTS = Constants.DEFAULT_SHORTCUTS
 const localChatRepo = new ChatRepository(() => getChatRepoDbName());
 const guestChatRepo = new ChatRepository(() => 'ChatAppDB');  // 固定访客库，登录「认领」时读取
+const memoryRepo = new MemoryRepository({ getDb: () => localChatRepo.getDb() });
 const backendClient = new BackendClient({
     getBaseUrl: () => getSyncApiUrl(),
     onUnauthorized: () => authManager.handleUnauthorized(),
@@ -123,6 +131,10 @@ const chatManager = new ChatManager({
     getCurrentTopicIndex: () => topicManager.getCurrentTopicIndex(),
     closeSidebarOnMobile,
     getModalManager: () => modalManager,
+    onDeleteChat: (chatId) => {
+        memoryRepo.deleteMemoriesByChatId(chatId);
+        MemoryRetriever.deleteByChat(chatId);   // 后端向量同步清理(失败静默)
+    },
 });
 const topicManager = new TopicManager({
     getChats: () => chats,
@@ -136,6 +148,7 @@ const topicManager = new TopicManager({
     renderHistoryList: () => historyListUI.renderHistoryList(),
     renderMessages,
     getModalManager: () => modalManager,
+    onTopicSwitch: (chatId) => memoryExtractor.onTopicSwitch(chatId),
 });
 const historyListUI = new HistoryList({
     getChats: () => chats,
@@ -195,6 +208,8 @@ const modalManager = new ModalManager({
     saveModelListToStorage: () => modelConfigUI.saveModelListToStorage(),
     addModel: (name) => modelConfigUI.addModel(name),
     generateTopicSummary: (idx, msgs) => topicManager.generateTopicSummary(idx, msgs),
+    // 延迟 getter：promptInjectManager 在下方声明，首次访问（打开设置弹窗时）已初始化
+    get promptInjectManager() { return promptInjectManager; },
     focusChatInput: () => focusChatInput(),
     focusSearchInput: () => searchManager.focusSearchInput(),
     createNewChat: () => chatManager.createNewChat(),
@@ -280,6 +295,119 @@ function getModelService() {
 function setCurrentChatId(id) { 
     currentChatId = id;
     localStorage.setItem(Constants.STORAGE_KEYS.LAST_CHAT_ID, id);
+}
+
+// —— 记忆系统:开关判断 + 提取器 + 面板 ——
+function isMemoryEnabled() {
+    if (!SettingsManager.getMemoryEnabled()) return false;   // 全局开关关闭
+    const chat = chats.find(c => c.id == currentChatId);
+    if (chat?.settings && chat.settings.memoryEnabled === false) return false;  // 对话级关闭
+    return true;
+}
+
+const memoryExtractor = new MemoryExtractor({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getModelService,
+    memoryRepo,
+    getIsMemoryEnabled: () => isMemoryEnabled(),
+});
+
+const memoryPanel = new MemoryPanel({
+    getMemoryRepo: () => memoryRepo,
+    getCurrentChatId: () => currentChatId,
+    getChats: () => chats,
+    containerEl: document.getElementById('memory-panel-container'),
+});
+
+// 提示词注入系统：管理注入到主模型 system prompt 的提示词（内置 + 自定义，开关控制）
+const promptInjectManager = new PromptInjectManager();
+// 提示词数据变化时刷新「个性化设置」弹窗的「设置发生变动」黄色提示
+promptInjectManager.setOnChangeCallback(() => modalManager.refreshGlobalSettingsDirtyHint());
+
+// 记忆运行时状态:上一轮 AI 回复命中的记忆 id、本轮要注入的记忆列表
+let lastModelHits = new Set();
+let currentInjection = [];
+
+// 记忆流水线(每轮发送前执行):归档冷召回 → 命中检测 → DMAE 生命周期更新 → 组装注入列表
+async function runMemoryPipeline(userText) {
+    if (!isMemoryEnabled()) { currentInjection = []; return; }
+    try {
+        // 1. 归档冷召回(关键词):仅当前角色 + 全局的归档记忆,用户提及 → 唤醒回热层
+        const archived = await memoryRepo.loadArchivedForChat(currentChatId);
+        const archivedHits = MemoryRetriever.archivedHits(archived, userText);
+        for (const a of archived) {
+            if (archivedHits.has(a.id)) {
+                const revived = MemoryLifecycle.wakeUp(a);
+                await memoryRepo.saveMemory(revived);
+                await memoryRepo.deleteArchived(a.id);
+            }
+        }
+
+        // 2. 热层:仅当前角色 + 全局记忆(角色隔离);命中检测 + 生命周期更新
+        const memories = await memoryRepo.loadMemoriesForChat(currentChatId);
+        if (memories.length === 0) { currentInjection = []; return; }
+        const userHits = MemoryRetriever.userHits(memories, userText);
+        // L2 语义召回(可选增强):后端返回候选后,按本域记忆 id 过滤(不引入其他角色记忆)
+        const domainIds = new Set(memories.map(m => m.id));
+        const l2HitIds = new Set();
+        try {
+            const l2 = await MemoryRetriever.semanticHits(userText);
+            for (const id of l2) {
+                if (domainIds.has(id)) { userHits.add(id); l2HitIds.add(id); }
+            }
+        } catch { /* chromadb 未启动,降级为纯 L1 关键词模式 */ }
+        for (const id of archivedHits) userHits.add(id);   // 唤醒的记忆本轮视为命中
+        const updated = [];
+        for (const m of memories) {
+            const uh = userHits.has(m.id);
+            const mh = lastModelHits.has(m.id);
+            const nm = MemoryLifecycle.updateTurn(m, uh, mh);
+            if (nm.state === 'archived') {
+                // 归档迁移:完整正文移入 archive,热层删除
+                await memoryRepo.saveArchived(nm);
+                await memoryRepo.deleteMemory(m.id);
+            } else {
+                updated.push(nm);
+                await memoryRepo.saveMemory(nm);
+            }
+        }
+        currentInjection = MemoryScheduler.buildInjection(updated, userHits);
+
+        // 命中日志 + 注入日志(供记忆面板日志页展示)
+        const now = Date.now();
+        for (const id of userHits) {
+            const hitMem = memories.find(x => x.id === id);
+            if (!hitMem) continue;
+            await memoryRepo.addEvent({
+                id: `ev_${now}_${id}`,
+                kind: 'hit',
+                time: now,
+                chatId: currentChatId,
+                detail: {
+                    source: 'user',
+                    method: l2HitIds.has(id) ? 'L2' : 'L1',
+                    content: hitMem.content,
+                    injected: currentInjection.some(x => x.id === id),
+                },
+            });
+        }
+        if (currentInjection.length > 0) {
+            await memoryRepo.addEvent({
+                id: `ev_inj_${now}`,
+                kind: 'inject',
+                time: now,
+                chatId: currentChatId,
+                detail: {
+                    count: currentInjection.length,
+                    contents: currentInjection.map(x => x.content),
+                },
+            });
+        }
+    } catch (err) {
+        console.warn('[Memory] 流水线执行失败：', err);
+        currentInjection = [];
+    }
 }
 
 // 后端地址：可被 localStorage 覆盖；默认取当前访问地址同机 8001 端口（局域网其它设备也能用）
@@ -763,10 +891,17 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         let systemPrompt = `你是一位角色扮演者，你的姓名是“ ${roleName} ”。关于你的角色简介是：\n\n${rolePersona ? rolePersona : ''}\n\n总之你需要始终以“ ${roleName} ”的身份和口吻回应\n\n`;
         if (userBio) systemPrompt += `关于和你对话的当前用户的名称是：${userName}，简介：${userBio}`;
         else systemPrompt += `关于和你对话的当前用户名称叫：${userName}。`;
-        systemPrompt += '\n\n重要：请严格根据上述角色设定进行角色扮演，不要打破角色，不要以助手或AI的身份回答。必须始终以角色的身份和语气回复。\n\n回复格式规则：你的回复可以包含人物动作、环境描写、情绪描述等非语言表达内容，当你的回复中包含这样的的内容时，请使用括号（）将这些内容包裹起来。例如：“（轻轻叹气）我相信你能做到”。或“（窗外的雨声淅沥）今天的任务完成得不错。”';
         // 角色卡附加字段(SillyTavern 角色卡导入):system_prompt 与示例对话
         if (settings.cardSystemPrompt) systemPrompt += `\n\n【附加系统设定】\n${settings.cardSystemPrompt}`;
         if (settings.cardExampleMessages) systemPrompt += `\n\n【角色对话示例(用于模仿语气与风格)】\n${settings.cardExampleMessages.replace(/\{\{char\}\}/g, roleName).replace(/\{\{user\}\}/g, userName)}`;
+        // 长期记忆注入(本轮命中的记忆 + 固定/常驻 + 活跃 Top-K)
+        const memoryBlock = MemoryScheduler.renderBlock(currentInjection);
+        if (memoryBlock) systemPrompt += memoryBlock;
+        // —— 提示词注入系统：追加所有「已启用」的注入提示词（仅作用于主模型回复）——
+        // 内置的【任务目标】【回复格式规则】已移入提示词注入系统（默认启用，行为与原来一致），
+        // 用户可在「个性化设置 → 提示词注入」中增删改、开关控制
+        const injectionBlock = promptInjectManager.buildInjectionBlock({ roleName, userName, userBio, rolePersona });
+        if (injectionBlock) systemPrompt += '\n\n' + injectionBlock;
         messages.push({ role: 'system', content: systemPrompt });
         let lastUserMsgContent = '';
         for (const msg of messagesToUse) {
@@ -1000,6 +1135,14 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             }
         }
 
+        // 记忆:缓存本轮 AI 回复的模型命中(供下一轮生命周期更新使用)
+        try {
+            const mems = await memoryRepo.loadAllMemories();
+            lastModelHits = MemoryRetriever.modelHits(mems, fullReply);
+        } catch (err) {
+            lastModelHits = new Set();
+        }
+
         if (currentChat.settings?.ttsEnabled) {
             const { replyContent } = parseThinkContent(fullReply);
             if (replyContent) {
@@ -1148,6 +1291,11 @@ async function sendUserMessage() {
     await appendMessageToDOM('user', text, userTime, false, null, null, fileAttachment, null, null, quoteRef || null, null, imageAttachments);
     messageInput.value = '';
     if (messageInput) messageInput.style.height = 'auto';
+    // 记忆提取(异步,不阻塞发送;按累计消息数触发)
+    memoryExtractor.checkIntervalExtract(currentChatId)
+        .catch(err => console.warn('[Memory] 提取检查失败：', err));
+    // 记忆流水线(命中检测 + 生命周期更新 + 组装注入;需在构建 system prompt 前完成)
+    await runMemoryPipeline(text);
     simulateAIResponse(modelUserMsg, imageUrls);
 }
 
@@ -1461,6 +1609,14 @@ function bindSettingsPanel() {
             // 知识库懒加载：首次点击该标签时才请求列表
             if (tabId === 'knowledge') {
                 modalManager.kbManager.ensureKnowledgeBaseLoaded();
+            }
+            // 记忆面板：点击该标签时刷新
+            if (tabId === 'memory') {
+                memoryPanel.refresh();
+            }
+            // 提示词注入：点击该标签时刷新（数据即时保存，重渲染保证列表最新）
+            if (tabId === 'prompt-inject') {
+                promptInjectManager.render();
             }
         });
     });
@@ -1837,6 +1993,7 @@ async function init() {
     initResizer();
     shortcutManager.init();
     bindEvents();
+    promptInjectManager.render();   // 渲染「提示词注入」设置面板（容器为静态 HTML，随全局设置弹窗加载）
     getModelService();
     modelConfigUI.renderModelListUI();      // 渲染模型列表弹窗
     modelConfigUI.updateModelSelector();    // 更新快速切换下拉框

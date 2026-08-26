@@ -21,6 +21,8 @@ export class ModelConfigUI {
 
     // 渲染模型列表 UI(全局设置 -> 模型设置)
     renderModelListUI() {
+        // 辅助任务模型下拉框与模型列表同源，每次刷新时同步
+        this.renderAuxModelSelect();
         const models = ModelService.getModels();
         const container = document.getElementById('model-list-container');
         if (!container) return;
@@ -73,6 +75,10 @@ export class ModelConfigUI {
                 this.saveModelListToStorage();
                 this.renderModelListUI();      // 刷新列表
                 this.updateModelSelector();    // 刷新下拉框
+                // 如果删除的是辅助任务模型，则重置为「跟随主模型」
+                if (SettingsManager.getAuxModel() === modelName) {
+                    SettingsManager.update({ auxModel: '' });
+                }
                 // 如果删除的是当前使用的模型，则自动切换到列表第一个
                 if (SettingsManager.getModelName() === modelName) {
                     SettingsManager.update({ modelName: models[0] });
@@ -82,6 +88,28 @@ export class ModelConfigUI {
                 }
             });
         });
+    }
+
+    // 渲染「辅助任务模型」下拉框(全局设置 -> 模型设置)，与模型列表同源
+    renderAuxModelSelect() {
+        const select = document.getElementById('global-aux-model');
+        if (!select) return;
+        const models = ModelService.getModels();
+        const current = SettingsManager.getAuxModel();
+        const mainModel = SettingsManager.getModelName();
+        select.innerHTML = '';
+        const followOpt = document.createElement('option');
+        followOpt.value = '';
+        followOpt.textContent = mainModel ? `跟随主模型（${mainModel}）` : '跟随主模型';
+        select.appendChild(followOpt);
+        models.forEach(model => {
+            const option = document.createElement('option');
+            option.value = model;
+            option.textContent = model === mainModel ? `${model}（主模型）` : model;
+            if (model === current) option.selected = true;
+            select.appendChild(option);
+        });
+        if (!current) followOpt.selected = true;
     }
 
     // 更新快速切换下拉框

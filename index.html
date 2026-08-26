@@ -205,9 +205,9 @@
 
             <!-- 2. 按钮栏（靠左显示） -->
             <div class="action-buttons">
-                <button class="action-btn" id="voice-input-btn"><i class="fas fa-microphone"></i> 语音输入</button>
+                <button class="action-btn" id="voice-input-btn" title="点击即可说话"><i class="fas fa-microphone"></i> 语音输入</button>
                 <button class="action-btn" id="chat-settings-btn"><i class="fas fa-sliders-h"></i> 对话设置</button>
-                <button class="action-btn" id="topics-manage-btn"><i class="fas fa-list-ul"></i> 话题管理</button>               
+                <button class="action-btn" id="topics-manage-btn" title="不同话题独立消息上下文"><i class="fas fa-list-ul"></i> 话题管理</button>               
                 <!-- 可折叠按钮组（初始隐藏） -->
                 <div class="collapsible-buttons" id="collapsible-buttons">
                     <button class="action-btn" id="kb-select-btn"><i class="fas fa-database"></i> <span id="kb-btn-label">选择知识库</span></button>
@@ -264,6 +264,12 @@
                 </div>
                 <div class="settings-menu-item" data-tab="knowledge">
                     <i class="fas fa-database"></i> 知识库
+                </div>
+                <div class="settings-menu-item" data-tab="memory">
+                    <i class="fas fa-brain"></i> 记忆
+                </div>
+                <div class="settings-menu-item" data-tab="prompt-inject">
+                    <i class="fas fa-pen-nib"></i> 提示词注入
                 </div>
                 <div class="settings-menu-item" data-tab="general">
                     <i class="fas fa-globe"></i> 通用设置
@@ -380,6 +386,14 @@
                         </div>
                         <small>Ollama 模型直接填写名称（如 gemma2），OpenAI 兼容 API 填写部署的模型 ID</small>
                     </div>
+                    <div class="form-group">
+                        <label>辅助任务模型（摘要 / 建议 / 记忆提取 / 开场白 / 人设 / 英文提示词）</label>
+                        <select id="global-aux-model" style="width:100%;">
+                            <option value="">跟随主模型</option>
+                            <!-- 由 JS 动态填充 -->
+                        </select>
+                        <small>用于话题摘要、消息建议、记忆提取、开场白、人设、英文提示词等非流式小任务。建议选择非推理模型（如 gemma2/gemma4/gpt-oss），避免思考内容占满 token 预算导致输出为空</small>
+                    </div>
                     <h4>全局模型默认值</h4>
                     <div class="model-param-item">
                         <small>上下文消息数量上限</small>
@@ -468,6 +482,16 @@
                 <div class="settings-tab-pane" id="tab-knowledge">
                     <!-- 知识库内容由 JS 动态渲染 -->
                     <div id="knowledge-base-container"></div>
+                </div>
+                <!-- 记忆 -->
+                <div class="settings-tab-pane" id="tab-memory">
+                    <!-- 记忆管理由 JS 动态渲染 -->
+                    <div id="memory-panel-container"></div>
+                </div>
+                <!-- 提示词注入 -->
+                <div class="settings-tab-pane" id="tab-prompt-inject">
+                    <!-- 提示词注入系统由 JS 动态渲染 -->
+                    <div id="prompt-inject-container"></div>
                 </div>
                 <!-- 通用设置 -->
                 <div class="settings-tab-pane" id="tab-general">
