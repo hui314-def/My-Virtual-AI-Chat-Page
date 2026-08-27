@@ -545,6 +545,9 @@ def delete_document(kb_id: str, doc_id: str):
 @app.post('/knowledge_bases/{kb_id}/search')
 async def search_knowledge(kb_id: str, request: Request):
     """在指定知识库中检索"""
+    # 角色记忆库不走知识库检索(记忆有独立的 /memories/search),返回空结果而非 404
+    if kb_id == '__memory__':
+        return {"results": []}
     data = await request.json()
     if not data or 'query' not in data:
         raise HTTPException(status_code=400, detail="缺少 query 参数")

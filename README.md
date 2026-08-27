@@ -42,9 +42,19 @@
 |   ├── knowledge_base/
 |   └── tts/
 ├── js/
-|  ├── model-service.js
-|  ├── utils.js
-|  └── ...
+|  ├── core/      # 常量 / 工具 / 全局设置
+|  ├── network/   # 后端客户端 / 模型服务 / 资源同步
+|  ├── storage/   # 本地仓库 / 云同步 / diff / 资产存储
+|  ├── auth/      # 账号体系
+|  ├── chat/      # 对话 / 话题 / 历史 / 搜索 / 消息操作
+|  ├── memory/    # 记忆系统
+|  ├── knowledge/ # 知识库
+|  ├── models/    # 模型配置 / Token 统计 / 提示词注入
+|  ├── media/     # TTS / 语音输入 / 图片生成 / 背景音乐 / 背景
+|  └── ui/        # 弹窗 / 外观 / 滚动 / 快捷键 / 上传绑定
+├── templates/
+|  ├── modal.html   # 对话设置弹窗模板(样式 + HTML,运行时动态加载)
+|  └── dialogs.html # 静态弹窗模板(话题管理/全局设置/裁剪/图片生成等 8 个,运行时动态加载)
 ├── css/
 |  ├──base.css
 |  └── ...

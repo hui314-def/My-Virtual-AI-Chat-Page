@@ -2,46 +2,46 @@
 import { 
     escapeHtml, getCurrentTime, parseThinkContent, renderMessageWithThink, genMsgUid,
     parseParenthesesContent, eventToShortcutString, renderTextWithActions,
-} from './js/utils.js';
-import Constants from './js/constants.js'
-import { ModelService } from './js/model-service.js';
-import { ChatRepository } from './js/repository.js';
-import { BackendClient } from './js/backend-client.js';
-import { SyncedChatRepository } from './js/sync-repository.js';
-import { ensureChatIdentity } from './js/chat-diff.js';
-import { setAssetBackendClient, resolveAssetUrl, resolveToDataUrl } from './js/asset-sync.js';
-import { AuthManager } from './js/auth-manager.js';
-import { TTsService } from './js/tts-service.js';
-import { ChatIO } from './js/chat-io.js';
-import { FileUploadService } from './js/file-upload.js';
-import { SettingsManager } from './js/settings-manager.js';
-import ModalManager from './js/modal-manager.js';
-import { TokenTracker } from './js/token-tracker.js';
-import VoiceInput from './js/voice-input.js';
-import BackgroundManager from './js/background-manager.js';
-import BgMusicManager from './js/bg-music-manager.js';
-import AssetStore from './js/asset-store.js';
-import SearchManager from './js/search.js';
-import MessageActions from './js/message-actions.js';
-import ShortcutManager from './js/shortcut-manager.js';
-import { ImageGenService } from './js/image-gen.js';
-import { UiScroll } from './js/ui-scroll.js';
-import { UiAppearance } from './js/ui-appearance.js';
-import { ModelConfigUI } from './js/model-config-ui.js';
-import { ChatManager } from './js/chat-manager.js';
-import { TopicManager } from './js/topic-manager.js';
-import { HistoryList } from './js/history-list.js';
-import { KnowledgeRetriever } from './js/knowledge-retriever.js';
-import { UploadBindings } from './js/upload-bindings.js';
-import { MessageSuggest } from './js/message-suggest.js';
-import { CharacterCard } from './js/character-card.js';
-import { MemoryRepository } from './js/memory-repository.js';
-import { MemoryExtractor } from './js/memory-extractor.js';
-import { MemoryPanel } from './js/memory-panel.js';
-import { MemoryLifecycle } from './js/memory-lifecycle.js';
-import { MemoryRetriever } from './js/memory-retriever.js';
-import { MemoryScheduler } from './js/memory-scheduler.js';
-import { PromptInjectManager } from './js/prompt-inject.js';
+} from './js/core/utils.js';
+import Constants from './js/core/constants.js'
+import { ModelService } from './js/network/model-service.js';
+import { ChatRepository } from './js/storage/repository.js';
+import { BackendClient } from './js/network/backend-client.js';
+import { SyncedChatRepository } from './js/storage/sync-repository.js';
+import { ensureChatIdentity } from './js/storage/chat-diff.js';
+import { setAssetBackendClient, resolveAssetUrl, resolveToDataUrl } from './js/network/asset-sync.js';
+import { AuthManager } from './js/auth/auth-manager.js';
+import { TTsService } from './js/media/tts-service.js';
+import { ChatIO } from './js/chat/chat-io.js';
+import { FileUploadService } from './js/media/file-upload.js';
+import { SettingsManager } from './js/core/settings-manager.js';
+import ModalManager from './js/ui/modal-manager.js';
+import { TokenTracker } from './js/models/token-tracker.js';
+import VoiceInput from './js/media/voice-input.js';
+import BackgroundManager from './js/media/background-manager.js';
+import BgMusicManager from './js/media/bg-music-manager.js';
+import AssetStore from './js/storage/asset-store.js';
+import SearchManager from './js/chat/search.js';
+import MessageActions from './js/chat/message-actions.js';
+import ShortcutManager from './js/ui/shortcut-manager.js';
+import { ImageGenService } from './js/media/image-gen.js';
+import { UiScroll } from './js/ui/ui-scroll.js';
+import { UiAppearance } from './js/ui/ui-appearance.js';
+import { ModelConfigUI } from './js/models/model-config-ui.js';
+import { ChatManager } from './js/chat/chat-manager.js';
+import { TopicManager } from './js/chat/topic-manager.js';
+import { HistoryList } from './js/chat/history-list.js';
+import { KnowledgeRetriever } from './js/knowledge/knowledge-retriever.js';
+import { UploadBindings } from './js/ui/upload-bindings.js';
+import { MessageSuggest } from './js/chat/message-suggest.js';
+import { CharacterCard } from './js/chat/character-card.js';
+import { MemoryRepository } from './js/memory/memory-repository.js';
+import { MemoryExtractor } from './js/memory/memory-extractor.js';
+import { MemoryPanel } from './js/memory/memory-panel.js';
+import { MemoryLifecycle } from './js/memory/memory-lifecycle.js';
+import { MemoryRetriever } from './js/memory/memory-retriever.js';
+import { MemoryScheduler } from './js/memory/memory-scheduler.js';
+import { PromptInjectManager } from './js/models/prompt-inject.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -84,8 +84,6 @@ let chats = [];
 let currentChatId = null;
 const cropperRef = { value: null };
 const modelServiceInstanceRef = { value: null };
-
-// (话题辅助函数已迁移至 js/topic-manager.js —— TopicManager)
 
 // ==================== 快捷键管理器 ====================
 // 注意：先于 modalManager 构造，因为 modalManager 依赖 shortcutManager。
@@ -167,7 +165,7 @@ const uploadBindings = new UploadBindings({ fileUpload, getModalManager: () => m
 const suggestManager = new MessageSuggest({
     messageInputEl: messageInput,
     suggestBtnEl: document.getElementById('suggest-btn'),
-    modalEl: document.getElementById('suggest-modal'),
+    getModalEl: () => document.getElementById('suggest-modal'),
     getModalManager: () => modalManager,
     getModelService,
     getChats: () => chats,
@@ -208,6 +206,7 @@ const modalManager = new ModalManager({
     saveModelListToStorage: () => modelConfigUI.saveModelListToStorage(),
     addModel: (name) => modelConfigUI.addModel(name),
     generateTopicSummary: (idx, msgs) => topicManager.generateTopicSummary(idx, msgs),
+    extractTopicMemory: (chatId, topicMessages) => memoryExtractor.extractFromTopic(chatId, topicMessages),
     // 延迟 getter：promptInjectManager 在下方声明，首次访问（打开设置弹窗时）已初始化
     get promptInjectManager() { return promptInjectManager; },
     focusChatInput: () => focusChatInput(),
@@ -263,8 +262,6 @@ const msgActions = new MessageActions({
     appendMessageToDOM,
     updateStatusIndicator: (state, customText) => uiAppearance.updateStatusIndicator(state, customText),
 });
-function showMessageActions(...args) { msgActions.showMessageActions(...args); }
-function showPictureActions(...args) { msgActions.showPictureActions(...args); }
 
 const imageGenService = new ImageGenService({
     isProcessing: () => uiScroll.isProcessing,
@@ -317,7 +314,7 @@ const memoryPanel = new MemoryPanel({
     getMemoryRepo: () => memoryRepo,
     getCurrentChatId: () => currentChatId,
     getChats: () => chats,
-    containerEl: document.getElementById('memory-panel-container'),
+    getContainerEl: () => document.getElementById('memory-panel-container'),
 });
 
 // 提示词注入系统：管理注入到主模型 system prompt 的提示词（内置 + 自定义，开关控制）
@@ -450,11 +447,6 @@ async function claimGuestData() {
         localStorage.setItem(Constants.STORAGE_KEYS.GUEST_CLAIMED, '1');
     } catch (e) { /* 离线：不标记，下次登录再试 */ }
 }
-
-// (请求锁与滚动控制已迁移至 js/ui-scroll.js —— UiScroll)
-
-// (模型配置 UI 已迁移至 js/model-config-ui.js —— ModelConfigUI)
-// 左侧边栏拖动调整宽度
 // 左侧边栏拖动调整宽度
 function initResizer() {
     if (window.innerWidth <= Constants.MOBILE_BREAKPOINT) return; // 移动端不启用拖动
@@ -546,8 +538,6 @@ function applyCurrentChatSettings() {
         bgMusicVolume: settings.bgMusicVolume ?? 0.5,
     });
 }
-
-// (历史列表渲染已迁移至 js/history-list.js —— HistoryList)
 
 // 追加消息到DOM
 async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null, imageAttachments = null, thinkSeconds = null) {
@@ -649,7 +639,7 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     if (bubble) {
         bubble.addEventListener('dblclick', (e) => {
             e.stopPropagation();
-            showMessageActions(messageDiv, type, text, displayTime, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment, imageAttachments);
+            msgActions.showMessageActions(messageDiv, type, text, displayTime, saveToStorageFlag, chatIdForSave, customAvatarUrl, fileAttachment, imageAttachments);
         });
     }
 
@@ -747,7 +737,7 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
                 src: imgSrc,
                 time: time || getCurrentTime(),
             };
-            showPictureActions(messageDiv, msgData);
+            msgActions.showPictureActions(messageDiv, msgData);
         });
     }
 
@@ -1101,7 +1091,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
 
             bubble.addEventListener('dblclick', (e) => {
                 e.stopPropagation();
-                showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
+                msgActions.showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
             });
         }
         if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
@@ -1299,8 +1289,6 @@ async function sendUserMessage() {
     simulateAIResponse(modelUserMsg, imageUrls);
 }
 
-// (对话管理已迁移至 js/chat-manager.js —— ChatManager)
-
 // ==================== 初始化数据 ====================
 async function initData() {
     // 应用已保存的字体大小
@@ -1441,7 +1429,6 @@ function bindMessageInput() {
 
 // —— 工具栏按钮：上传 / 语音 / 知识库 / 折叠菜单 / 图片生成 ——
 function bindToolbarButtons() {
-    // 上传与媒体预览(背景/头像/文件上传/粘贴/拖拽/图片放大)已迁移至 js/upload-bindings.js —— UploadBindings
     uploadBindings.bind();
 
     // 语音输入
@@ -1852,8 +1839,6 @@ function bindEvents() {
     suggestManager.bind();  // 消息建议按钮（聚焦输入框时从右向左滑出）
 }
 
-// (话题管理已迁移至 js/topic-manager.js;历史菜单/置顶/删除已迁移至 js/history-list.js 与 js/chat-manager.js)
-
 // 自动调整 textarea 高度
 function autoResizeTextarea(textarea) {
     if (!textarea) return;
@@ -1871,12 +1856,6 @@ function bindAutoResize(textarea) {
     textarea.addEventListener('input', handler);
     handler(); // 初始化
 }
-
-// (话题摘要/切换已迁移至 js/topic-manager.js —— TopicManager)
-
-// (主题 / 字体大小 / 状态指示器 已迁移至 js/ui-appearance.js —— UiAppearance)
-
-// (对话切换已迁移至 js/chat-manager.js —— ChatManager)
 
 // 聚焦聊天输入框
 function focusChatInput() {
@@ -1960,19 +1939,50 @@ function toggleImmersiveMode() {
     modalManager.showBriefToast(isImmersive ? '🌙 沉浸模式已开启 (再次按快捷键退出)' : '✨ 已退出沉浸模式')
 }
 
-// (知识库标签恢复已迁移至 js/history-list.js;知识库检索已迁移至 js/knowledge-retriever.js)
-
 async function init() {
+    // ==================== 动态加载静态弹窗模板 (templates/dialogs.html) ====================
+    // 8 个静态弹窗(话题管理/全局设置/裁剪/图片生成/通用弹窗/账户操作/知识库选择/消息建议)
+    // 必须在访问任何弹窗元素之前注入(如 global-avatar-img 位于全局设置弹窗内)
+    try {
+        const dialogsResp = await fetch('templates/dialogs.html');
+        if (dialogsResp.ok) {
+            const dialogsDoc = new DOMParser().parseFromString(await dialogsResp.text(), 'text/html');
+            document.body.insertAdjacentHTML('beforeend', dialogsDoc.body.innerHTML);
+        } else {
+            console.warn('[init] 弹窗模板加载失败: HTTP ' + dialogsResp.status);
+        }
+    } catch (err) {
+        console.warn('[init] 弹窗模板加载失败:', err);
+    }
+
     // 初始化 index.html 中以 src="" 占位的元素（默认头像等）可以避免在 HTML 中硬编码超长 SVG base64 字符串。
     const defaultAvatarEl = document.getElementById('global-avatar-img');
     if (defaultAvatarEl && !defaultAvatarEl.src) {
         defaultAvatarEl.src = Constants.DEFAULT_USER_AVATAR;
     }
-    // ==================== 动态注入弹窗样式 ====================
+    // ==================== 动态加载弹窗模板 (templates/modal.html: CSS + HTML) ====================
+    let modalStyleText = '';
+    let modalHtml = '';
+    try {
+        const resp = await fetch('templates/modal.html');
+        if (resp.ok) {
+            const modalDoc = new DOMParser().parseFromString(await resp.text(), 'text/html');
+            const modalStyleEl = modalDoc.querySelector('style');
+            modalStyleText = modalStyleEl ? modalStyleEl.textContent : '';
+            modalHtml = modalDoc.body.innerHTML;
+        } else {
+            console.warn('[init] 弹窗模板加载失败: HTTP ' + resp.status);
+        }
+    } catch (err) {
+        console.warn('[init] 弹窗模板加载失败:', err);
+    }
     const styleSheet = document.createElement("style");
-    styleSheet.textContent = Constants.MODAL_STYLES;
+    styleSheet.textContent = modalStyleText;
     document.head.appendChild(styleSheet);
-    document.body.insertAdjacentHTML('beforeend', Constants.MODAL_HTML); // 动态创建弹窗 HTML 
+    document.body.insertAdjacentHTML('beforeend', modalHtml); // 动态创建弹窗 HTML
+    // 模板中的默认背景预览图依赖 JS 常量 (DEFAULT_BG_PREVIEW)，注入后补齐
+    const bgImgEl = document.getElementById('bg-img');
+    if (bgImgEl && !bgImgEl.src) bgImgEl.src = Constants.DEFAULT_BG_PREVIEW;
 
     // 云同步：先同步恢复 token + 应用命名空间（让 loadModelListAndInit 读到正确账号的设置）
     authManager.restoreTokenSync();

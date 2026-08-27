@@ -1,0 +1,404 @@
+<!-- 弹窗模板:由 script.js 在 init() 时 fetch 加载并注入页面
+     <style> 注入 <head>,其余 HTML 注入 <body> 末尾。
+     bg-img 的默认预览图由 script.js 注入后补齐(DEFAULT_BG_PREVIEW)。 -->
+<style>
+    .settings-modal {
+        position: fixed;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: rgba(0, 0, 0, 0.8);
+        backdrop-filter: blur(8px);
+        display: none;
+        align-items: center;
+        justify-content: center;
+        z-index: 10000;
+    }
+    .modal-content {
+        background: rgba(15, 18, 30, 0.95);
+        backdrop-filter: blur(20px);
+        border-radius: 32px;
+        width: 90%;
+        max-width: 550px;
+        border: 1px solid rgba(100, 150, 255, 0.5);
+        box-shadow: 0 20px 35px rgba(0, 0, 0, 0.5);
+        animation: modalFadeIn 0.2s ease;
+    }
+    @keyframes modalFadeIn {
+        from { opacity: 0; transform: scale(0.95); }
+        to { opacity: 1; transform: scale(1); }
+    }
+    .modal-header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 20px 24px;
+        border-bottom: 1px solid rgba(100, 120, 200, 0.3);
+    }
+    .modal-header h3 {
+        font-size: 1.3rem;
+        color: #ccd6ff;
+        display: flex;
+        align-items: center;
+        gap: 10px;
+        margin: 0;
+    }
+    .modal-close {
+        background: transparent;
+        border: none;
+        font-size: 28px;
+        color: #aaa;
+        cursor: pointer;
+        transition: 0.2s;
+    }
+    .modal-close:hover { color: #fff; }
+    .modal-body {
+        padding: 20px 24px;
+        max-height: 60vh;
+        overflow-y: auto;
+    }
+    .form-group {
+        margin-bottom: 20px;
+    }
+    .form-group label {
+        display: block;
+        margin-bottom: 8px;
+        font-weight: 500;
+        color: #b7c4ff;
+        font-size: 0.85rem;
+    }
+    .image-preview {
+        width: 100px;
+        height: 100px;
+        border-radius: 50%;
+        overflow: hidden;
+        margin-bottom: 10px;
+        border: 2px solid #5f7eff;
+        background: #1a1c2a;
+    }
+    #bg-preview {
+        width: 100%;
+        height: auto;
+        border-radius: 12px;
+        border: 1px solid #5f7eff;
+    }
+    .image-preview img {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+    }
+    input[type="text"], textarea, input[type="file"] {
+        width: 100%;
+        background: rgba(30, 34, 55, 0.7);
+        border: 1px solid rgba(100, 130, 255, 0.4);
+        border-radius: 20px;
+        padding: 10px 16px;
+        color: #f0f3ff;
+        font-size: 0.9rem;
+        outline: none;
+        transition: 0.2s;
+        box-sizing: border-box;
+    }
+    textarea {
+        resize: vertical;
+        font-family: inherit;
+    }
+    /* 角色设定折叠态:只显示约 5 行文字,底部渐隐,不可编辑 */
+    .persona-field-wrap {
+        position: relative;
+    }
+    .persona-field-wrap::after {
+        content: '';
+        position: absolute;
+        left: 2px;
+        right: 2px;
+        bottom: 30px;             /* 折叠按钮之上,覆盖最后一行文字,让其渐隐 */
+        height: 40px;
+        background: linear-gradient(to bottom, rgba(26, 29, 48, 0), rgba(26, 29, 48, 0.95));
+        pointer-events: none;
+        opacity: 0;
+        transition: opacity 0.2s;
+        border-radius: 0 0 18px 18px;
+        z-index: 1;
+    }
+    .persona-field-wrap.persona-masked::after {
+        opacity: 1;
+    }
+    .persona-collapsed {
+        height: 118px !important;
+        overflow: hidden;
+        resize: none;
+        cursor: pointer;
+    }
+    .persona-collapsed:focus {
+        border-color: rgba(100, 130, 255, 0.4);
+        background: rgba(30, 34, 55, 0.7);
+    }
+    .persona-toggle-btn {
+        display: block;
+        margin: 4px auto 0;
+        padding: 1px 16px;
+        font-size: 0.72rem;
+        line-height: 1.7;
+        border-radius: 20px;
+        background: rgba(45, 55, 85, 0.5);
+        border: 1px solid rgba(100, 130, 255, 0.4);
+        color: #ccd6ff;
+        cursor: pointer;
+        transition: 0.2s;
+        position: relative;
+        z-index: 2;               /* 确保在渐隐遮罩之上,三角形始终可见 */
+    }
+    .persona-toggle-btn:hover {
+        background: rgba(60, 75, 115, 0.7);
+    }
+    input:focus, textarea:focus {
+        border-color: #7f9eff;
+        background: rgba(40, 45, 70, 0.8);
+    }
+    .modal-footer {
+        padding: 16px 24px;
+        display: flex;
+        justify-content: flex-end;
+        gap: 12px;
+        border-top: 1px solid rgba(100, 120, 200, 0.3);
+    }
+    .modal-btn {
+        padding: 8px 20px;
+        border-radius: 40px;
+        border: none;
+        cursor: pointer;
+        font-weight: 500;
+        transition: 0.2s;
+    }
+    .modal-btn.cancel {
+        background: rgba(80, 80, 110, 0.6);
+        color: #ddd;
+    }
+    .modal-btn.cancel:hover {
+        background: rgba(100, 100, 130, 0.8);
+    }
+    .modal-btn.save {
+        background: linear-gradient(125deg, #2d3370, #1b1f48);
+        border: 1px solid #6c7eff;
+        color: white;
+    }
+    .modal-btn.save:hover {
+        background: #3d4590;
+    }
+</style>
+<div id="settings-modal" class="settings-modal">
+    <div class="modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-sliders-h"></i> 对话设置</h3>
+            <button class="modal-close" id="close-modal-btn">&times;</button>
+        </div>
+        <div class="modal-body">
+            <form id="settings-form">
+                <div class="form-group">
+                    <label>角色头像</label>
+                    <div class="image-preview" id="avatar-preview">
+                        <img id="avatar-img" src="..." alt="头像预览" style="cursor: pointer;">
+                    </div>
+                    <small>点击头像图片即可更换</small>
+                </div>
+                <div class="form-group">
+                    <label>聊天背景</label>
+                    <select id="bg-type" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 180px; cursor: pointer;">
+                        <option value="">默认背景</option>
+                        <option value="image">静态图片</option>
+                        <option value="video">视频背景</option>
+                    </select>
+                </div>
+                <!-- 静态图片区域 -->
+                <div class="form-group" id="bg-image-section" style="display:none;">
+                    <label>选择图片</label>
+                    <div class="image-preview" id="bg-preview">
+                        <img id="bg-img" alt="背景预览" style="width:100%; height:auto;">
+                    </div>
+                    <input type="file" id="bg-upload" accept="image/*">
+                    <small>背景图将应用于右侧聊天区域</small>
+                </div>
+                <!-- 视频背景区域 -->
+                <div class="form-group" id="bg-video-section" style="display:none;">
+                    <label>视频来源</label>
+                    <div style="display:flex; gap:16px; margin-bottom:8px;">
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                            <input type="radio" name="chat-bg-video-mode" value="url" checked> URL 链接
+                        </label>
+                        <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                            <input type="radio" name="chat-bg-video-mode" value="file"> 上传文件
+                        </label>
+                    </div>
+                    <div id="chat-bg-video-url-row">
+                        <input type="text" id="chat-bg-video-url" placeholder="https://example.com/bg.mp4">
+                    </div>
+                    <div id="chat-bg-video-file-row" style="display:none;">
+                        <input type="file" id="chat-bg-video-file" accept="video/mp4,video/webm">
+                        <span id="chat-bg-video-file-name" style="font-size:0.75rem;color:#8e8eb3;"></span>
+                    </div>
+                    <small>支持 mp4/webm，建议 720p、≤50MB，自动静音循环播放</small>
+                    <div class="form-group" id="chat-bg-video-preview-group" style="display:none;">
+                        <video id="chat-bg-video-preview" muted autoplay loop playsinline
+                               style="width:100%;max-height:140px;border-radius:12px;border:1px solid rgba(100,130,255,0.4);object-fit:cover;background:#000;">
+                        </video>
+                    </div>
+                </div>
+                <!-- 背景音乐区域 -->
+                <div class="form-group" id="bg-music-section" style="display:block;">
+                    <label style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fas fa-music"></i> 背景音乐
+                        <label class="switch">
+                            <input type="checkbox" id="bg-music-switch">
+                            <span class="slider round"></span>
+                        </label>
+                    </label>
+                    <div id="bg-music-controls" style="display:none;">
+                        <label>音乐来源</label>
+                        <div style="display:flex; gap:16px; margin-bottom:8px;">
+                            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="radio" name="chat-bg-music-mode" value="url" checked> URL 链接
+                            </label>
+                            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="radio" name="chat-bg-music-mode" value="file"> 上传文件
+                            </label>
+                            <label style="display:flex; align-items:center; gap:4px; cursor:pointer;">
+                                <input type="radio" name="chat-bg-music-mode" value="ai"> AI 生成
+                            </label>
+                        </div>
+                        <div id="chat-bg-music-url-row">
+                            <input type="text" id="chat-bg-music-url" placeholder="https://example.com/bgm.mp3">
+                        </div>
+                        <div id="chat-bg-music-file-row" style="display:none;">
+                            <input type="file" id="chat-bg-music-file" accept=".mp3,.wav,.ogg,.flac,.m4a,.weba,.aac">
+                            <span id="chat-bg-music-file-name" style="font-size:0.75rem;color:#8e8eb3;"></span>
+                        </div>
+                        <!-- AI 生成区:输入风格 → 生成英文提示词 → 调后端 ComfyUI 生成音乐 -->
+                        <div id="chat-bg-music-ai-row" style="display:none;">
+                            <input type="text" id="chat-bg-music-ai-style" placeholder="例如:治愈系钢琴曲,舒缓温柔...">
+                            <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
+                                <button type="button" id="chat-bg-music-ai-generate" class="mini-btn" style="background: linear-gradient(125deg, #2d3370, #1b1f48); border: 1px solid #6c7eff; color: white;">🎵 生成音乐</button>
+                                <button type="button" id="chat-bg-music-ai-play" class="mini-btn" style="display:none; background: rgba(45,85,55,0.6); border: 1px solid rgba(80,200,120,0.5); color: #b9f0cd;">▶ 试听</button>
+                                <span id="chat-bg-music-ai-status" style="font-size:0.75rem; color:#8e8eb3;"></span>
+                            </div>
+                            <small>输入想要的音乐风格,AI 先生成细致具体的英文提示词,再调用后端生成音乐</small>
+                        </div>
+                        <small>支持 mp3/wav/ogg/flac/m4a,建议 ≤50MB,自动循环播放</small>
+                        <label style="margin-top: 8px;">音量</label>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-volume-down" style="color:#8e8eb3; font-size:0.8rem;"></i>
+                            <input type="range" id="bg-music-volume" min="0" max="100" value="50" style="flex:1;">
+                            <span id="bg-music-volume-value" style="min-width:35px; font-size:0.75rem;">50%</span>
+                        </div>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>角色名称</label>
+                    <input type="text" id="role-name" placeholder="输入角色名称">
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        角色设定
+                        <button type="button" id="generate-persona-btn" class="mini-btn" title="根据你的描述自动生成角色设定">✨ 生成</button>
+                    </label>
+                    <!-- 角色设定生成输入区(点击生成按钮后内联展开,再点一次按钮收起) -->
+                    <div id="persona-gen-controls" style="display:none; margin-bottom: 8px; padding: 10px; border: 1px solid rgba(100,130,255,0.35); border-radius: 12px; background: rgba(30,34,55,0.6);">
+                        <small style="color:#a5b9ff;">描述你想要的角色设定(性格、背景、说话风格等)</small>
+                        <textarea id="persona-gen-input" rows="2" placeholder="例如:毒舌又傲娇的魔法师,喜欢吐槽但关键时刻很可靠..."></textarea>
+                        <div style="display:flex; gap:8px; margin-top:8px;">
+                            <button type="button" id="persona-gen-confirm" class="mini-btn" style="background: linear-gradient(125deg, #2d3370, #1b1f48); border: 1px solid #6c7eff; color: white;">确定生成</button>
+                        </div>
+                    </div>
+                    <div class="persona-field-wrap">
+                        <textarea id="role-persona" rows="3" placeholder="例如:Nova 是一位来自未来星系的AI助手,喜欢用诗意的语言回答问题..." readonly class="persona-collapsed"></textarea>
+                        <button type="button" id="persona-toggle-btn" class="persona-toggle-btn" title="展开/收起角色设定">▼</button>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        角色开场白
+                        <button type="button" id="generate-greeting-btn" class="mini-btn" title="根据角色名称和设定自动生成开场白">✨ 生成</button>
+                    </label>
+                    <textarea id="role-greeting" rows="2" placeholder="每次新对话时显示的开场白"></textarea>
+                </div>
+                <!-- 用户画像(对话级,留空则跟随全局「对话设定」) -->
+                <div class="form-group" style="border-top: 1px dashed rgba(100,130,255,0.3); padding-top: 14px;">
+                    <label style="display: flex; align-items: center; gap: 8px;">
+                        <i class="fas fa-user-astronaut"></i> 用户画像
+                        <small style="font-weight: normal; color: #8e8eb3;">(留空 = 跟随全局「对话设定」)</small>
+                    </label>
+                    <input type="text" id="user-profile-name" placeholder="留空则使用全局昵称">
+                    <textarea id="user-profile-bio" rows="2" placeholder="留空则使用全局简介" style="margin-top: 8px;"></textarea>
+                    <small>本对话优先使用此处的用户画像,让角色更了解你;头像仍跟随全局设定</small>
+                </div>
+                <div class="form-group">
+                    <label style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fas fa-volume-up"></i> 语音合成
+                        <label class="switch">
+                            <input type="checkbox" id="tts-switch">
+                            <span class="slider round"></span>
+                        </label>
+                    </label>
+                    <small>开启后,智能体的回复将自动朗读</small>
+                </div>
+                <!-- 音色选择(默认隐藏,开关开启时显示) -->
+                <div class="form-group" id="tts-voice-group" style="display: none;">
+                    <label>音色选择</label>
+                    <select id="tts-voice-select">
+                        <option value="">加载中...</option>
+                    </select>
+                </div>
+                <div class="form-group" style="border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px; margin-top: 8px;">
+                    <label><i class="fas fa-cog"></i> 特定模型设置</label>
+                    <div style="margin-top: 12px;">
+                        <!-- 上下文消息数量上限 -->
+                        <div class="model-param-item">
+                            <label>上下文消息数量上限</label>
+                            <div style="display: flex; align-items: center; gap: 12px;">
+                                <input type="range" id="context-limit" min="1" max="50" step="1" value="10" style="flex:1;">
+                                <span id="context-limit-value" style="min-width: 40px;">10</span>
+                                <label style="display: flex; align-items: center; gap: 6px;">
+                                    <input type="checkbox" id="context-unlimited"> 无限制
+                                </label>
+                            </div>
+                            <small>限制模型参考的历史消息条数(不含系统提示),勾选"无限制"则不截断</small>
+                        </div>
+                        <!-- 温度 -->
+                        <div class="model-param-item">
+                            <label>温度 (Temperature)</label>
+                            <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.7">
+                            <span id="temperature-value" class="param-value">0.7</span>
+                            <small>越高越随机,越低越确定</small>
+                        </div>
+                        <!-- Top P -->
+                        <div class="model-param-item">
+                            <label>Top P</label>
+                            <input type="range" id="top-p" min="0" max="1" step="0.05" value="0.9">
+                            <span id="top-p-value" class="param-value">0.9</span>
+                            <small>核采样,控制词汇多样性</small>
+                        </div>
+                        <!-- 思考深度 -->
+                        <div class="model-param-item">
+                            <label>思考深度 (Think Level)</label>
+                            <input type="range" id="think-level" min="0" max="4" step="1" value="0">
+                            <span id="think-level-value" class="param-value">关闭</span>
+                            <small>控制模型的思考深度,关闭时发送 think: false</small>
+                        </div>
+                        <!-- 最大 Token 数 -->
+                        <div class="model-param-item">
+                            <label>最大 Token 数 (Max Tokens)</label>
+                            <input type="range" id="max-tokens" min="50" max="8000" step="50" value="500">
+                            <span id="max-tokens-value" class="param-value">500</span>
+                            <small>限制模型单次回复的最大长度</small>
+                        </div>
+                    </div>
+                </div>
+            </form>
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" id="cancel-settings-btn">取消</button>
+            <button class="modal-btn save" id="save-settings-btn">保存设置</button>
+        </div>
+    </div>
+</div>
