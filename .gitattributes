@@ -1,0 +1,20 @@
+# 统一行尾标准:所有文本文件以 LF 为唯一规范
+* text=auto eol=lf
+
+# Windows 批处理必须保留 CRLF(cmd.exe 对 LF-only 的 goto/label 处理有 bug)
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# 明确标记二进制文件,防止误判
+*.pkl binary
+*.wav binary
+*.mp3 binary
+*.bin binary
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.sqlite3 binary
+*.safetensors binary
+*.pyc binary
