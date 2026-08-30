@@ -1,0 +1,3 @@
+开发者赠送的SillyTavern角色卡片，更多卡片获取请前往https://chub.ai/characters
+
+使用方法：打开网页UI后点击左上角的“导入”按钮选择相应png文件即可

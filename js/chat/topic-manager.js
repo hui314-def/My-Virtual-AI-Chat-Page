@@ -2,7 +2,7 @@
 // 从 script.js 分离(阶段2),风格与其余 js/ 模块一致(构造注入依赖)
 import Constants from '../core/constants.js';
 import { SettingsManager } from '../core/settings-manager.js';
-import { genMsgUid, getCurrentTime, parseThinkContent, parseParenthesesContent } from '../core/utils.js';
+import { genMsgUid, getCurrentTime, stripHiddenTags, parseParenthesesContent, replaceSTMacros } from '../core/utils.js';
 
 export class TopicManager {
     /**
@@ -85,7 +85,16 @@ export class TopicManager {
         const currentChat = this.chats.find(c => c.id == this.currentChatId);
         if (!currentChat) return;
         const settings = currentChat.settings || Constants.DEFAULT_SETTINGS;
-        const greeting = settings.greeting || Constants.DEFAULT_SETTINGS.greeting;
+        // 开场白支持 SillyTavern 宏：创建时解析一次并定型（动态宏无上下文 → 空串）
+        const chatProfileName = (settings.userProfileName || '').trim();
+        const stUserName = chatProfileName
+            || (SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername());
+        const greeting = replaceSTMacros(settings.greeting || Constants.DEFAULT_SETTINGS.greeting, {
+            roleName: settings.roleName || Constants.DEFAULT_ROLE_NAME,
+            userName: stUserName,
+            greeting: settings.greeting,
+            charVersion: settings.cardMeta?.characterVersion,
+        });
 
         // 创建新话题对象（独立消息列表）
         const aiTime = getCurrentTime();
@@ -114,8 +123,8 @@ export class TopicManager {
 
         // 如果当前对话开启语音合成，则朗读开场白（跳过括号内的非语言内容）
         if (settings.ttsEnabled) {
-            const { replyContent } = parseThinkContent(greeting);
-            const contentToSpeak = replyContent || greeting;
+            // TTS 只朗读正文：剥离 <think>（思考过程）与 <soul>（内心OS）
+            const contentToSpeak = stripHiddenTags(greeting) || greeting;
             const parts = parseParenthesesContent(contentToSpeak);
             const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');
             if (speechText.trim()) {
@@ -207,7 +216,11 @@ export class TopicManager {
         const chatProfileName = (settings.userProfileName || '').trim();
         const userName = chatProfileName
             || (SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername());
-        const conversationText = topicMessages.map(msg => `${msg.type === 'user' ? userName : roleName}：${msg.text}`).join('\n');
+        const conversationText = topicMessages.map(msg => {
+            // AI 消息剥离隐藏内容：摘要只需要对话正文，不需要模型"内心独白"
+            const text = msg.type === 'user' ? msg.text : stripHiddenTags(msg.text || '');
+            return `${msg.type === 'user' ? userName : roleName}：${text}`;
+        }).join('\n');
         if (!conversationText.trim()) return '（无内容）';
 
         const prompt = `请为以下对话生成一句简短的摘要，简明扼要地概括主要内容：\n${conversationText}

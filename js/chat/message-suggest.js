@@ -2,7 +2,7 @@
 // 调用模型生成 3 种不同种类的候选消息（站在用户视角，帮用户继续对话），供用户选择发送。
 // 依赖通过构造函数注入，避免循环引用。
 import Constants from '../core/constants.js';
-import { escapeHtml } from '../core/utils.js';
+import { escapeHtml, stripHiddenTags } from '../core/utils.js';
 
 const MAX_CONTEXT_MESSAGES = 6;   // 提供给模型的历史消息条数（控制 token）
 
@@ -187,7 +187,11 @@ export class MessageSuggest {
         }
         const contextLines = history
             .slice(-MAX_CONTEXT_MESSAGES)
-            .map(m => `${m.type === 'user' ? userName : roleName}：${m.text || ''}`)
+            .map(m => {
+                // AI 消息剥离隐藏内容：语境里不需要模型的 <think> / <soul> 内心独白
+                const text = m.type === 'user' ? (m.text || '') : stripHiddenTags(m.text || '');
+                return `${m.type === 'user' ? userName : roleName}：${text}`;
+            })
             .join('\n');
 
         return `【对话中的角色简介】

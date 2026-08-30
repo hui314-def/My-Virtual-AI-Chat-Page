@@ -1,7 +1,7 @@
 // 消息操作菜单模块
 // 处理双击消息气泡弹出的操作栏（引用/删除/播放/重新生成/继续说/保存图片等）。
 import Constants from '../core/constants.js';
-import { escapeHtml, getCurrentTime, parseThinkContent, parseParenthesesContent, genMsgUid } from '../core/utils.js';
+import { escapeHtml, getCurrentTime, stripHiddenTags, parseParenthesesContent, genMsgUid } from '../core/utils.js';
 
 export class MessageActions {
     /**
@@ -285,8 +285,8 @@ export class MessageActions {
             const ttsEnabled = chat?.settings?.ttsEnabled;
             const ttsVoice = chat?.settings?.ttsVoice || 'default';
             if (ttsEnabled) {
-                const { replyContent } = parseThinkContent(text);
-                const contentToSpeak = replyContent || text;
+                // TTS 只朗读正文：剥离 <think>（思考过程）与 <soul>（内心OS）
+                const contentToSpeak = stripHiddenTags(text) || text;
                 const parts = parseParenthesesContent(contentToSpeak);
                 const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');
                 if (speechText.trim()) {
@@ -344,7 +344,9 @@ export class MessageActions {
             this.setQuoteRef({
                 msgUid: msgUid,
                 role: role,
-                text: text,
+                // 引用 AI 消息时剥离隐藏内容：引用文本只保留正文，
+                // 避免 <think> / <soul> 内心独白随引用进入后续对话上下文
+                text: type === 'ai' ? stripHiddenTags(text) : text,
                 imageUrls: refImageUrls.length > 0 ? refImageUrls : undefined,
             });
             closeActionMenu();

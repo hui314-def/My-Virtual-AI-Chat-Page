@@ -44,6 +44,17 @@ export function parseThinkContent(rawText) {
     const replyContent = rawText.replace(/<think>[\s\S]*?<\/think>/g, '').trim();
     return { thinkContent, replyContent };
 }
+/** 解析原始文本，分离内心OS内容和回复内容*/
+export function parseSoulContent(rawText) {
+    const soulMatch = rawText.match(/<soul>([\s\S]*?)<\/soul>/);
+    const soulContent = soulMatch ? soulMatch[1].trim() : '';
+    const replyContent = rawText.replace(/<soul>[\s\S]*?<\/soul>/g, '').trim();
+    return { soulContent, replyContent };
+}
+/** 剥离所有隐藏标签（<think> 思考过程、<soul> 内心OS），返回纯正文（用于发送给模型）*/
+export function stripHiddenTags(rawText) {
+    return parseSoulContent(parseThinkContent(rawText).replyContent).replyContent;
+}
 /** 将原始文本渲染为带折叠区域的 HTML
  * @param {string} rawText - 原始文本
  * @param {boolean} showThinking - 是否显示思考内容，false 时直接丢弃 <think> 部分
@@ -51,6 +62,7 @@ export function parseThinkContent(rawText) {
  */
 export function renderMessageWithThink(rawText, showThinking = true, thinkSeconds = null) {
     const { thinkContent, replyContent } = parseThinkContent(rawText);
+    const { soulContent, replyContent: finalContent } = parseSoulContent(replyContent);
     let html = '';
     if (showThinking && thinkContent) {
         const timeHtml = thinkSeconds != null
@@ -58,8 +70,11 @@ export function renderMessageWithThink(rawText, showThinking = true, thinkSecond
             : '';
         html += `<details class="think-details"><summary><span class="think-title">🤔 思考过程</span>${timeHtml}</summary><div class="think-content">${escapeHtml(thinkContent).replace(/\n/g, '<br>')}</div></details>`;
     }
+    if (soulContent) {
+        html += `<details class="soul-details"><summary><span class="soul-title">💭 内心OS</span></summary><div class="soul-content">${escapeHtml(soulContent).replace(/\n/g, '<br>')}</div></details>`;
+    }
     // 处理括号斜体
-    const parts = parseParenthesesContent(replyContent);
+    const parts = parseParenthesesContent(finalContent);
     let contentHtml = '';
     for (const part of parts) {
         if (part.type === 'action') {
@@ -239,4 +254,116 @@ export function genMsgUid(type, text, time) {
         hash = ((hash << 5) + hash) + seed.charCodeAt(i); // hash * 33 + c
     }
     return (hash >>> 0).toString(36);
+}
+
+// ==================== SillyTavern 宏解析 ====================
+
+/** 当前时间 HH:MM（24 小时制） */
+function stTime() {
+    const d = new Date();
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+/** 当前日期 YYYY-MM-DD */
+function stDate() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+/** 星期几（英文，对齐 SillyTavern 惯例） */
+function stWeekday() {
+    return new Date().toLocaleDateString('en-US', { weekday: 'long' });
+}
+/** 解析骰子表达式（如 2d20+5）→ {count, sides, bonus}；非法返回 null */
+function parseDiceExpr(expr) {
+    const m = String(expr || '').match(/^\s*(\d*)d(\d+)\s*([+-]\s*\d+)?\s*$/i);
+    if (!m) return null;
+    const count = m[1] === '' ? 1 : parseInt(m[1], 10);
+    const sides = parseInt(m[2], 10);
+    const bonus = m[3] ? parseInt(m[3].replace(/\s+/g, ''), 10) : 0;
+    if (!count || !sides || count > 100 || sides > 1000) return null;
+    return { count, sides, bonus };
+}
+/** 掷骰子：返回总和（非法表达式回退 1d6） */
+function rollDice(expr) {
+    const d = parseDiceExpr(expr) || { count: 1, sides: 6, bonus: 0 };
+    let total = 0;
+    for (let i = 0; i < d.count; i++) total += 1 + Math.floor(Math.random() * d.sides);
+    return String(total + d.bonus);
+}
+/** 取最近一条指定角色消息的文本；role 为 null 时取最后一条 */
+function lastMsgBy(messages, role) {
+    if (!Array.isArray(messages) || messages.length === 0) return '';
+    if (role == null) {
+        const last = messages[messages.length - 1];
+        return last ? (last.text || '') : '';
+    }
+    for (let i = messages.length - 1; i >= 0; i--) {
+        if (messages[i]?.role === role) return messages[i].text || '';
+    }
+    return '';
+}
+
+/**
+ * 解析文本中的 SillyTavern 宏（静态宏 + 常用动态宏）。
+ * 规则：
+ *  - {{//注释}} 所在行整行剔除（含前后空白），内联注释替换为空串
+ *  - 静态宏（char/user/time/date/weekday/datetime/random/roll/newline/pipe/charVersion）直接求值，random/roll 每次调用重新生成
+ *  - 动态宏（input/original/lastMessage/lastCharMessage/lastUserMessage/firstMessage）从 ctx 取值；ctx 缺值 → 空串
+ *  - 未知宏原样保留，防止误伤
+ * @param {string} text - 原始文本
+ * @param {Object} ctx - 宏上下文
+ * @param {string} [ctx.roleName]     角色名（{{char}}）
+ * @param {string} [ctx.userName]     用户名（{{user}}）
+ * @param {string} [ctx.greeting]     开场白（{{firstMessage}}）
+ * @param {string} [ctx.charVersion]  角色卡版本（{{charVersion}}）
+ * @param {string} [ctx.input]        当前用户输入（含前缀，{{input}}）
+ * @param {string} [ctx.original]     当前用户输入原文（{{original}}）
+ * @param {Array<{role:string,text:string}>} [ctx.messages] 历史消息（AI 侧建议已剥离 think/soul）
+ * @returns {string}
+ */
+export function replaceSTMacros(text, ctx = {}) {
+    if (!text) return '';
+    let result = text;
+    // 1) 注释：整行 {{//...}} 连同前后空白与换行剔除；内联 {{//...}} 替换为空串
+    result = result.replace(/^[ \t]*\{\{\/\/[^}]*\}\}[ \t]*\r?\n?/gm, '');
+    result = result.replace(/\{\{\/\/[^}]*\}\}/g, '');
+    // 2) 宏替换
+    result = result.replace(/\{\{([^{}]+)\}\}/g, (match, body) => {
+        const key = body.trim();
+        // 带参宏
+        if (key.startsWith('random:')) {
+            const parts = key.slice(7).split(',').map(s => parseInt(s.trim(), 10));
+            if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+                const min = Math.min(parts[0], parts[1]);
+                const max = Math.max(parts[0], parts[1]);
+                return String(min + Math.floor(Math.random() * (max - min + 1)));
+            }
+            if (parts.length === 1 && !isNaN(parts[0])) {
+                return String(1 + Math.floor(Math.random() * Math.max(1, parts[0])));
+            }
+            return String(1 + Math.floor(Math.random() * 100)); // 解析失败回退 1~100
+        }
+        if (key.startsWith('roll:')) return rollDice(key.slice(5));
+        // 精确匹配
+        switch (key) {
+            case 'char': return ctx.roleName || 'AI';
+            case 'user': return ctx.userName || '用户';
+            case 'time': return stTime();
+            case 'date': return stDate();
+            case 'weekday': return stWeekday();
+            case 'datetime': return `${stDate()} ${stTime()}`;
+            case 'random': return String(1 + Math.floor(Math.random() * 100));
+            case 'roll': return rollDice('1d6');
+            case 'newline': return '\n';
+            case 'pipe': return '|';
+            case 'charVersion': return ctx.charVersion || '';
+            case 'firstMessage': return ctx.greeting || '';
+            case 'input': return ctx.input || '';
+            case 'original': return ctx.original || '';
+            case 'lastMessage': return lastMsgBy(ctx.messages, null);
+            case 'lastCharMessage': return lastMsgBy(ctx.messages, 'ai');
+            case 'lastUserMessage': return lastMsgBy(ctx.messages, 'user');
+            default: return match; // 未知宏原样保留
+        }
+    });
+    return result;
 }

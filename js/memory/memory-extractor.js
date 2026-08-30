@@ -2,6 +2,7 @@
 // 触发：每累计 N 条新消息 + 话题切换（带防抖）
 // 提取：LLM 输出 JSON → 解析 → 去重（降级用实体重合）→ 写入热层 → 写提取日志
 import Constants from '../core/constants.js';
+import { stripHiddenTags } from '../core/utils.js';
 import { MemoryRetriever } from './memory-retriever.js';
 import { SettingsManager } from '../core/settings-manager.js';
 
@@ -49,7 +50,11 @@ export class MemoryExtractor {
             }
         }
         const recent = all.slice(-limit);
-        return recent.map(m => `${m.type === 'user' ? '用户' : '助手'}：${m.text}`).join('\n');
+        return recent.map(m => {
+            // AI 消息剥离隐藏内容：记忆提取不应把 <think> / <soul> 内心独白喂给模型
+            const text = m.type === 'user' ? m.text : stripHiddenTags(m.text);
+            return `${m.type === 'user' ? '用户' : '助手'}：${text}`;
+        }).join('\n');
     }
 
     /** 发送消息后调用：按消息数判断是否触发提取 */

@@ -759,6 +759,59 @@
     white-space: pre-wrap;
 }
 
+/* ---------- 内心OS ---------- */
+.soul-details {
+    background: rgba(80, 50, 110, 0.3);
+    border-radius: 8px;
+    margin-bottom: 10px;
+    padding: 4px 8px;
+    transition: border-color 0.3s ease;
+}
+.soul-details summary {
+    cursor: pointer;
+    color: #c9a2ff;
+    font-size: 0.8rem;
+    font-weight: normal;
+    outline: none;
+    user-select: none;
+    padding: 2px 0;
+}
+.soul-details summary:hover {
+    color: #e0c4ff;
+}
+.soul-details summary::-webkit-details-marker {
+    color: #a06bff;
+}
+.soul-title {
+    color: #c9a2ff;
+}
+/* 内心OS生成中状态：呼吸指示点 + 高亮边框 */
+.soul-details.soul-generating {
+    border: 1px solid rgba(160, 107, 255, 0.35);
+}
+.soul-indicator {
+    display: inline-block;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #a06bff;
+    margin-left: 6px;
+    vertical-align: middle;
+    animation: soulPulse 1s ease-in-out infinite;
+}
+@keyframes soulPulse {
+    0%, 100% { opacity: 0.3; transform: scale(0.8); }
+    50% { opacity: 1; transform: scale(1.15); }
+}
+.soul-content {
+    padding: 8px 0 4px 0;
+    font-size: 0.85rem;
+    color: #d9c2ff;
+    border-top: 1px solid rgba(160, 107, 255, 0.3);
+    margin-top: 6px;
+    white-space: pre-wrap;
+}
+
 /* ---------- 消息操作栏 ---------- */
 .message-actions {
     position: absolute;

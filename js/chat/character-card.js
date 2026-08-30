@@ -4,7 +4,8 @@
 //   - JSON 角色卡(v2/v3 规范、TavernAI 旧格式 char_name...、Pygmalion 格式)
 // 纯前端实现,零外部依赖。
 import Constants from '../core/constants.js';
-import { getCurrentTime, compressImage } from '../core/utils.js';
+import { getCurrentTime, compressImage, replaceSTMacros } from '../core/utils.js';
+import { SettingsManager } from '../core/settings-manager.js';
 
 export class CharacterCard {
     /**
@@ -72,7 +73,16 @@ export class CharacterCard {
         const settings = JSON.parse(JSON.stringify(Constants.DEFAULT_SETTINGS));
         settings.roleName = card.name;
         settings.persona = card.persona || Constants.DEFAULT_SETTINGS.persona;
-        settings.greeting = card.greeting || `✨ 你好，我是${card.name}。`;
+        // 开场白支持 SillyTavern 宏：导入时解析一次并定型（动态宏无上下文 → 空串）
+        settings.greeting = replaceSTMacros(
+            card.greeting || `✨ 你好，我是${card.name}。`,
+            {
+                roleName: card.name,
+                userName: SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername(),
+                greeting: card.greeting,
+                charVersion: card.version,
+            }
+        );
         if (avatarDataUrl) settings.avatarUrl = avatarDataUrl;
         // 角色卡专属扩展字段(不参与现有渲染逻辑,供后续 system prompt 注入使用)
         settings.cardExampleMessages = card.exampleMessages || null;

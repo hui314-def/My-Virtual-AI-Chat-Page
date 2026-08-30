@@ -6,7 +6,7 @@ import { TTsService } from '../media/tts-service.js';
 import { ModelService } from '../network/model-service.js';
 import { KnowledgeBaseManager } from '../knowledge/knowledge-base-manager.js';
 import { TokenTracker } from '../models/token-tracker.js';
-import { escapeHtml } from '../core/utils.js';
+import { escapeHtml, replaceSTMacros } from '../core/utils.js';
 import AssetStore from '../storage/asset-store.js';
 import BgMusicManager from '../media/bg-music-manager.js';
 import { resolveAssetUrl, uploadFile } from '../network/asset-sync.js';
@@ -465,7 +465,8 @@ export class ModalManager {
                 if (userName) userInfo += `用户名称：${userName}\n`;
                 if (userBio) userInfo += `用户简介：${userBio}\n`;
 
-                const prompt = `你是一位角色设定专家。请根据以下信息，为AI角色生成一句简短的开场白（20-60字），用于AI对话的开始。
+                // 支持 SillyTavern 宏：persona 等字段中的 {{char}}/{{user}}/{{random}} 等先解析再发给模型
+                const prompt = replaceSTMacros(`你是一位角色设定专家。请根据以下信息，为AI角色生成一句简短的开场白（20-60字），用于AI对话的开始。
 
 角色名称：${roleName}
 角色设定：${persona}
@@ -474,7 +475,7 @@ ${userInfo ? '\n' + userInfo : ''}
 1. 体现角色个性和风格
 2. 引导用户开始对话，比如创建一个对话场景，可以包含人物动作、环境描写、情绪描述等非语言表达内容。${userName ? `\n3. 自然地称呼用户"${userName}"，但不要生硬` : ''}
 ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4. 不要使用"你好，我是..."这类模板化开场\n'}
-回复格式规则：当你的回复中包含非语言表达的内容时，请使用括号（）将这些内容包裹起来。例如：“（轻轻叹气）我相信你能做到”。或“（窗外的雨声淅沥）今天的任务完成得不错。”请只返回开场白本身，不要加任何解释或引号。`;
+回复格式规则：当你的回复中包含非语言表达的内容时，请使用括号（）将这些内容包裹起来。例如：“（轻轻叹气）我相信你能做到”。或“（窗外的雨声淅沥）今天的任务完成得不错。”请只返回开场白本身，不要加任何解释或引号。`, { roleName, userName });
 
                 generateGreetingBtn.disabled = true;
                 generateGreetingBtn.textContent = '⏳ 生成中...';
@@ -557,13 +558,16 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
                     return;
                 }
                 const roleName = roleNameInput.value.trim();
-                const prompt = `你是一位角色设定专家。请根据以下要求，为AI角色生成一段详细的角色设定。
+                // 支持 SillyTavern 宏：要求中的 {{char}}/{{user}} 等先解析再发给模型
+                const chatProfileName = (document.getElementById('user-profile-name')?.value || '').trim();
+                const userName = chatProfileName || (SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '' : SettingsManager.getUsername());
+                const prompt = replaceSTMacros(`你是一位角色设定专家。请根据以下要求，为AI角色生成一段详细的角色设定。
 
 要求：${requirement}
 ${roleName ? `角色名称：${roleName}\n` : ''}
 角色设定应包含：性格特点、身份背景、说话风格、口头禅/常用语气等，内容详实生动，适合用于角色扮演对话。
 
-请直接输出角色设定文本本身，不要加任何解释、标题或引号。`;
+请直接输出角色设定文本本身，不要加任何解释、标题或引号。`, { roleName, userName });
 
                 personaGenConfirm.disabled = true;
                 personaGenConfirm.textContent = '⏳ 生成中...';

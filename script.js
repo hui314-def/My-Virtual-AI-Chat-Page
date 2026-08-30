@@ -1,7 +1,7 @@
 // 聊天页面核心交互功能
 import { 
-    escapeHtml, getCurrentTime, parseThinkContent, renderMessageWithThink, genMsgUid,
-    parseParenthesesContent, eventToShortcutString, renderTextWithActions,
+    escapeHtml, getCurrentTime, stripHiddenTags, renderMessageWithThink, genMsgUid,
+    parseParenthesesContent, eventToShortcutString, renderTextWithActions, replaceSTMacros,
 } from './js/core/utils.js';
 import Constants from './js/core/constants.js'
 import { ModelService } from './js/network/model-service.js';
@@ -878,12 +878,26 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         const userName = chatProfileName || (globalUserName === Constants.DEFAULT_USERNAME ? '用户' : globalUserName);
         const userBio = chatProfileBio || globalUserBio || '';
 
-        let systemPrompt = `你是一位角色扮演者，你的姓名是“ ${roleName} ”。关于你的角色简介是：\n\n${rolePersona ? rolePersona : ''}\n\n总之你需要始终以“ ${roleName} ”的身份和口吻回应\n\n`;
+        // —— SillyTavern 宏上下文：每次发送时解析，动态宏（{{input}}/{{lastMessage}} 等）随对话变化 ——
+        const stMacroCtx = {
+            roleName,
+            userName,
+            greeting: settings.greeting,
+            charVersion: settings.cardMeta?.characterVersion,
+            input: userMsg,
+            original: userMsg,
+            messages: messagesToUse.map(m => ({
+                role: m.type,
+                text: m.type === 'ai' ? stripHiddenTags(m.text || '') : (m.modelInputText || m.text || '')
+            })),
+        };
+
+        let systemPrompt = `你是一位角色扮演者，你的姓名是“ ${roleName} ”。关于你的角色简介是：\n\n${rolePersona ? replaceSTMacros(rolePersona, stMacroCtx) : ''}\n\n总之你需要始终以“ ${roleName} ”的身份和口吻回应\n\n`;
         if (userBio) systemPrompt += `关于和你对话的当前用户的名称是：${userName}，简介：${userBio}`;
         else systemPrompt += `关于和你对话的当前用户名称叫：${userName}。`;
-        // 角色卡附加字段(SillyTavern 角色卡导入):system_prompt 与示例对话
-        if (settings.cardSystemPrompt) systemPrompt += `\n\n【附加系统设定】\n${settings.cardSystemPrompt}`;
-        if (settings.cardExampleMessages) systemPrompt += `\n\n【角色对话示例(用于模仿语气与风格)】\n${settings.cardExampleMessages.replace(/\{\{char\}\}/g, roleName).replace(/\{\{user\}\}/g, userName)}`;
+        // 角色卡附加字段(SillyTavern 角色卡导入):system_prompt 与示例对话（支持 ST 宏解析）
+        if (settings.cardSystemPrompt) systemPrompt += `\n\n【附加系统设定】\n${replaceSTMacros(settings.cardSystemPrompt, stMacroCtx)}`;
+        if (settings.cardExampleMessages) systemPrompt += `\n\n【角色对话示例(用于模仿语气与风格)】\n${replaceSTMacros(settings.cardExampleMessages, stMacroCtx)}`;
         // 长期记忆注入(本轮命中的记忆 + 固定/常驻 + 活跃 Top-K)
         const memoryBlock = MemoryScheduler.renderBlock(currentInjection);
         if (memoryBlock) systemPrompt += memoryBlock;
@@ -891,13 +905,19 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         // 内置的【任务目标】【回复格式规则】已移入提示词注入系统（默认启用，行为与原来一致），
         // 用户可在「个性化设置 → 提示词注入」中增删改、开关控制
         const injectionBlock = promptInjectManager.buildInjectionBlock({ roleName, userName, userBio, rolePersona });
-        if (injectionBlock) systemPrompt += '\n\n' + injectionBlock;
+        if (injectionBlock) systemPrompt += '\n\n' + replaceSTMacros(injectionBlock, stMacroCtx);
         messages.push({ role: 'system', content: systemPrompt });
         let lastUserMsgContent = '';
         for (const msg of messagesToUse) {
             const role = msg.type === 'user' ? 'user' : 'assistant';
-            const content = (role === 'user' && msg.modelInputText) ? msg.modelInputText : (msg.text || '');
+            let content = (role === 'user' && msg.modelInputText) ? msg.modelInputText : (msg.text || '');
             if (!content) continue; // 跳过空消息，避免 API 报错
+            // 隐藏内容不进上下文：历史 AI 消息剥离 <think>（思考过程）与 <soul>（内心OS）标签，
+            // 仅回传正文，避免把模型的"内心独白"再次喂回模型（浪费 token 且干扰角色扮演）
+            if (role === 'assistant') {
+                content = stripHiddenTags(content);
+                if (!content) continue; // 剥离后为空（如思考被截断无正文），跳过
+            }
             messages.push({ role, content });
             if (role === 'user') lastUserMsgContent = content;
         }
@@ -972,6 +992,10 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         let thinkStartTime = null;   // 思考开始时间（performance.now）
         let thinkEndTime = null;     // 思考结束时间
         let thinkClosed = false;     // 思考阶段是否已结束（收到正文 / 流结束）
+        let soulAccum = '';          // 流式文本累积缓冲（跨 chunk 拼接，用于解析 <soul>）
+        let soulOpen = false;        // 是否已出现 <soul> 开标签且尚未闭合
+        let soulDetails = null;      // 内心OS折叠面板 <details>
+        let soulContentEl = null;    // 内心OS内容 <div>
 
         // 更新思考计时显示（思考中实时跳动）
         const updateThinkTimer = () => {
@@ -989,6 +1013,109 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             if (thinkIndicatorEl) { thinkIndicatorEl.remove(); thinkIndicatorEl = null; }
             thinkDetails.classList.remove('thinking');
             thinkDetails.open = false;  // 思考输出完成后自动折叠
+        };
+
+        // ---- 内心OS（<soul> 标签）解析：向正文区输出文本（同时累积 fullReply / replyRaw） ----
+        const appendContent = (text) => {
+            if (!text) return;
+            fullReply += text;
+            replyRaw += text;
+            const span = document.createElement('span');
+            span.className = 'fade-in-text';
+            span.textContent = text;
+            contentP.appendChild(span);
+        };
+        // 创建内心OS折叠面板（首次检测到 <soul> 开标签时）
+        const ensureSoulPanel = () => {
+            if (soulDetails) return;
+            soulDetails = document.createElement('details');
+            soulDetails.className = 'soul-details soul-generating';
+            soulDetails.open = true;   // 内心OS生成过程中默认展开
+            const summary = document.createElement('summary');
+            const titleSpan = document.createElement('span');
+            titleSpan.className = 'soul-title';
+            titleSpan.textContent = '💭 内心OS';
+            const indicatorEl = document.createElement('span');
+            indicatorEl.className = 'soul-indicator';
+            summary.appendChild(titleSpan);
+            summary.appendChild(indicatorEl);
+            soulDetails.appendChild(summary);
+            soulContentEl = document.createElement('div');
+            soulContentEl.className = 'soul-content';
+            soulDetails.appendChild(soulContentEl);
+            bubble.insertBefore(soulDetails, contentP);
+        };
+        // 累积内心OS文本（面板内实时显示 + 同步进 fullReply）
+        const appendSoulText = (text) => {
+            if (!text) return;
+            fullReply += text;
+            ensureSoulPanel();
+            soulContentEl.appendChild(document.createTextNode(text));
+        };
+        // 内心OS闭合：面板定型并自动折叠
+        const finishSoulPanel = () => {
+            if (!soulDetails) return;
+            soulDetails.classList.remove('soul-generating');
+            soulDetails.open = false;
+        };
+        // 处理一段正文 chunk：解析 <soul> 标签（防跨 chunk 截断）
+        const SOUL_OPEN_TAG = '<soul>';
+        const SOUL_CLOSE_TAG = '</soul>';
+        // 返回缓冲末尾与标签前缀匹配的字符数（保留不完整的标签碎片，等待下一 chunk 补齐）
+        const matchTagPrefix = (str, tag) => {
+            for (let k = Math.min(str.length, tag.length - 1); k >= 1; k--) {
+                if (str.endsWith(tag.slice(0, k))) return k;
+            }
+            return 0;
+        };
+        const feedContent = (text) => {
+            soulAccum += text;
+            while (soulAccum.length > 0) {
+                if (!soulOpen) {
+                    const openIdx = soulAccum.indexOf(SOUL_OPEN_TAG);
+                    if (openIdx === -1) {
+                        // 无完整开标签：末尾可能是不完整的 <soul> 前缀，保留等下一 chunk
+                        const keep = matchTagPrefix(soulAccum, SOUL_OPEN_TAG);
+                        if (keep > 0) {
+                            const out = soulAccum.slice(0, -keep);
+                            if (out) appendContent(out);
+                            soulAccum = soulAccum.slice(-keep);
+                        } else {
+                            appendContent(soulAccum);
+                            soulAccum = '';
+                        }
+                        break;
+                    }
+                    // 找到完整开标签：开标签前的文本是正文
+                    if (openIdx > 0) appendContent(soulAccum.slice(0, openIdx));
+                    soulAccum = soulAccum.slice(openIdx + SOUL_OPEN_TAG.length);
+                    fullReply += SOUL_OPEN_TAG;
+                    ensureSoulPanel();
+                    soulOpen = true;
+                    // 继续循环处理闭标签
+                } else {
+                    const closeIdx = soulAccum.indexOf(SOUL_CLOSE_TAG);
+                    if (closeIdx === -1) {
+                        // 无完整闭标签：末尾可能是不完整的 </soul> 前缀，保留等下一 chunk
+                        const keep = matchTagPrefix(soulAccum, SOUL_CLOSE_TAG);
+                        if (keep > 0) {
+                            const out = soulAccum.slice(0, -keep);
+                            if (out) appendSoulText(out);
+                            soulAccum = soulAccum.slice(-keep);
+                        } else {
+                            appendSoulText(soulAccum);
+                            soulAccum = '';
+                        }
+                        break;
+                    }
+                    appendSoulText(soulAccum.slice(0, closeIdx));
+                    finishSoulPanel();
+                    soulOpen = false;
+                    fullReply += SOUL_CLOSE_TAG;
+                    soulAccum = soulAccum.slice(closeIdx + SOUL_CLOSE_TAG.length);
+                    // 继续循环处理剩余 buffer（可能有更多正文）
+                }
+            }
         };
 
         for await (const chunk of generator) {
@@ -1045,12 +1172,8 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                     if (thinkDetails) fullReply += '</think>';
                     finalizeThink();
                 }
-                fullReply += chunk.text;
-                replyRaw += chunk.text;
-                const span = document.createElement('span');
-                span.className = 'fade-in-text';
-                span.textContent = chunk.text;
-                contentP.appendChild(span);
+                // 正文中可能夹带 <soul> 内心OS标签，交由 feedContent 解析
+                feedContent(chunk.text);
             }
             uiScroll.conditionalScrollToBottom();
 
@@ -1064,6 +1187,11 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         if (thinkDetails && !thinkClosed) {
             fullReply += '</think>';
             finalizeThink();
+        }
+        // 流结束：内心OS未闭合（如被截断）→ 补全标签保证历史回显可解析，面板定型并折叠
+        if (soulOpen) {
+            fullReply += '</soul>';
+            finishSoulPanel();
         }
         // 生成完成后，将正文重新渲染为括号斜体样式（流式阶段保持纯文本逐字输出）
         if (bubble && contentP && replyRaw) {
@@ -1134,7 +1262,8 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         }
 
         if (currentChat.settings?.ttsEnabled) {
-            const { replyContent } = parseThinkContent(fullReply);
+            // TTS 只朗读正文：剥离 <think>（思考过程）与 <soul>（内心OS）
+            const replyContent = stripHiddenTags(fullReply);
             if (replyContent) {
                 const parts = parseParenthesesContent(replyContent);
                 const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');

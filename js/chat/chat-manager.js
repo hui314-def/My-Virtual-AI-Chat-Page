@@ -1,6 +1,8 @@
 // 对话管理:新建 / 切换 / 置顶 / 删除 / 快捷键切换
 // 从 script.js 分离(阶段2),风格与其余 js/ 模块一致(构造注入依赖)
-import { getCurrentTime } from '../core/utils.js';
+import { getCurrentTime, replaceSTMacros } from '../core/utils.js';
+import Constants from '../core/constants.js';
+import { SettingsManager } from '../core/settings-manager.js';
 
 export class ChatManager {
     /**
@@ -69,6 +71,15 @@ export class ChatManager {
     // 使用传入的设置新建对话（供「新对话 → 先弹设置 → 保存后创建」流程使用）
     async createNewChatWithSettings(settings) {
         this.closeSidebarOnMobile();
+        // 开场白支持 SillyTavern 宏：创建时解析一次并定型（动态宏无上下文 → 空串）
+        const stUserName = (settings.userProfileName || '').trim()
+            || (SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername());
+        const greeting = replaceSTMacros(settings.greeting, {
+            roleName: settings.roleName || Constants.DEFAULT_ROLE_NAME,
+            userName: stUserName,
+            greeting: settings.greeting,
+            charVersion: settings.cardMeta?.characterVersion,
+        });
         const newId = Date.now();
         const newChat = {
             id: newId,
@@ -80,7 +91,7 @@ export class ChatManager {
                 createdAt: new Date().toISOString(),
                 summary: null,
                 messages: [
-                    { type: 'ai', text: settings.greeting, time: getCurrentTime() }
+                    { type: 'ai', text: greeting, time: getCurrentTime() }
                 ]
             }],
             currentTopicIndex: 0,
