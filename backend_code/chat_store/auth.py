@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """注册 / 登录 / JWT 签发与鉴权依赖。"""
 import os
 import datetime as dt

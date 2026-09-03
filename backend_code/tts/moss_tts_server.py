@@ -53,7 +53,7 @@ if not MOSS_API_KEY:
     raise RuntimeError("请在 .env 中设置 MOSS_API_KEY")
 
 TTS_HOST = os.environ.get("TTS_HOST", "0.0.0.0")
-TTS_PORT = int(os.environ.get("TTS_PORT", "5000"))
+TTS_PORT = int(os.environ.get("TTS_PORT", "5555"))
 
 # ── 音频缓存配置 ─────────────────────────────────────────────────────────
 MAX_CACHE_SIZE_GB = 5
@@ -137,14 +137,15 @@ _voice_map_lock = threading.Lock()
 
 
 def load_voice_map() -> dict:
-    """加载音色名 → MOSI UUID 映射。首次启动时尝试从 MOSI 云端同步。"""
+    """加载音色名 → MOSI UUID 映射。映射只由用户操作写入（克隆/设计/默认音色），
+    不再自动同步云端全部音色。"""
     global _voice_map
     if VOICE_MAP_PATH.exists():
         try:
             _voice_map = json.loads(VOICE_MAP_PATH.read_text(encoding="utf-8"))
             logger.info(f"已加载 {len(_voice_map)} 个音色映射")
         except (json.JSONDecodeError, OSError):
-            logger.warning("voice_map.json 损坏，从云端重新同步")
+            logger.warning("voice_map.json 损坏，重置为空映射")
             _voice_map = {}
     else:
         _voice_map = {}
@@ -157,25 +158,39 @@ def save_voice_map() -> None:
     os.replace(tmp, str(VOICE_MAP_PATH))
 
 
-async def sync_voices_from_mosi(client: MossClient) -> None:
-    """从 MOSI 云端拉取音色列表，补全本地映射中缺失的。"""
+async def _ensure_default_voice(client: MossClient) -> None:
+    """确保 voice_map 中存在 default 音色键（幂等，不新增其他音色）。
+
+    优先级：环境变量 MOSS_DEFAULT_VOICE 指定的音色名 → 云端音色列表第一个。
+    只在缺少 default 时执行一次；之后不会自动同步云端其他音色。
+    """
+    with _voice_map_lock:
+        if "default" in _voice_map:
+            return
+
+    env_default = os.environ.get("MOSS_DEFAULT_VOICE", "").strip()
+    if env_default:
+        with _voice_map_lock:
+            if env_default in _voice_map:
+                _voice_map["default"] = _voice_map[env_default]
+                save_voice_map()
+                logger.info(f"默认音色已设置: {env_default}")
+                return
+        logger.warning(f"MOSS_DEFAULT_VOICE={env_default} 不在音色映射中，回退云端首音色")
+
     try:
         remote = await asyncio.to_thread(client.list_voices)
-        with _voice_map_lock:
-            updated = False
-            for v in remote:
-                vid = v.get("id", "")
-                vname = v.get("name", "").strip()
-                # 优先用 name，如果为空或冲突则用 id 前缀
-                key = vname if vname else vid[:8]
-                if key not in _voice_map:
-                    _voice_map[key] = vid
-                    updated = True
-                    logger.info(f"新增云音色: {key} → {vid[:16]}...")
-            if updated:
+        if remote:
+            first = remote[0]
+            vid = first.get("id", "")
+            vname = first.get("name", "").strip() or vid[:8]
+            with _voice_map_lock:
+                _voice_map["default"] = vid
+                _voice_map.setdefault(vname, vid)
                 save_voice_map()
+            logger.info(f"默认音色已设置: {vname} → {vid[:16]}...")
     except Exception as e:
-        logger.warning(f"同步云音色失败: {e}")
+        logger.warning(f"获取默认音色失败: {e}")
 
 
 # ── MOSI 客户端（全局复用）────────────────────────────────────────────────
@@ -207,7 +222,8 @@ async def startup():
     load_voice_map()
     cleanup_audio_cache(force=True)
     client = get_mosi_client()
-    await sync_voices_from_mosi(client)
+    # 不再自动同步云端全部音色（避免每次启动新增）；只确保 default 音色存在
+    await _ensure_default_voice(client)
     logger.info(f"MOSI TTS 服务启动: {TTS_HOST}:{TTS_PORT}")
 
 
@@ -534,6 +550,103 @@ async def clone_voice(
                 os.unlink(tmp_path)
             except Exception:
                 pass
+
+
+# ── POST /design_voice ────────────────────────────────────────────────────
+
+DEFAULT_PREVIEW_TEXT = "你好，这是我为你设计的新音色试听。"
+
+
+def _download_bytes(url: str) -> bytes:
+    """下载远程 URL 内容为字节（MOSS 返回音频 URL 时兜底使用）。"""
+    import requests
+
+    resp = requests.get(url, timeout=60)
+    resp.raise_for_status()
+    return resp.content
+
+
+@app.post("/design_voice")
+async def design_voice(request: Request):
+    """音色设计：通过自然语言描述生成全新音色 / 试听音频（无需参考音频）。
+
+    请求 JSON: {"voice_name": str, "voice_description": str, "preview_text": str?}
+    内部调用 MOSS /v1/audio/voice/generations（delivery_method=audio, response_format=wav）。
+    若 MOSS 返回可复用的 voice_id 则存入 voice_map 供 /tts 使用；否则仅返回试听音频
+    （reusable=false，前端可提示该后端设计音色不可保存复用）。
+    """
+    if REQUIRE_AUTH:
+        key = request.headers.get("X-API-Key", "")
+        if key != TTS_API_KEY:
+            return JSONResponse({"error": "未授权访问，请提供有效的 API Key"}, status_code=401)
+
+    body = await request.json()
+    voice_name = body.get("voice_name", "").strip()
+    description = body.get("voice_description", "").strip()
+    preview_text = body.get("preview_text", "").strip() or DEFAULT_PREVIEW_TEXT
+
+    safe_name = "".join(c for c in voice_name if c.isalnum() or c in "._-")
+    if not safe_name or safe_name != voice_name:
+        return JSONResponse(
+            {"error": "音色名称只能包含字母、数字、下划线、点、横线"}, status_code=400
+        )
+    if not description:
+        return JSONResponse({"error": "音色描述不能为空"}, status_code=400)
+
+    try:
+        client = get_mosi_client()
+        result = await asyncio.to_thread(
+            client.generate_voice,
+            instruction=description,
+            text=preview_text,
+            delivery_method="audio",
+            response_format="wav",
+        )
+    except (MossAPIError, MossError, MossTimeoutError) as e:
+        logger.error(f"MOSS 音色设计失败: {e}")
+        return JSONResponse({"error": f"音色设计失败: {e}"}, status_code=502)
+    except Exception as e:
+        logger.exception("MOSS 音色设计未知错误")
+        return JSONResponse({"error": "内部服务错误"}, status_code=500)
+
+    # ── 结果处理 ──
+    if isinstance(result, dict):
+        # 兜底：JSON 返回（正常 delivery_method=audio 应直接给音频字节）
+        voice_id = result.get("voice_id") or result.get("id")
+        if voice_id:
+            with _voice_map_lock:
+                _voice_map[safe_name] = voice_id
+                save_voice_map()
+            logger.info(f"MOSS 音色设计成功（可复用）: {safe_name} → {voice_id[:16]}...")
+            return {
+                "message": "音色设计成功",
+                "voice_name": safe_name,
+                "reusable": True,
+                "preview_audio": "",
+            }
+        url = result.get("url") or result.get("audio_url") or (result.get("data") or {}).get("url")
+        if url:
+            try:
+                audio_bytes = await asyncio.to_thread(_download_bytes, url)
+            except Exception as e:
+                logger.error(f"下载试听音频失败: {e}")
+                return JSONResponse({"error": f"下载试听音频失败: {e}"}, status_code=502)
+            return {
+                "message": "音色设计成功",
+                "voice_name": safe_name,
+                "reusable": False,
+                "preview_audio": base64.b64encode(audio_bytes).decode("ascii"),
+            }
+        return JSONResponse({"error": "音色设计失败：MOSS 未返回音频"}, status_code=502)
+
+    # bytes：直接作为试听音频（WAV）
+    logger.info(f"MOSS 音色设计成功（一次性试听）: {safe_name}")
+    return {
+        "message": "音色设计成功",
+        "voice_name": safe_name,
+        "reusable": False,
+        "preview_audio": base64.b64encode(result).decode("ascii"),
+    }
 
 
 # ── 入口 ──────────────────────────────────────────────────────────────────

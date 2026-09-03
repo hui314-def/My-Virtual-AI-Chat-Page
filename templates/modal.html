@@ -205,7 +205,7 @@
                 </div>
                 <div class="form-group">
                     <label>聊天背景</label>
-                    <select id="bg-type" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 180px; cursor: pointer;">
+                    <select id="bg-type" style="background-color: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 180px; cursor: pointer;">
                         <option value="">默认背景</option>
                         <option value="image">静态图片</option>
                         <option value="video">视频背景</option>
@@ -236,7 +236,7 @@
                     </div>
                     <div id="chat-bg-video-file-row" style="display:none;">
                         <input type="file" id="chat-bg-video-file" accept="video/mp4,video/webm">
-                        <span id="chat-bg-video-file-name" style="font-size:0.75rem;color:#8e8eb3;"></span>
+                        <span id="chat-bg-video-file-name" style="font-size:0.75rem;color:var(--text-dim);"></span>
                     </div>
                     <small>支持 mp4/webm，建议 720p、≤50MB，自动静音循环播放</small>
                     <div class="form-group" id="chat-bg-video-preview-group" style="display:none;">
@@ -272,7 +272,7 @@
                         </div>
                         <div id="chat-bg-music-file-row" style="display:none;">
                             <input type="file" id="chat-bg-music-file" accept=".mp3,.wav,.ogg,.flac,.m4a,.weba,.aac">
-                            <span id="chat-bg-music-file-name" style="font-size:0.75rem;color:#8e8eb3;"></span>
+                            <span id="chat-bg-music-file-name" style="font-size:0.75rem;color:var(--text-dim);"></span>
                         </div>
                         <!-- AI 生成区:输入风格 → 生成英文提示词 → 调后端 ComfyUI 生成音乐 -->
                         <div id="chat-bg-music-ai-row" style="display:none;">
@@ -280,14 +280,14 @@
                             <div style="display:flex; align-items:center; gap:8px; margin-top:8px;">
                                 <button type="button" id="chat-bg-music-ai-generate" class="mini-btn" style="background: linear-gradient(125deg, #2d3370, #1b1f48); border: 1px solid #6c7eff; color: white;">🎵 生成音乐</button>
                                 <button type="button" id="chat-bg-music-ai-play" class="mini-btn" style="display:none; background: rgba(45,85,55,0.6); border: 1px solid rgba(80,200,120,0.5); color: #b9f0cd;">▶ 试听</button>
-                                <span id="chat-bg-music-ai-status" style="font-size:0.75rem; color:#8e8eb3;"></span>
+                                <span id="chat-bg-music-ai-status" style="font-size:0.75rem; color:var(--text-dim);"></span>
                             </div>
                             <small>输入想要的音乐风格,AI 先生成细致具体的英文提示词,再调用后端生成音乐</small>
                         </div>
                         <small>支持 mp3/wav/ogg/flac/m4a,建议 ≤50MB,自动循环播放</small>
                         <label style="margin-top: 8px;">音量</label>
                         <div style="display:flex; align-items:center; gap:8px;">
-                            <i class="fas fa-volume-down" style="color:#8e8eb3; font-size:0.8rem;"></i>
+                            <i class="fas fa-volume-down" style="color:var(--text-dim); font-size:0.8rem;"></i>
                             <input type="range" id="bg-music-volume" min="0" max="100" value="50" style="flex:1;">
                             <span id="bg-music-volume-value" style="min-width:35px; font-size:0.75rem;">50%</span>
                         </div>
@@ -326,7 +326,7 @@
                 <div class="form-group" style="border-top: 1px dashed rgba(100,130,255,0.3); padding-top: 14px;">
                     <label style="display: flex; align-items: center; gap: 8px;">
                         <i class="fas fa-user-astronaut"></i> 用户画像
-                        <small style="font-weight: normal; color: #8e8eb3;">(留空 = 跟随全局「对话设定」)</small>
+                        <small style="font-weight: normal; color: var(--text-dim);">(留空 = 跟随全局「对话设定」)</small>
                     </label>
                     <input type="text" id="user-profile-name" placeholder="留空则使用全局昵称">
                     <textarea id="user-profile-bio" rows="2" placeholder="留空则使用全局简介" style="margin-top: 8px;"></textarea>

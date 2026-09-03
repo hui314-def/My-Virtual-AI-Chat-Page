@@ -848,7 +848,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
     if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
     // 思考计时器句柄：必须在 try 外声明（finally 清理时需要访问）
     let thinkTickTimer = null;
-
+    let displayDone = false;     // 流已正常结束（排空队列后打字机退出）
     try {
         // 获取对话历史（支持话题视图）
         let historyMessages = [];
@@ -994,8 +994,16 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         let thinkClosed = false;     // 思考阶段是否已结束（收到正文 / 流结束）
         let soulAccum = '';          // 流式文本累积缓冲（跨 chunk 拼接，用于解析 <soul>）
         let soulOpen = false;        // 是否已出现 <soul> 开标签且尚未闭合
+        let soulJustClosed = false;  // </soul> 刚闭合且缓冲已空：下一 chunk 若以换行开头则吞掉（标签行尾换行）
         let soulDetails = null;      // 内心OS折叠面板 <details>
         let soulContentEl = null;    // 内心OS内容 <div>
+
+        // ---- 打字机解耦：接收正常速度，显示按「打字速度」节流 ----
+        const displayQueue = [];     // 显示指令队列：{type:'text'|'soul-open'|'soul-text'|'soul-close', text?}
+        let displayAborted = false;  // 流被中断（清空队列立即退出）
+        let typewriterReady = null;  // 打字机排空 Promise
+        let resolveTypewriter = null;
+        const sleep = (ms) => new Promise(r => setTimeout(r, ms));
 
         // 更新思考计时显示（思考中实时跳动）
         const updateThinkTimer = () => {
@@ -1015,11 +1023,16 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             thinkDetails.open = false;  // 思考输出完成后自动折叠
         };
 
-        // ---- 内心OS（<soul> 标签）解析：向正文区输出文本（同时累积 fullReply / replyRaw） ----
+        // ---- 内心OS（<soul> 标签）解析：数据层即时累积，显示入队由打字机消费 ----
+        // 数据层（即时）：正文文本进 fullReply + replyRaw；soul 文本进 fullReply
+        const recordContent = (text) => { if (!text) return; fullReply += text; replyRaw += text; };
+        const recordSoulText = (text) => { if (!text) return; fullReply += text; };
+        // 显示层（入队，打字机按打字速度渲染）
+        const queueText = (text) => { if (!text) return; displayQueue.push({ type: 'text', text }); };
+        const queueSoulText = (text) => { if (!text) return; displayQueue.push({ type: 'soul-text', text }); };
+        // 纯 DOM 渲染（仅打字机调用；数据累积已由 record* 即时完成）
         const appendContent = (text) => {
             if (!text) return;
-            fullReply += text;
-            replyRaw += text;
             const span = document.createElement('span');
             span.className = 'fade-in-text';
             span.textContent = text;
@@ -1048,7 +1061,6 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         // 累积内心OS文本（面板内实时显示 + 同步进 fullReply）
         const appendSoulText = (text) => {
             if (!text) return;
-            fullReply += text;
             ensureSoulPanel();
             soulContentEl.appendChild(document.createTextNode(text));
         };
@@ -1057,6 +1069,38 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
             if (!soulDetails) return;
             soulDetails.classList.remove('soul-generating');
             soulDetails.open = false;
+        };
+        // 打字机协程：以正常速度接收（数据层即时），但按「打字速度」节流渲染 DOM。
+        // 消费显示指令队列；displayDone 后排空退出，displayAborted 时立即退出。
+        const typewriter = async () => {
+            const speed = getTypingSpeed();
+            // ms/字符：非线性映射（1/speed 倒数放大），低倍速显著变慢：
+            // 1.0→0（原速） · 0.5→6ms · 0.1→54ms · 0.05→114ms · 0.02→294ms · 0.01→594ms
+            const interval = speed >= 1 ? 0 : (1 / speed - 1) * 6;
+            const CHARS_PER_TICK = 3;                             // 每小节渲染字符数（平滑节流）
+            while (true) {
+                if (displayQueue.length > 0) {
+                    const item = displayQueue.shift();
+                    if (item.type === 'soul-open') {
+                        ensureSoulPanel();
+                    } else if (item.type === 'soul-close') {
+                        finishSoulPanel();
+                    } else {
+                        const text = item.text;
+                        for (let i = 0; i < text.length; i += CHARS_PER_TICK) {
+                            if (item.type === 'soul-text') appendSoulText(text.slice(i, i + CHARS_PER_TICK));
+                            else appendContent(text.slice(i, i + CHARS_PER_TICK));
+                            if (interval > 0) await sleep(interval * CHARS_PER_TICK);
+                        }
+                    }
+                    uiScroll.conditionalScrollToBottom();
+                } else if (displayDone || displayAborted) {
+                    break;
+                } else {
+                    await sleep(16);  // 队列空：等待新内容
+                }
+            }
+            resolveTypewriter();
         };
         // 处理一段正文 chunk：解析 <soul> 标签（防跨 chunk 截断）
         const SOUL_OPEN_TAG = '<soul>';
@@ -1070,6 +1114,11 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         };
         const feedContent = (text) => {
             soulAccum += text;
+            // </soul> 刚闭合且上一 chunk 缓冲已空：本 chunk 若以换行开头（标签行尾换行）则吞掉
+            if (soulJustClosed) {
+                soulJustClosed = false;
+                soulAccum = soulAccum.replace(/^[\r\n]+/, '');
+            }
             while (soulAccum.length > 0) {
                 if (!soulOpen) {
                     const openIdx = soulAccum.indexOf(SOUL_OPEN_TAG);
@@ -1078,19 +1127,22 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                         const keep = matchTagPrefix(soulAccum, SOUL_OPEN_TAG);
                         if (keep > 0) {
                             const out = soulAccum.slice(0, -keep);
-                            if (out) appendContent(out);
+                            if (out) { recordContent(out); queueText(out); }
                             soulAccum = soulAccum.slice(-keep);
                         } else {
-                            appendContent(soulAccum);
+                            recordContent(soulAccum); queueText(soulAccum);
                             soulAccum = '';
                         }
                         break;
                     }
                     // 找到完整开标签：开标签前的文本是正文
-                    if (openIdx > 0) appendContent(soulAccum.slice(0, openIdx));
+                    if (openIdx > 0) {
+                        const pre = soulAccum.slice(0, openIdx);
+                        recordContent(pre); queueText(pre);
+                    }
                     soulAccum = soulAccum.slice(openIdx + SOUL_OPEN_TAG.length);
                     fullReply += SOUL_OPEN_TAG;
-                    ensureSoulPanel();
+                    displayQueue.push({ type: 'soul-open' });
                     soulOpen = true;
                     // 继续循环处理闭标签
                 } else {
@@ -1100,23 +1152,31 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                         const keep = matchTagPrefix(soulAccum, SOUL_CLOSE_TAG);
                         if (keep > 0) {
                             const out = soulAccum.slice(0, -keep);
-                            if (out) appendSoulText(out);
+                            if (out) { recordSoulText(out); queueSoulText(out); }
                             soulAccum = soulAccum.slice(-keep);
                         } else {
-                            appendSoulText(soulAccum);
+                            recordSoulText(soulAccum); queueSoulText(soulAccum);
                             soulAccum = '';
                         }
                         break;
                     }
-                    appendSoulText(soulAccum.slice(0, closeIdx));
-                    finishSoulPanel();
+                    const soulText = soulAccum.slice(0, closeIdx);
+                    if (soulText) { recordSoulText(soulText); queueSoulText(soulText); }
+                    displayQueue.push({ type: 'soul-close' });
                     soulOpen = false;
                     fullReply += SOUL_CLOSE_TAG;
                     soulAccum = soulAccum.slice(closeIdx + SOUL_CLOSE_TAG.length);
+                    // 吞掉紧跟 </soul> 的换行：soul 面板是块级折叠元素（pre-wrap 下保留会让正文前多空一行）
+                    soulAccum = soulAccum.replace(/^[\r\n]+/, '');
+                    if (soulAccum.length === 0) soulJustClosed = true; // 缓冲已空：换行可能落在下一 chunk，由入口吞
                     // 继续循环处理剩余 buffer（可能有更多正文）
                 }
             }
         };
+
+        // 启动打字机协程（独立于接收循环：接收正常速度，显示按打字速度节流）
+        typewriterReady = new Promise(r => { resolveTypewriter = r; });
+        typewriter();
 
         for await (const chunk of generator) {
             if (isFirstChunk) {
@@ -1175,13 +1235,8 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 // 正文中可能夹带 <soul> 内心OS标签，交由 feedContent 解析
                 feedContent(chunk.text);
             }
-            uiScroll.conditionalScrollToBottom();
-
-            // 控制打字速度
-            const speed = getTypingSpeed();
-            if (speed < 1) {
-                await new Promise(resolve => setTimeout(resolve, (1 - speed) * 150));
-            }
+            // 注意：不再在此处控制打字速度 / 滚动 —— 接收保持正常速度，
+            // 显示由打字机协程按速度渲染并滚动，语音可在全文收齐后立即开始（与打字并行）
         }
         // 流结束：若仍处于思考阶段（如被截断），补全标签并折叠
         if (thinkDetails && !thinkClosed) {
@@ -1191,8 +1246,30 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         // 流结束：内心OS未闭合（如被截断）→ 补全标签保证历史回显可解析，面板定型并折叠
         if (soulOpen) {
             fullReply += '</soul>';
-            finishSoulPanel();
+            displayQueue.push({ type: 'soul-close' });   // 交由打字机定型折叠
         }
+        // 流结束：告知打字机排空剩余显示内容
+        displayDone = true;
+        // TTS 立即开始（与打字机并行）：全文已收齐，无需等文字打完。
+        // 旧的实现被打字速度拖慢接收，语音只能等文字全部显示后才开始；
+        // 现在接收正常速度，模型一输出完全文即可合成语音。
+        if (currentChat.settings?.ttsEnabled) {
+            // TTS 只朗读正文：剥离 <think>（思考过程）与 <soul>（内心OS）
+            const replyContent = stripHiddenTags(fullReply);
+            if (replyContent) {
+                const parts = parseParenthesesContent(replyContent);
+                const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');
+                if (speechText.trim()) {
+                    let ttsVoice = currentChat.settings.ttsVoice;
+                    if (!ttsVoice || ttsVoice === '') ttsVoice = 'default';
+                    uiAppearance.updateStatusIndicator('speaking', '语音合成中 ...');
+                    ttsService.speak(speechText, ttsVoice)
+                        .finally(() => uiAppearance.updateStatusIndicator('online'));
+                }
+            }
+        }
+        // 等待打字机排空剩余显示内容，再重渲染括号斜体（否则会清掉未显示的文字）
+        await typewriterReady;
         // 生成完成后，将正文重新渲染为括号斜体样式（流式阶段保持纯文本逐字输出）
         if (bubble && contentP && replyRaw) {
             const parts = parseParenthesesContent(replyRaw);
@@ -1260,27 +1337,16 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         } catch (err) {
             lastModelHits = new Set();
         }
-
-        if (currentChat.settings?.ttsEnabled) {
-            // TTS 只朗读正文：剥离 <think>（思考过程）与 <soul>（内心OS）
-            const replyContent = stripHiddenTags(fullReply);
-            if (replyContent) {
-                const parts = parseParenthesesContent(replyContent);
-                const speechText = parts.filter(p => p.type === 'speech').map(p => p.text).join('');
-                if (speechText.trim()) {
-                    let ttsVoice = currentChat.settings.ttsVoice;
-                    if (!ttsVoice || ttsVoice === '') ttsVoice = 'default';
-                    uiAppearance.updateStatusIndicator('speaking', '语音合成中 ...');
-                    ttsService.speak(speechText, ttsVoice)
-                        .finally(() => uiAppearance.updateStatusIndicator('online'));;
-                }
-            }
-        }
     } catch (error) {
         if (error.name === 'AbortError') {
             console.log('流式请求已被取消');
+            // 用户主动停止：清空未显示内容，打字机立即退出
+            displayAborted = true;
+            displayQueue.length = 0;
         } else {
             console.error('模型调用失败:', error);
+            // 异常中断：让打字机把已接收的内容排空显示后退出（不丢弃已生成文本）
+            displayDone = true;
             uiAppearance.updateStatusIndicator('offline', '离线 · 模型调用失败');
             modalManager.customAlert(`❌ 模型调用失败：${error.message}\n请检查模型地址和 API Key 是否正确。`);
         }

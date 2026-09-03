@@ -87,7 +87,7 @@ python -m http.server 8000
 
 #### Ollama 配置（推荐本地部署）
 
-安装 [Ollama](https://ollama.com/) 并拉取模型（如 gemma2、llama3 等）。
+安装 [Ollama](https://ollama.com/) 并拉取模型（推荐安装qwen3.5:9b）。
 
 设置环境变量以允许跨域请求（重启 Ollama 生效）：
 
@@ -107,7 +107,7 @@ export OLLAMA_ORIGINS=*
 
 ### 3. 语音合成服务（建议）
 
-若需要语音朗读功能，可选择启动 `tts_api.py`或`moss_tts_api.py`，建议安装python3.12
+若需要语音朗读功能，可选择启动 `tts_api.py`、`moss_tts_api.py` 或 `voxcpm_tts_server.py`，三者接口完全兼容（`/voices` `/tts` `/tts/stream` `/clone_voice`），前端无需任何改动。**注意：三者共用 5000 端口，三选一启动**。
 
 #### 千问语音合成服务
 
@@ -120,9 +120,9 @@ python backend_code/tts/tts_api.py
 
 默认监听端口 5000，支持音色克隆（通过上传参考音频），支持 API Key 鉴权（通过 `.env` 设置 `TTS_API_KEY`）。项目文件夹里已经有我克隆好的音色文件，免费使用
 
-首次启动会自动加载 Qwen3-TTS 模型（可提前下载模型权重，参考 [Qwen3-TTS 官方文档](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)）。编辑.env文件输入模型路径QWEN_MODEL_DIR
+首次启动会自动加载 Qwen3-TTS 模型（可提前下载模型权重，参考 [Qwen3-TTS 官方文档](https://modelscope.cn/models/Qwen/Qwen3-TTS-12Hz-1.7B-Base/summary)）。编辑.env文件输入模型路径QWEN_MODEL_DIR（注意：该模型不支持流式生成，需等待生成完成后再播放音频）
 
-#### MOSS 语音合成服务（推荐）
+#### MOSS 语音合成服务（第三方模型api推荐）
 
 需要登录 [Mossland](https://mossland.studio/)平台获取 API Key，并在 `.env` 文件中设置 `MOSS_API_KEY`。安装依赖并启动服务：
 
@@ -131,9 +131,29 @@ pip install -r backend_code/requirements/moss_tts_requirements.txt
 python backend_code/tts/moss_tts_api.py
 ```
 
-默认监听端口 5000，需要设置 API Key 鉴权（通过 `.env` 设置 `MOSS_API_KEY`）。
+默认监听端口 5000，需要设置 API Key 鉴权（通过 `.env` 设置 `MOSS_API_KEY`）。支持**音色设计**（文本描述生成音色，无需参考音频）：前端「音色设计」表单填写描述即可生成试听，MOSS 返回可复用音色时会自动存入音色列表。
 
 ⚠️ 注意事项：mossland每天有100免费积分额度，当天积分次日清零。所以，第二天使用前需要登录mossland平台签到获取
+
+#### VoxCPM2 本地语音合成服务（本地模型，离线可用）
+
+在 [ModelScope](https://modelscope.cn/models/OpenBMB/VoxCPM2) 下载 VoxCPM2 模型权重，安装依赖并启动服务：
+
+```bash
+pip install -r backend_code/requirements/voxcpm_tts_requirements.txt
+python backend_code/tts/voxcpm_tts_server.py
+```
+
+默认监听端口 5000，**接口与 MOSS 版完全兼容**（`/voices` `/tts` `/tts/stream` `/clone_voice` `/design_voice`），前端无需任何改动。音色克隆将参考音频（3~10 秒清晰人声）提取为音色特征，存入 `backend_code/tts/音色库/*.pt`，之后合成无需原音频（一次编码，永久复用）。支持 SSE 流式合成（边生成边播）。支持**音色设计**：前端「音色设计」表单仅填自然语言描述（如"年轻女性，温柔甜美"）即可凭空生成全新音色（无需参考音频），存入 `音色库/*.vdesc.json`，之后合成时自动应用该描述。可通过环境变量配置模型路径与设备：
+
+```bash
+# Windows PowerShell
+$env:VOXCPM_MODEL_PATH = "your/path/to/model" 
+$env:VOXCPM_DEVICE = "cuda"                              # cuda / cpu（默认自动检测）
+python backend_code/tts/voxcpm_tts_server.py
+```
+
+⚠️ 流式输出有显卡性能要求，若出现卡顿可尝试降低采样率或使用非流式输出。
 
 ### 4. 图片生成服务（可选）
 

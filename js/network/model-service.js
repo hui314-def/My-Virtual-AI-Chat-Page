@@ -383,15 +383,32 @@ export class ModelService {
         const isStream = false;
         const url = this.getRequestUrl();
         const headers = this.getHeaders();
-        const body = this.buildRequestBody(messages, { ...options, stream: isStream });
 
-        const response = await fetch(url, {
+        // 第一次请求(可能带 jsonFormat)
+        let body = this.buildRequestBody(messages, { ...options, stream: isStream });
+        let response = await fetch(url, {
             method: 'POST',
             headers,
             body: JSON.stringify(body),
         });
+
+        // jsonFormat 被服务端拒绝(4xx，如部分 API 的 response_format 兼容问题)
+        // → 去掉 format 参数降级重试一次，保证辅助任务(记忆提取/消息建议等)仍可用
+        if (!response.ok && response.status >= 400 && response.status < 500 && options.jsonFormat) {
+            console.warn(`[ModelService] jsonFormat 请求被拒(HTTP ${response.status})，降级为普通格式重试一次`);
+            body = this.buildRequestBody(messages, { ...options, jsonFormat: false, stream: isStream });
+            response = await fetch(url, {
+                method: 'POST',
+                headers,
+                body: JSON.stringify(body),
+            });
+        }
+
         if (!response.ok) {
-            throw new Error(`HTTP ${response.status}`);
+            // 尝试读取响应体作为错误详情(便于排查具体原因)
+            let detail = '';
+            try { detail = await response.text(); } catch { /* ignore */ }
+            throw new Error(`HTTP ${response.status}${detail ? `: ${detail.slice(0, 300)}` : ''}`);
         }
         const data = await response.json();
         // 提取并上报 Token 用量

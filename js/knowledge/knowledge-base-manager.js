@@ -56,7 +56,7 @@ export class KnowledgeBaseManager {
             }
             this._renderKbList(container, kbList);
         } catch (err) {
-            this._renderKbContent(container, `<div style="grid-column:1/-1; text-align:center;padding:40px;color:#ff7a5c;">加载失败：${err.message}<br><span style="font-size:0.8rem;color:#8e8eb3;">请检查上方接口地址是否正确</span></div>`);
+            this._renderKbContent(container, `<div style="grid-column:1/-1; text-align:center;padding:40px;color:var(--danger);">加载失败：${err.message}<br><span style="font-size:0.8rem;color:var(--text-dim);">请检查上方接口地址是否正确</span></div>`);
         }
     }
 
@@ -65,11 +65,11 @@ export class KnowledgeBaseManager {
         container.innerHTML = `
             <div id="kb-header">
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
-                    <h4 style="margin:0; color:#ccd6ff;"><i class="fas fa-database" style="margin-right:8px;"></i>知识库</h4>
+                    <h4 style="margin:0; color:var(--text-secondary);"><i class="fas fa-database" style="margin-right:8px;"></i>知识库</h4>
                     <div style="display:flex; align-items:center; gap:8px;">
                         <input type="text" id="kb-api-base" value="${this.apiBase}" placeholder="后端接口地址" title="后端接口地址，修改后自动重载"
-                            style="width:180px; background:rgba(30,34,55,0.6); border:1px solid rgba(100,130,255,0.3); border-radius:20px; padding:6px 12px; color:#b7c4ff; font-size:0.8rem; outline:none; transition:border-color 0.2s;"
-                            onfocus="this.style.borderColor='rgba(100,130,255,0.7)'" onblur="this.style.borderColor='rgba(100,130,255,0.3)'">
+                            style="width:180px; background:var(--bg-input); border:1px solid var(--border-default); border-radius:20px; padding:6px 12px; color:var(--text-muted); font-size:0.8rem; outline:none; transition:border-color 0.2s;"
+                            onfocus="this.style.borderColor='rgba(100,130,255,0.7)'" onblur="this.style.borderColor='var(--border-default)'">
                         <button class="action-btn" id="new-kb-btn"><i class="fas fa-plus"></i> 新建知识库</button>
                     </div>
                 </div>
@@ -101,7 +101,7 @@ export class KnowledgeBaseManager {
     _renderKbList(container, kbList) {
         let html = '';
         if (kbList.length === 0) {
-            html += `<div style="grid-column:1/-1; text-align:center; padding:40px; color:#8e8eb3;">暂无知识库，点击"新建知识库"创建</div>`;
+            html += `<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text-dim);">暂无知识库，点击"新建知识库"创建</div>`;
         } else {
             for (const kb of kbList) {
                 // 角色记忆库:只读卡片(由记忆系统维护,无删除/改名按钮)
@@ -112,27 +112,27 @@ export class KnowledgeBaseManager {
                             <i class="fas fa-brain" style="font-size:1.5rem; color:#a78bfa;"></i>
                             <span style="font-size:0.65rem; color:#a78bfa; background:rgba(124,88,255,0.15); border-radius:8px; padding:2px 8px;">🔒 系统维护</span>
                         </div>
-                        <div class="kb-card-name" style="font-size:1.1rem; font-weight:500; margin:12px 0 4px; color:#d6ccff; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(kb.name)}</div>
-                        ${kb.description ? `<div class="kb-card-desc" style="font-size:0.8rem; color:#c4b5fd; margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word;">${escapeHtml(kb.description)}</div>` : ''}
-                        <div style="font-size:0.8rem; color:#8e8eb3;">记忆条数：${kb.document_count || 0}</div>
-                        <div style="font-size:0.7rem; color:#6c7b9e; margin-top:4px;">⚠ 不可删除 / 不可改名</div>
+                        <div class="kb-card-name" style="font-size:1.1rem; font-weight:500; margin:12px 0 4px; color:var(--text-secondary); overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(kb.name)}</div>
+                        ${kb.description ? `<div class="kb-card-desc" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word;">${escapeHtml(kb.description)}</div>` : ''}
+                        <div style="font-size:0.8rem; color:var(--text-dim);">记忆条数：${kb.document_count || 0}</div>
+                        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:4px;">⚠ 不可删除 / 不可改名</div>
                     </div>
                     `;
                     continue;
                 }
                 html += `
-                    <div class="knowledge-card" data-kb-id="${kb.id}" style="background:rgba(30,34,55,0.6); border-radius:16px; padding:20px; border:1px solid rgba(100,130,255,0.3); cursor:pointer; transition:0.2s; position:relative;">
+                    <div class="knowledge-card" data-kb-id="${kb.id}" style="background:var(--bg-card-soft); border-radius:16px; padding:20px; border:1px solid var(--border-default); cursor:pointer; transition:0.2s; position:relative;">
                         <div style="display:flex; justify-content:space-between; align-items:flex-start;">
-                            <i class="fas fa-database" style="font-size:1.5rem; color:#5f7eff;"></i>
+                            <i class="fas fa-database" style="font-size:1.5rem; color:var(--accent);"></i>
                             <div>
-                                <button class="edit-kb-btn" data-kb-id="${kb.id}" style="background:transparent; border:none; color:#b7c4ff; cursor:pointer; margin-right:8px;"><i class="fas fa-pencil-alt"></i></button>
+                                <button class="edit-kb-btn" data-kb-id="${kb.id}" style="background:transparent; border:none; color:var(--text-muted); cursor:pointer; margin-right:8px;"><i class="fas fa-pencil-alt"></i></button>
                                 <button class="delete-kb-btn" data-kb-id="${kb.id}" style="background:transparent; border:none; color:#ff8a7a; cursor:pointer;"><i class="fas fa-trash-alt"></i></button>
                             </div>
                         </div>
                         <div class="kb-card-name" style="font-size:1.1rem; font-weight:500; margin:12px 0 4px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${escapeHtml(kb.name)}</div>
-                        ${kb.description ? `<div class="kb-card-desc" style="font-size:0.8rem; color:#b7c4ff; margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word;">${escapeHtml(kb.description)}</div>` : ''}
-                        <div style="font-size:0.8rem; color:#8e8eb3;">文档数：${kb.document_count || 0}</div>
-                        <div style="font-size:0.7rem; color:#6c7b9e; margin-top:4px;">创建：${kb.created_at ? kb.created_at.substring(0,10) : '未知'}</div>
+                        ${kb.description ? `<div class="kb-card-desc" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:8px; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; word-break:break-word;">${escapeHtml(kb.description)}</div>` : ''}
+                        <div style="font-size:0.8rem; color:var(--text-dim);">文档数：${kb.document_count || 0}</div>
+                        <div style="font-size:0.7rem; color:var(--text-dim); margin-top:4px;">创建：${kb.created_at ? kb.created_at.substring(0,10) : '未知'}</div>
                     </div>
                 `;
             }
@@ -202,10 +202,10 @@ export class KnowledgeBaseManager {
 
         // 角色记忆库:只读,不展示文档列表
         if (kbId === '__memory__') {
-            this._renderKbContent(container, `<div style="grid-column:1/-1; text-align:center; padding:40px; color:#b7c4ff;">
+            this._renderKbContent(container, `<div style="grid-column:1/-1; text-align:center; padding:40px; color:var(--text-muted);">
                 <i class="fas fa-brain" style="font-size:2.5rem; color:#a78bfa; margin-bottom:12px; display:block;"></i>
                 角色记忆库<br>
-                <span style="font-size:0.8rem; color:#8e8eb3; line-height:1.8;">由记忆系统自动维护，用于存放各角色的长期记忆（全局记忆 + 各角色专属记忆）。<br>不可删除、不可改名、不可上传文档。</span>
+                <span style="font-size:0.8rem; color:var(--text-dim); line-height:1.8;">由记忆系统自动维护，用于存放各角色的长期记忆（全局记忆 + 各角色专属记忆）。<br>不可删除、不可改名、不可上传文档。</span>
             </div>`);
             return;
         }
@@ -239,32 +239,32 @@ export class KnowledgeBaseManager {
                         <span id="upload-progress-label">上传中...</span>
                         <span id="upload-progress-percent">0%</span>
                     </div>
-                    <div style="width:100%; height:6px; background:rgba(30,34,55,0.6); border-radius:3px; overflow:hidden; margin-top:4px;">
+                    <div style="width:100%; height:6px; background:var(--bg-card-soft); border-radius:3px; overflow:hidden; margin-top:4px;">
                         <div id="upload-progress-bar" style="width:0%; height:100%; background:linear-gradient(90deg, #5f7eff, #7f9eff); transition:width 0.3s;"></div>
                     </div>
                 </div>
                 <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:20px;">
                     <div style="display:flex; align-items:center; gap:12px;">
                         <button class="action-btn" id="back-to-kb-list"><i class="fas fa-arrow-left"></i> 返回</button>
-                        <h4 style="margin:0; color:#ccd6ff;">
+                        <h4 style="margin:0; color:var(--text-secondary);">
                             <span class="kb-detail-name" data-kb-id="${kbId}" style="cursor:text;">${kbName}</span>
                         </h4>
                     </div>
                     <button class="action-btn" id="upload-doc-btn"><i class="fas fa-upload"></i> 上传文档</button>
                 </div>
-                <div style="background:rgba(20,24,45,0.5); border-radius:16px; padding:16px;">
+                <div style="background:var(--bg-card-soft); border-radius:16px; padding:16px;">
             `;
             if (docs.length === 0) {
-                html += `<div style="text-align:center;padding:40px; color:#8e8eb3;">暂无文档，点击"上传文档"添加</div>`;
+                html += `<div style="text-align:center;padding:40px; color:var(--text-dim);">暂无文档，点击"上传文档"添加</div>`;
             } else {
                 html += `<div style="display:flex; flex-direction:column; gap:12px;">`;
                 for (const doc of docs) {
                     html += `
-                        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:rgba(30,34,55,0.4); border-radius:12px; border-left:3px solid #5f7eff;">
+                        <div style="display:flex; justify-content:space-between; align-items:center; padding:12px 16px; background:var(--bg-card-soft); border-radius:12px; border-left:3px solid var(--accent);">
                             <div>
-                                <i class="fas fa-file-alt" style="color:#5f7eff; margin-right:12px;"></i>
+                                <i class="fas fa-file-alt" style="color:var(--accent); margin-right:12px;"></i>
                                 <span>${doc.filename}</span>
-                                <span style="font-size:0.7rem; color:#8e8eb3; margin-left:12px;">块数：${doc.chunks}</span>
+                                <span style="font-size:0.7rem; color:var(--text-dim); margin-left:12px;">块数：${doc.chunks}</span>
                             </div>
                             <button class="delete-doc-btn" data-doc-id="${doc.doc_id}" style="background:transparent; border:none; color:#ff8a7a; cursor:pointer;">
                                 <i class="fas fa-trash-alt"></i>
@@ -414,9 +414,9 @@ export class KnowledgeBaseManager {
             this._restoreUploadProgress(kbId);
         } catch (err) {
             container.innerHTML = `
-                <div style="text-align:center;padding:40px;color:#ff7a5c;">
+                <div style="text-align:center;padding:40px;color:var(--danger);">
                     加载失败：${err.message}<br>
-                    <span style="font-size:0.8rem;color:#8e8eb3;">请检查接口地址是否正确</span><br>
+                    <span style="font-size:0.8rem;color:var(--text-dim);">请检查接口地址是否正确</span><br>
                     <button class="action-btn" id="back-to-list-on-error" style="margin-top:12px;"><i class="fas fa-arrow-left"></i> 返回列表</button>
                 </div>`;
             document.getElementById('back-to-list-on-error').addEventListener('click', () => {
@@ -548,12 +548,12 @@ export class KnowledgeBaseManager {
             title: '新建知识库',
             message: `
                 <div style="margin-bottom:12px;">
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">名称</label>
-                    <input type="text" id="new-kb-name" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-muted);">名称</label>
+                    <input type="text" id="new-kb-name" style="width:100%; background:var(--bg-input); border:1px solid var(--border-default); border-radius:20px; padding:10px 16px; color:var(--text-primary); font-size:0.9rem; outline:none;">
                 </div>
                 <div>
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">描述</label>
-                    <textarea id="new-kb-desc" rows="2" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none; resize:vertical;"></textarea>
+                    <label style="display:block; margin-bottom:4px; color:var(--text-muted);">描述</label>
+                    <textarea id="new-kb-desc" rows="2" style="width:100%; background:var(--bg-input); border:1px solid var(--border-default); border-radius:20px; padding:10px 16px; color:var(--text-primary); font-size:0.9rem; outline:none; resize:vertical;"></textarea>
                 </div>
             `,
             buttons: [
@@ -596,12 +596,12 @@ export class KnowledgeBaseManager {
             title: '编辑知识库',
             message: `
                 <div style="margin-bottom:12px;">
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">名称</label>
-                    <input type="text" id="edit-kb-name" value="${escapeHtml(currentName)}" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none;">
+                    <label style="display:block; margin-bottom:4px; color:var(--text-muted);">名称</label>
+                    <input type="text" id="edit-kb-name" value="${escapeHtml(currentName)}" style="width:100%; background:var(--bg-input); border:1px solid var(--border-default); border-radius:20px; padding:10px 16px; color:var(--text-primary); font-size:0.9rem; outline:none;">
                 </div>
                 <div>
-                    <label style="display:block; margin-bottom:4px; color:#b7c4ff;">描述</label>
-                    <textarea id="edit-kb-desc" rows="2" style="width:100%; background:rgba(30,34,55,0.7); border:1px solid rgba(100,130,255,0.4); border-radius:20px; padding:10px 16px; color:#f0f3ff; font-size:0.9rem; outline:none; resize:vertical;">${escapeHtml(currentDesc || '')}</textarea>
+                    <label style="display:block; margin-bottom:4px; color:var(--text-muted);">描述</label>
+                    <textarea id="edit-kb-desc" rows="2" style="width:100%; background:var(--bg-input); border:1px solid var(--border-default); border-radius:20px; padding:10px 16px; color:var(--text-primary); font-size:0.9rem; outline:none; resize:vertical;">${escapeHtml(currentDesc || '')}</textarea>
                 </div>
             `,
             buttons: [

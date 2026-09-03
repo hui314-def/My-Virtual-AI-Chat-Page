@@ -175,6 +175,17 @@ export class TopicManager {
         this.setCurrentTopicIndex(topicIndex);
         this.renderMessages(this.currentChatId, topicIndex);
 
+        // 默认滚动到底部，确保切换后能直接看到最新话题内容
+        requestAnimationFrame(() => {
+            if (this.uiScroll && typeof this.uiScroll.scrollToBottom === 'function') {
+                this.uiScroll.scrollToBottom();
+            } else if (this.uiScroll && typeof this.uiScroll.toBottom === 'function') {
+                this.uiScroll.toBottom();
+            } else if (messagesContainer) {
+                messagesContainer.scrollTop = messagesContainer.scrollHeight;
+            }
+        });
+
         // 4. 为新消息添加跌落动画：只对最后几条做动画，前面的静默显示
         //    （消息过多时逐条错开延迟会拉长动画链并造成卡顿，限制动画条数可保持流畅）
         const MAX_ANIMATED = 6;

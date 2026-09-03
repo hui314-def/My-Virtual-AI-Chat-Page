@@ -37,12 +37,12 @@ export class ModelConfigUI {
             const isCurrent = model === currentModel;
             return `
             <div style="display: flex; justify-content: space-between; align-items: center; padding: 6px 8px; border-bottom: 1px solid rgba(100,130,255,0.2); ${isCurrent ? 'background: rgba(95,126,255,0.16); border-radius: 8px; border-left: 3px solid #5f7eff;' : ''}">
-                <span style="${isCurrent ? 'color: #9db4ff; font-weight: 600;' : ''}">🤖 ${escapeHtml(model)}${isCurrent ? ' <span style="font-size:0.72rem; color:#5f7eff; border:1px solid rgba(95,126,255,0.5); border-radius:10px; padding:0 6px; margin-left:4px;">当前</span>' : ''}</span>
+                <span style="${isCurrent ? 'color: var(--accent-light); font-weight: 600;' : ''}">🤖 ${escapeHtml(model)}${isCurrent ? ' <span style="font-size:0.72rem; color: var(--accent); border:1px solid rgba(95,126,255,0.5); border-radius:10px; padding:0 6px; margin-left:4px;">当前</span>' : ''}</span>
                 <div>
                     ${isCurrent
-                        ? '<span style="color: #7f9eff; margin-right: 8px;">✓ 使用中</span>'
-                        : `<button class="select-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: #5f7eff; cursor: pointer; margin-right: 8px;">✓ 使用</button>`}
-                    <button class="delete-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: #ff8a7a; cursor: pointer;">🗑 删除</button>
+                        ? '<span style="color: var(--accent-light); margin-right: 8px;">✓ 使用中</span>'
+                        : `<button class="select-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: var(--accent); cursor: pointer; margin-right: 8px;">✓ 使用</button>`}
+                    <button class="delete-model-btn" data-model="${escapeHtml(model)}" style="background: none; border: none; color: var(--danger); cursor: pointer;">🗑 删除</button>
                 </div>
             </div>
         `;

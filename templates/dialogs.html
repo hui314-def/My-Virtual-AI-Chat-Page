@@ -227,7 +227,7 @@
                     </div>
                     <div class="form-group" style="margin-top: 20px; border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px;">
                         <label><i class="fas fa-clone"></i> 音色克隆</label>
-                        <div style="background: rgba(30,34,55,0.5); border-radius: 16px; padding: 12px;">
+                        <div id="voice-clone-panel" style="background: rgba(30,34,55,0.5); border-radius: 16px; padding: 12px;">
                             <div class="form-group">
                                 <label>音色名称</label>
                                 <input type="text" id="clone-voice-name" placeholder="例如：my_voice" style="width: 100%;">
@@ -242,6 +242,26 @@
                             </div>
                             <button id="start-clone-btn" class="action-btn" style="background: #5f7eff;"><i class="fas fa-microphone-alt"></i> 生成音色</button>
                             <div id="clone-status" style="margin-top: 8px; font-size: 0.75rem; color: #b7c4ff;"></div>
+                        </div>
+                    </div>
+                    <div class="form-group" style="margin-top: 20px; border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px;">
+                        <label><i class="fas fa-magic"></i> 音色设计（文本描述生成音色，无需参考音频）</label>
+                        <div id="voice-design-panel" style="background: rgba(30,34,55,0.5); border-radius: 16px; padding: 12px;">
+                            <div class="form-group">
+                                <label>音色名称</label>
+                                <input type="text" id="design-voice-name" placeholder="例如：温柔少女" style="width: 100%;">
+                            </div>
+                            <div class="form-group">
+                                <label>音色描述提示词</label>
+                                <textarea id="design-voice-desc" rows="2" placeholder="例如：年轻女性，声音温柔甜美，语速稍慢；支持情绪、语速等修饰（VoxCPM2 / MOSS 支持，千问不支持）"></textarea>
+                            </div>
+                            <div class="form-group">
+                                <label>试听文本</label>
+                                <input type="text" id="design-voice-preview" placeholder="例如：你好，这是我为你设计的新音色～（留空使用默认文案）" style="width: 100%;">
+                            </div>
+                            <button id="start-design-btn" class="action-btn" style="background: #8a5fff;"><i class="fas fa-magic"></i> 生成音色并试听</button>
+                            <div id="design-status" style="margin-top: 8px; font-size: 0.75rem; color: #b7c4ff;"></div>
+                            <audio id="design-audio" controls style="display: none; width: 100%; margin-top: 8px;"></audio>
                         </div>
                     </div>
                     <div class="form-group">
@@ -275,7 +295,7 @@
                     <h4>界面主题</h4>
                     <div class="form-group">
                         <label>主题颜色</label>
-                        <select id="global-theme" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
+                        <select id="global-theme" style="background-color: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
                             <option value="dark">暗黑（默认）</option>
                             <option value="light">明亮</option>
                             <option value="auto">跟随系统</option>
@@ -283,7 +303,7 @@
                     </div>
                     <div class="form-group">
                         <label>消息字体大小</label>
-                        <select id="global-font-size" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
+                        <select id="global-font-size" style="background-color: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 120px; cursor: pointer;">
                             <option value="small">小</option>
                             <option value="medium" selected>中</option>
                             <option value="large">大</option>
@@ -292,10 +312,10 @@
                     <div class="model-param-item">
                         <small>AI 回复打字速度</small>
                         <div style="display: flex; align-items: center; gap: 12px;">
-                            <input type="range" id="global-typing-speed" min="0.1" max="1.0" step="0.1" value="1.0" style="flex:1;">
+                            <input type="range" id="global-typing-speed" min="0.01" max="1" step="0.01" value="1.0" style="flex:1;">
                             <span id="global-typing-speed-value" class="param-value">原速</span>
                         </div>
-                        <small>调节流式输出速度，1.0 最快（原速），0.1 最慢</small>
+                        <small>调节流式输出速度，1.0 最快（原速），0.01 最慢（每字约 0.6 秒）</small>
                     </div>
                     <div class="form-group">
                         <label style="display: flex; align-items: center; gap: 12px;">
@@ -427,7 +447,7 @@
             <div class="form-group" style="display: flex; gap: 12px;">
                 <div style="flex:1;">
                     <label>图片比例</label>
-                    <select id="image-gen-ratio" style="background: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 180px; height: 40px; cursor: pointer;">
+                    <select id="image-gen-ratio" style="background-color: rgba(30,34,55,0.7); border: 1px solid rgba(100,130,255,0.4); border-radius: 20px; padding: 6px 12px; color: #ccd6ff; font-size: 0.8rem; width: 180px; height: 40px; cursor: pointer;">
                         <option value="1024x1024">1:1 (1024x1024)</option>
                         <option value="832x1248">2:3 (832x1248)</option>
                         <option value="960x1280">3:4 (960x1280)</option>

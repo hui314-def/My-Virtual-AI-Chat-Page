@@ -200,7 +200,7 @@ class Constants {
      * @returns {string}
      */
     static getDefaultChatBackgroundImage() {
-        return `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url("${Constants.DEFAULT_CHAT_BG_SVG}")`;
+        return `linear-gradient(0deg, var(--bg-image-shade-a, rgba(0, 0, 0, 0.65)), var(--bg-image-shade-b, rgba(0, 0, 0, 0.55))), url("${Constants.DEFAULT_CHAT_BG_SVG}")`;
     }
 
     /**
@@ -246,6 +246,12 @@ class Constants {
             openai: {
                 label: 'OpenAI',
                 defaultHost: 'https://api.openai.com/v1',
+                defaultModel: 'gpt-4o-mini',
+                apiType: 'openai'
+            },
+            'openai-compatible': {
+                label: 'OpenAI兼容厂商',
+                defaultHost: '',
                 defaultModel: 'gpt-4o-mini',
                 apiType: 'openai'
             },

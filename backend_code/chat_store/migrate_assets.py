@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """把 MySQL 聊天 JSON 里的 base64 图片迁移到文件系统，替换为 asset://<id> 引用。
 
 递归扫描整个 JSON：任何字符串字段（settings、message.text、images、file.content、

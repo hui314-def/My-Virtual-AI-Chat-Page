@@ -14,9 +14,10 @@
 | 知识库 | `backend_code/knowledge_base/knowledge_api.py` | 5051 | 无 | 知识库/文档管理、语义检索、记忆向量 |
 | 语音合成（千问） | `backend_code/tts/tts_api.py` | 5000 | `X-API-Key`（可选） | Qwen3-TTS 合成与音色克隆 |
 | 语音合成（MOSS） | `backend_code/tts/moss_tts_server.py` | 5000 | `X-API-Key`（可选） | MOSS 合成（非流式 + SSE 流式）与音色克隆 |
+| 语音合成（VoxCPM2） | `backend_code/tts/voxcpm_tts_server.py` | 5000 | `X-API-Key`（可选） | 本地 VoxCPM2 合成（非流式 + SSE 流式）与音色特征克隆 |
 | 图片/音频生成 | `backend_code/image_gen/image_gen_api.py` | 5050 | `X-API-Key`（可选） | ComfyUI 文生图、音乐生成 |
 
-> ⚠️ 千问 TTS 与 MOSS TTS 均监听 5000 端口，**两者只能同时启动一个**；推荐 MOSS 版（README 建议）。
+> ⚠️ 千问 TTS、MOSS TTS 与 VoxCPM2 TTS 均监听 5000 端口，**三者只能同时启动一个**；MOSS 需联网积分，VoxCPM2 为本地离线模型（需自行下载权重，见 README）。
 
 ### 0.1 通用约定
 
@@ -427,6 +428,35 @@ data: {"type":"done"}
 
 > 千问版返回体为生成结果本身（详见 Swagger）；克隆成功后即可在 `/tts` 中通过 `voiceId` 使用。
 > 错误码：`400` 名称非法/缺文件；`401` 未授权；`502` 上游克隆失败；`500` 内部错误。
+
+### 3.5 `POST /design_voice` · 音色设计（文本描述生成音色，VoxCPM2 / MOSS 版）
+
+仅通过自然语言描述生成全新音色，**无需参考音频**。千问版不支持（需另装模型，返回 404）。
+
+```json
+// 请求（JSON）
+{
+  "voice_name": "温柔少女",              // 仅限字母/数字/下划线/点/横线
+  "voice_description": "年轻女性，温柔甜美，语速稍慢",  // 音色描述提示词（支持情绪/语速等修饰）
+  "preview_text": "你好，这是我为你设计的新音色～"      // 试听文本（可选，默认内置文案）
+}
+```
+
+```json
+// 200
+{
+  "message": "音色设计成功",
+  "voice_name": "温柔少女",
+  "reusable": true,            // VoxCPM2 恒为 true（存入 音色库/*.vdesc.json）；
+                               // MOSS 视返回而定（可复用 voice_id 才为 true）
+  "preview_audio": "<base64 WAV 试听音频>"
+}
+```
+
+- **VoxCPM2 版**：音色定义写入 `backend_code/tts/音色库/<name>.vdesc.json`（描述 + 创建时间）；设计成功后即可通过 `/tts` 的 `voiceId` 使用（合成时自动拼接 `(描述)文本` 前缀）。
+- **MOSS 版**：调 `/v1/audio/voice/generations`（`delivery_method=audio`、`response_format=wav`）；若返回可复用 `voice_id` 则存入 `voice_map.json`，否则 `reusable=false` 仅返回试听。
+- ⚠️ VoxCPM2 的 Voice Design 一致性有限，同描述多次生成音色可能有差异；对音色不满意可重新设计。
+- 错误码：`400` 名称非法 / 描述为空；`401` 未授权；`409` 同名音色已存在；`404` 后端不支持（千问版）；`500` 生成失败；MOSS 上游失败 `502`。
 
 ---
 

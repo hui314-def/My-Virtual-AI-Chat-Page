@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """清理未被数据库引用的孤儿资源文件（维护工具，可定期执行）。
 用法：python backend_code/chat_store/cleanup_assets.py
 说明：新上传已按内容 sha256 去重；旧随机文件名在会话重新同步后会被替换为哈希名，

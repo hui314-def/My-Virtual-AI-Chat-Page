@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """聊天存储服务：健康检查 + 注册/登录/JWT + 聊天记录与设置数据 API。"""
 import json
 import os

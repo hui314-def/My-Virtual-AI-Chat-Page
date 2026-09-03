@@ -75,7 +75,7 @@ export class SearchManager {
     #renderResults(results) {
         const dropdown = document.getElementById('search-results-dropdown');
         if (results.length === 0) {
-            dropdown.innerHTML = '<div class="search-dropdown-item" style="color:#8e8eb3;">未找到相关结果</div>';
+            dropdown.innerHTML = '<div class="search-dropdown-item" style="color:var(--text-dim);">未找到相关结果</div>';
             dropdown.style.display = 'block';
             return;
         }
@@ -91,7 +91,7 @@ export class SearchManager {
             return `<div class="search-dropdown-item" data-chat-id="${result.chatId}" data-type="message" data-topic-index="${result.topicIndex}" data-message-index="${result.messageIndex}">
                 <div class="search-dropdown-title"><i class="fas fa-comment-dots"></i> ${escapedTitle}<span class="search-dropdown-badge">消息</span></div>
                 <div class="search-dropdown-preview">${escapedPreview}</div>
-                <div style="font-size:0.65rem;color:#8e8eb3;margin-top:4px;">${escapeHtml(result.time)}</div>
+                <div style="font-size:0.65rem;color:var(--text-dim);margin-top:4px;">${escapeHtml(result.time)}</div>
             </div>`;
         }).join('');
         dropdown.style.display = 'block';

@@ -14,11 +14,18 @@ export class VoiceInput {
         this.isListening = false;
     }
 
+    /** 防呆看门狗定时器 */
+    #stallTimer = null;
+
+    /** 识别启动后超过该时长仍无任何结果/错误/结束事件，判定语音服务不可用并自动停止 */
+    static get STALL_TIMEOUT_MS() { return 12000; }
+
     /** 是否正在监听 */
     isActive() { return this.isListening; }
 
     /** 停止语音识别 */
     stop() {
+        this.#clearStallWatchdog();
         if (this.recognition) {
             this.recognition.stop();
             this.recognition = null;
@@ -40,9 +47,9 @@ export class VoiceInput {
             return;
         }
 
-        // 如果已在监听，则停止
+        // 如果已在监听，再点一次则立即停止（不依赖 onend，避免卡在「聆听中」无法退出）
         if (this.isListening && this.recognition) {
-            this.recognition.stop();
+            this.stop();
             return;
         }
 
@@ -51,13 +58,17 @@ export class VoiceInput {
         this.recognition.lang = Constants.SPEECH_RECOGNITION_LANG;
         this.recognition.interimResults = true;
         this.recognition.maxAlternatives = 1;
+        // continuous = false：说完一句话（停顿）后浏览器自动结束本次识别并输出最终文本
         this.recognition.continuous = false;
 
         this.recognition.start();
         this.isListening = true;
         this.#setButtonListening(true);
+        this.#armStallWatchdog();
 
         this.recognition.onresult = (event) => {
+            // 有识别结果 = 语音服务正常工作，取消看门狗
+            this.#clearStallWatchdog();
             let interimTranscript = '';
             let finalTranscript = '';
             for (let i = event.resultIndex; i < event.results.length; i++) {
@@ -82,12 +93,15 @@ export class VoiceInput {
         };
 
         this.recognition.onend = () => {
+            // 自动停止（说完停顿后）或手动停止都会走到这里
+            this.#clearStallWatchdog();
             this.isListening = false;
             this.#resetButton();
         };
 
         this.recognition.onerror = (event) => {
             console.error('语音识别错误', event.error);
+            this.#clearStallWatchdog();
             let errorMsg = '';
             switch (event.error) {
                 case 'not-allowed':
@@ -113,6 +127,32 @@ export class VoiceInput {
     }
 
     // ---- 内部 ----
+    /**
+     * 启动防呆看门狗：部分浏览器（如 360 安全浏览器）能进入「聆听中」，
+     * 但实际无法连接云端语音识别服务，既不给结果也不报错，会一直卡住。
+     * 超过 STALL_TIMEOUT_MS 无任何事件则自动停止并提示。
+     */
+    #armStallWatchdog() {
+        this.#clearStallWatchdog();
+        this.#stallTimer = setTimeout(() => {
+            this.#stallTimer = null;
+            if (!this.isListening) return;
+            this.stop();
+            this.customAlert(
+                '长时间未收到语音识别结果：请确认已允许麦克风权限、网络可访问语音识别服务。' +
+                '（360 安全浏览器等部分浏览器在国内网络下无法连接该服务）建议改用 Edge 或 Chrome 重试。',
+                'warn'
+            );
+        }, VoiceInput.STALL_TIMEOUT_MS);
+    }
+
+    #clearStallWatchdog() {
+        if (this.#stallTimer) {
+            clearTimeout(this.#stallTimer);
+            this.#stallTimer = null;
+        }
+    }
+
     #setButtonListening(active) {
         const voiceBtn = document.getElementById('voice-input-btn');
         if (!voiceBtn) return;

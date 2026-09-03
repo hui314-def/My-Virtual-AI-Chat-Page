@@ -258,7 +258,7 @@ export class ChatIO {
     #showToast(msg) {
         const toast = document.createElement('div');
         toast.textContent = msg;
-        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
+        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:var(--toast-bg, #2a2f55); color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), Constants.TOAST_DURATION_MS);
     }

@@ -85,7 +85,7 @@ export class ModalManager {
     showBriefToast(message) {
         const toast = document.createElement('div');
         toast.textContent = message;
-        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:#2a2f55; color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
+        toast.style.cssText = 'position:fixed; bottom:80px; right:20px; background:var(--toast-bg); color:white; padding:8px 16px; border-radius:20px; z-index:10000;';
         document.body.appendChild(toast);
         setTimeout(() => toast.remove(), Constants.TOAST_DURATION_MS);
     }
@@ -1140,8 +1140,11 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         const ctx = this.ctx;
         const modelHostInput = document.getElementById('model-host');
         const apiKeyInput = document.getElementById('api-key');
-        if (modelHostInput) modelHostInput.value = SettingsManager.getModelHost();
-        if (apiKeyInput) apiKeyInput.value = SettingsManager.getApiKey();
+        // 主机地址 / API Key 优先取「当前厂商」的独立设置。
+        // 全局 modelHost/apiKey 是上次保存/切换厂商时的值，直接用它填充会把别的厂商地址串到当前厂商。
+        const curProviderState = SettingsManager.loadProviderState(SettingsManager.getModelProvider());
+        if (modelHostInput) modelHostInput.value = (curProviderState && curProviderState.modelHost) || SettingsManager.getModelHost();
+        if (apiKeyInput) apiKeyInput.value = (curProviderState && curProviderState.apiKey !== undefined) ? curProviderState.apiKey : SettingsManager.getApiKey();
         // 确保模型列表 UI 反映当前厂商的模型列表
         if (ctx.renderModelListUI) ctx.renderModelListUI();
         const providerSelect = document.getElementById('model-provider');
@@ -1174,10 +1177,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                     currentModel: currentModelName,
                 });
 
-                // 2. 切换厂商（暂存，尚未点「保存设置」）
-                SettingsManager.update({ modelProvider: newProvider });
-
-                // 3. 恢复新厂商之前保存的设置（否则使用默认值）
+                // 2. 恢复新厂商之前保存的设置（否则使用默认值）
                 const savedState = SettingsManager.loadProviderState(newProvider);
                 const hostInput = document.getElementById('model-host');
                 const apiKeyInput = document.getElementById('api-key');
@@ -1196,10 +1196,20 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 } else {
                     // 首次使用该厂商 — 使用 Constants 中的默认值
                     if (hostInput) hostInput.value = provider.defaultHost;
-                    // 不清空 apiKey，用户可能已经填了
+                    // 清空 apiKey：该厂商尚无保存的 Key，保留上一个厂商的 Key 会在保存时误存进新厂商
+                    if (apiKeyInput) apiKeyInput.value = '';
                     ModelService.setModels([provider.defaultModel]);
                     if (modelNameInput) modelNameInput.value = provider.defaultModel;
                 }
+
+                // 3. 切换厂商，并同步全局 modelHost / apiKey 与当前展示的厂商一致。
+                //    否则全局只保留上次保存厂商的值，重新打开弹窗时会把别的厂商地址串到当前厂商，
+                //    并在下次切换时被写回旧厂商状态造成覆盖。
+                SettingsManager.update({
+                    modelProvider: newProvider,
+                    modelHost: hostInput?.value || '',
+                    apiKey: apiKeyInput?.value || '',
+                });
 
                 // 4. 刷新 UI
                 if (ctx.renderModelListUI) ctx.renderModelListUI();
@@ -1280,6 +1290,73 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             });
         }
 
+        // 音色设计按钮：文本描述生成音色 + 试听（/design_voice，VoxCPM2 / MOSS 支持）
+        let isDesigning = false;
+        const designBtn = document.getElementById('start-design-btn');
+        if (designBtn) {
+            const newDesignBtn = designBtn.cloneNode(true);
+            designBtn.parentNode.replaceChild(newDesignBtn, designBtn);
+            newDesignBtn.addEventListener('click', async () => {
+                if (isDesigning) {
+                    this.customAlert('正在设计中，请稍候...');
+                    return;
+                }
+                const dName = document.getElementById('design-voice-name').value.trim();
+                if (!dName) { this.customAlert('请输入音色名称'); return; }
+                const dDesc = document.getElementById('design-voice-desc').value.trim();
+                if (!dDesc) { this.customAlert('请输入音色描述提示词'); return; }
+                const dPreview = document.getElementById('design-voice-preview').value.trim();
+
+                isDesigning = true;
+                const designStatus = document.getElementById('design-status');
+                const designAudio = document.getElementById('design-audio');
+                designStatus.innerText = '正在生成音色并合成试听，请稍候...';
+                newDesignBtn.disabled = true;
+                if (designAudio) { designAudio.pause(); designAudio.style.display = 'none'; }
+
+                try {
+                    const ttsApiUrl = SettingsManager.getTtsApiUrl();
+                    const response = await fetch(`${ttsApiUrl}/design_voice`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            voice_name: dName,
+                            voice_description: dDesc,
+                            preview_text: dPreview || undefined,
+                        }),
+                    });
+                    const result = await response.json();
+                    if (response.ok) {
+                        designStatus.innerText = result.reusable === false
+                            ? '✅ 音色设计成功！注意：当前后端的设计音色不可保存复用，仅生成试听。'
+                            : '✅ 音色设计成功！已保存到音色库。';
+                        if (designAudio && result.preview_audio) {
+                            designAudio.src = 'data:audio/wav;base64,' + result.preview_audio;
+                            designAudio.style.display = 'block';
+                            designAudio.play().catch(() => {});
+                        }
+                        TTsService.clearVoiceCache();
+                        const voiceDisplaySpan = document.getElementById('voice-list-display');
+                        if (voiceDisplaySpan) await TTsService.updateVoiceDisplay(voiceDisplaySpan, true);
+                        document.getElementById('design-voice-name').value = '';
+                        document.getElementById('design-voice-desc').value = '';
+                        document.getElementById('design-voice-preview').value = '';
+                    } else if (response.status === 404) {
+                        designStatus.innerText = '❌ 当前后端不支持音色设计（需要 VoxCPM2 或 MOSS 版 TTS 服务）';
+                    } else if (response.status === 409) {
+                        designStatus.innerText = '❌ ' + (result.error || '同名音色已存在，请更换名称');
+                    } else {
+                        designStatus.innerText = '❌ 设计失败：' + (result.error || '未知错误');
+                    }
+                } catch (err) {
+                    designStatus.innerText = `❌ 网络错误：${err.message}`;
+                } finally {
+                    isDesigning = false;
+                    newDesignBtn.disabled = false;
+                }
+            });
+        }
+
         const ttsApiUrlInput = document.getElementById('tts-api-url');
         if (ttsApiUrlInput) ttsApiUrlInput.value = SettingsManager.getTtsApiUrl();
         const ttsApiKeyInput = document.getElementById('tts-api-key');
@@ -1353,8 +1430,8 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             const speed = SettingsManager.getTypingSpeed();
             typingSpeedSlider.value = speed;
             const updateLabel = (val) => {
-                if (val === 1.0) typingSpeedSpan.textContent = '原速';
-                else typingSpeedSpan.textContent = val.toFixed(1) + 'x';
+                if (val >= 1) typingSpeedSpan.textContent = '原速';
+                else typingSpeedSpan.textContent = String(val) + 'x';
             };
             updateLabel(speed);
             typingSpeedSlider.oninput = () => updateLabel(parseFloat(typingSpeedSlider.value));
@@ -1639,7 +1716,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                     const oldText = elem.innerText;
                     const input = document.createElement('input');
                     input.type = 'text'; input.value = oldText;
-                    input.style.cssText = 'width:100%;background:rgba(30,34,55,0.9);border:1px solid #5f7eff;border-radius:8px;padding:4px 8px;color:#f0f3ff;';
+                    input.style.cssText = 'width:100%;background:var(--bg-card-soft);border:1px solid #5f7eff;border-radius:8px;padding:4px 8px;color:var(--text-primary);';
                     elem.innerHTML = '';
                     elem.appendChild(input);
                     input.focus();
@@ -1794,7 +1871,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         if (!modal || !body) return;
 
         // 显示加载状态
-        body.innerHTML = `<div style="text-align:center;padding:40px;color:#8e8eb3;">
+        body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--text-dim);">
             <i class="fas fa-spinner fa-spin"></i> 加载知识库列表...
         </div>`;
         modal.style.display = 'flex';
@@ -1814,10 +1891,10 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             // 渲染列表
             this.#renderKbSelectorList(body, kbList, selectedIds);
         } catch (err) {
-            body.innerHTML = `<div style="text-align:center;padding:40px;color:#ff7a5c;">
+            body.innerHTML = `<div style="text-align:center;padding:40px;color:var(--danger);">
                 <i class="fas fa-exclamation-circle" style="font-size:2rem;display:block;margin-bottom:12px;"></i>
                 加载失败：${err.message}
-                <div style="margin-top:12px;font-size:0.8rem;color:#8e8eb3;">请检查知识库服务是否正常运行</div>
+                <div style="margin-top:12px;font-size:0.8rem;color:var(--text-dim);">请检查知识库服务是否正常运行</div>
             </div>`;
         }
     }

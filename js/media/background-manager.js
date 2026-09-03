@@ -30,7 +30,7 @@ class BackgroundManager {
         // 1. 静态图片
         if (bgType === 'image' && imageUrl) {
             this.#removeVideoLayer();
-            mainChat.style.backgroundImage = `linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${imageUrl})`;
+            mainChat.style.backgroundImage = `linear-gradient(0deg, var(--bg-image-shade-a, rgba(0, 0, 0, 0.65)), var(--bg-image-shade-b, rgba(0, 0, 0, 0.55))), url(${imageUrl})`;
             mainChat.style.backgroundSize = 'cover';
             mainChat.style.backgroundPosition = 'center';
             return;

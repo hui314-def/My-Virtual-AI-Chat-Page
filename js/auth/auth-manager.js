@@ -261,7 +261,7 @@ export class AuthManager {
                     <label>当前密码</label>
                     <input type="password" id="account-action-password" placeholder="输入当前密码以确认" autocomplete="current-password">
                 </div>
-                <div id="account-action-error" style="color:#ff8f8f; font-size:0.85rem; margin-top:8px;"></div>
+                <div id="account-action-error" style="color:var(--danger); font-size:0.85rem; margin-top:8px;"></div>
             `,
             confirmLabel: '确认修改',
             onConfirm: () => this.submitRename(),
@@ -314,7 +314,7 @@ export class AuthManager {
                     <label>确认新密码</label>
                     <input type="password" id="account-action-new-password2" placeholder="再输入一次新密码" autocomplete="new-password">
                 </div>
-                <div id="account-action-error" style="color:#ff8f8f; font-size:0.85rem; margin-top:8px;"></div>
+                <div id="account-action-error" style="color:var(--danger); font-size:0.85rem; margin-top:8px;"></div>
             `,
             confirmLabel: '确认修改',
             onConfirm: () => this.submitChangePassword(),
@@ -343,14 +343,14 @@ export class AuthManager {
         this.openAccountActionPanel({
             title: '注销账户',
             bodyHtml: `
-                <div style="margin-bottom:12px; padding:10px 12px; background:rgba(180,60,60,0.15); border:1px solid rgba(255,120,120,0.3); border-radius:12px; color:#ffb3b3; font-size:0.85rem;">
+                <div style="margin-bottom:12px; padding:10px 12px; background:rgba(180,60,60,0.15); border:1px solid rgba(255,120,120,0.3); border-radius:12px; color:var(--danger); font-size:0.85rem;">
                     ⚠️ 注销将永久删除该账户及其云端聊天记录、设置，且不可恢复。
                 </div>
                 <div class="form-group">
                     <label>当前密码</label>
                     <input type="password" id="account-action-password" placeholder="输入当前密码以确认注销" autocomplete="current-password">
                 </div>
-                <div id="account-action-error" style="color:#ff8f8f; font-size:0.85rem; margin-top:8px;"></div>
+                <div id="account-action-error" style="color:var(--danger); font-size:0.85rem; margin-top:8px;"></div>
             `,
             confirmLabel: '确认注销',
             confirmClassName: 'danger',

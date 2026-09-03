@@ -670,28 +670,35 @@ class MossClient:
     def generate_voice(
         self,
         *,
-        voice_description: Optional[str] = None,
+        instruction: Optional[str] = None,
         text: Optional[str] = None,
         reference_voice_id: Optional[str] = None,
-        model: str = "moss-tts",
+        model: str = "moss-voice-generator-1.0",
         delivery_method: Literal["audio", "url"] = "url",
+        response_format: Optional[str] = None,
         async_mode: bool = False,
         webhook_url: Optional[str] = None,
     ) -> Dict:
         """音色/语音生成。POST /v1/audio/voice/generations
 
-        通过文本描述或参考音色生成新语音。
+        音色设计（voice design）场景：
+          model       = moss-voice-generator-1.0
+          instruction = 自然语言描述目标声音风格（如"温柔、略带微笑感的年轻女声"）
+          input       = 待合成文本
+        delivery_method="audio" 时返回音频二进制（配合 response_format="wav" 拿 WAV）。
         """
         body: Dict[str, Any] = {
             "model": model,
             "delivery_method": delivery_method,
         }
-        if voice_description:
-            body["voice_description"] = voice_description
+        if instruction:
+            body["instruction"] = instruction
         if text:
             body["input"] = text
         if reference_voice_id:
             body["reference_voice_id"] = reference_voice_id
+        if response_format:
+            body["response_format"] = response_format
         if async_mode:
             body["async"] = True
         if webhook_url:

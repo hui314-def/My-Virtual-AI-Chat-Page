@@ -50,7 +50,7 @@ export class MemoryPanel {
             ]);
         } catch (err) {
             console.warn('[MemoryPanel] 读取失败：', err);
-            this.containerEl.innerHTML = `<div style="padding:12px;color:#ff8f8f;">记忆数据读取失败：${escapeHtml(err.message || err)}</div>`;
+            this.containerEl.innerHTML = `<div style="padding:12px;color:var(--danger);">记忆数据读取失败：${escapeHtml(err.message || err)}</div>`;
             return;
         }
         this._memories = memories;
@@ -73,10 +73,10 @@ export class MemoryPanel {
         this.containerEl.innerHTML = `
             <div style="display:flex;flex-direction:column;gap:12px;">
                 <!-- 开关 -->
-                <div style="display:flex;align-items:center;justify-content:space-between;background:rgba(30,34,55,0.5);border-radius:12px;padding:10px 14px;">
+                <div style="display:flex;align-items:center;justify-content:space-between;background:var(--bg-card-soft);border-radius:12px;padding:10px 14px;">
                     <div>
-                        <div style="color:#ccd6ff;font-size:0.85rem;">启用长期记忆</div>
-                        <div style="color:#8e8eb3;font-size:0.72rem;">关闭后停止提取与注入，已保存的记忆保留</div>
+                        <div style="color:var(--text-secondary);font-size:0.85rem;">启用长期记忆</div>
+                        <div style="color:var(--text-dim);font-size:0.72rem;">关闭后停止提取与注入，已保存的记忆保留</div>
                     </div>
                     <label class="switch">
                         <input type="checkbox" id="memory-enabled-toggle" ${enabled ? 'checked' : ''}>
@@ -87,9 +87,9 @@ export class MemoryPanel {
                 <!-- 统计 -->
                 <div style="display:flex;gap:10px;flex-wrap:wrap;">
                     ${this.#statCard('总数', totalCount)}
-                    ${this.#statCard('活跃', activeCount, '#4f7cff')}
-                    ${this.#statCard('休眠', dormantCount, '#8e8eb3')}
-                    ${this.#statCard('归档', archived.length, '#6b6f8a')}
+                    ${this.#statCard('活跃', activeCount, 'var(--accent)')}
+                    ${this.#statCard('休眠', dormantCount, 'var(--text-dim)')}
+                    ${this.#statCard('归档', archived.length, 'var(--text-dim)')}
                 </div>
 
                 <!-- 手动添加 -->
@@ -100,7 +100,7 @@ export class MemoryPanel {
 
                 <!-- 记忆域筛选(角色隔离) -->
                 <div style="display:flex;gap:8px;align-items:center;">
-                    <span style="font-size:0.7rem;color:#6b6f8a;">记忆范围：</span>
+                    <span style="font-size:0.7rem;color:var(--text-dim);">记忆范围：</span>
                     <button class="memory-scope-tab" data-scope="chat" style="${this.#scopeTabStyle('chat')}">当前角色</button>
                     <button class="memory-scope-tab" data-scope="global" style="${this.#scopeTabStyle('global')}">🌐 全局</button>
                     <button class="memory-scope-tab" data-scope="all" style="${this.#scopeTabStyle('all')}">全部</button>
@@ -261,35 +261,35 @@ export class MemoryPanel {
     // ==================== 渲染 ====================
 
     #renderAddForm() {
-        return `<div style="background:rgba(30,34,55,0.5);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;">
-            <input id="memory-add-content" type="text" placeholder="记忆内容，例如：用户讨厌香菜" style="background:rgba(20,23,40,0.6);border:1px solid rgba(100,130,255,0.4);border-radius:8px;padding:6px 10px;color:#ccd6ff;font-size:0.8rem;">
+        return `<div style="background:var(--bg-card-soft);border-radius:12px;padding:10px;display:flex;flex-direction:column;gap:8px;">
+            <input id="memory-add-content" type="text" placeholder="记忆内容，例如：用户讨厌香菜" style="background:var(--bg-input);border:1px solid var(--border-default);border-radius:8px;padding:6px 10px;color:var(--text-secondary);font-size:0.8rem;">
             <div style="display:flex;gap:8px;">
-                <select id="memory-add-scope" style="flex:1;background:rgba(20,23,40,0.6);border:1px solid rgba(100,130,255,0.4);border-radius:8px;padding:6px;color:#ccd6ff;font-size:0.78rem;">
+                <select id="memory-add-scope" style="flex:1;background:var(--bg-input);border:1px solid var(--border-default);border-radius:8px;padding:6px;color:var(--text-secondary);font-size:0.78rem;">
                     <option value="chat">归属：当前角色</option>
                     <option value="global">归属：🌐 全局记忆</option>
                 </select>
-                <select id="memory-add-category" style="flex:1;background:rgba(20,23,40,0.6);border:1px solid rgba(100,130,255,0.4);border-radius:8px;padding:6px;color:#ccd6ff;font-size:0.78rem;">
+                <select id="memory-add-category" style="flex:1;background:var(--bg-input);border:1px solid var(--border-default);border-radius:8px;padding:6px;color:var(--text-secondary);font-size:0.78rem;">
                     <option value="fact">事实</option>
                     <option value="user_pref">偏好</option>
                     <option value="relationship">关系</option>
                     <option value="event">事件</option>
                     <option value="goal">目标</option>
                 </select>
-                <input id="memory-add-entities" type="text" placeholder="实体词(逗号分隔)" style="flex:2;background:rgba(20,23,40,0.6);border:1px solid rgba(100,130,255,0.4);border-radius:8px;padding:6px 10px;color:#ccd6ff;font-size:0.8rem;">
+                <input id="memory-add-entities" type="text" placeholder="实体词(逗号分隔)" style="flex:2;background:var(--bg-input);border:1px solid var(--border-default);border-radius:8px;padding:6px 10px;color:var(--text-secondary);font-size:0.8rem;">
             </div>
             <div style="display:flex;gap:8px;justify-content:flex-end;">
-                <button id="memory-add-cancel" style="background:rgba(60,64,90,0.6);color:#9aa3d6;border:none;border-radius:8px;padding:5px 14px;font-size:0.75rem;cursor:pointer;">取消</button>
-                <button id="memory-add-confirm" style="background:#4f7cff;color:#fff;border:none;border-radius:8px;padding:5px 14px;font-size:0.75rem;cursor:pointer;">添加</button>
+                <button id="memory-add-cancel" style="background:rgba(60,64,90,0.6);color:var(--text-dim);border:none;border-radius:8px;padding:5px 14px;font-size:0.75rem;cursor:pointer;">取消</button>
+                <button id="memory-add-confirm" style="background:var(--accent);color:#fff;border:none;border-radius:8px;padding:5px 14px;font-size:0.75rem;cursor:pointer;">添加</button>
             </div>
         </div>`;
     }
 
     #renderList() {
         if (this._listTab === 'archived') {
-            if (this._visibleArchived.length === 0) return '<div style="color:#6b6f8a;font-size:0.78rem;padding:8px 0;">暂无归档记忆。</div>';
+            if (this._visibleArchived.length === 0) return '<div style="color:var(--text-dim);font-size:0.78rem;padding:8px 0;">暂无归档记忆。</div>';
             return this._visibleArchived.map(m => this.#archivedItem(m)).join('');
         }
-        if (this._visibleMemories.length === 0) return '<div style="color:#6b6f8a;font-size:0.78rem;padding:8px 0;">暂无记忆。发送消息后系统会自动提取值得记住的事实。</div>';
+        if (this._visibleMemories.length === 0) return '<div style="color:var(--text-dim);font-size:0.78rem;padding:8px 0;">暂无记忆。发送消息后系统会自动提取值得记住的事实。</div>';
         return this._visibleMemories.map(m => this.#memoryItem(m)).join('');
     }
 
@@ -299,45 +299,45 @@ export class MemoryPanel {
         const stateLabel = m.state === 'active' ? '● 活跃' : '○ 休眠';
         const stateColor = m.state === 'active' ? '#7fd8a0' : '#c9b66a';
         const pinTag = m.pinned ? '📌' : '';
-        return `<div style="background:rgba(30,34,55,0.5);border-radius:10px;padding:8px 10px;">
+        return `<div style="background:var(--bg-card-soft);border-radius:10px;padding:8px 10px;">
             <div style="display:flex;align-items:center;gap:6px;margin-bottom:2px;">
                 <span style="font-size:0.68rem;color:#4f7cff;background:rgba(79,124,255,0.15);border-radius:8px;padding:1px 7px;">${cat}</span>
                 ${this.#sourceLabel(m)}
                 <span style="font-size:0.68rem;color:${stateColor};">${stateLabel}</span>
-                <span style="font-size:0.68rem;color:#6b6f8a;">A=${Math.round(m.activation || 0)}</span>
+                <span style="font-size:0.68rem;color:var(--text-dim);">A=${Math.round(m.activation || 0)}</span>
                 <span style="margin-left:auto;display:flex;gap:6px;">
                     <button data-mem-action="pin" data-mem-id="${m.id}" title="${m.pinned ? '取消固定' : '固定'}" style="background:none;border:none;cursor:pointer;font-size:0.8rem;">${pinTag || '📌'}</button>
                     <button data-mem-action="edit" data-mem-id="${m.id}" title="编辑" style="background:none;border:none;cursor:pointer;font-size:0.8rem;">✏️</button>
                     <button data-mem-action="delete" data-mem-id="${m.id}" title="删除" style="background:none;border:none;cursor:pointer;font-size:0.8rem;">🗑️</button>
                 </span>
             </div>
-            <div style="font-size:0.8rem;color:#ccd6ff;line-height:1.4;">${escapeHtml(m.content)}</div>
-            ${entities ? `<div style="font-size:0.7rem;color:#8e8eb3;margin-top:2px;">${entities}</div>` : ''}
+            <div style="font-size:0.8rem;color:var(--text-secondary);line-height:1.4;">${escapeHtml(m.content)}</div>
+            ${entities ? `<div style="font-size:0.7rem;color:var(--text-dim);margin-top:2px;">${entities}</div>` : ''}
         </div>`;
     }
 
     #archivedItem(m) {
-        return `<div style="background:rgba(30,34,55,0.35);border-radius:10px;padding:8px 10px;">
+        return `<div style="background:var(--bg-card-soft);border-radius:10px;padding:8px 10px;">
             <div style="display:flex;align-items:center;gap:6px;">
-                <span style="font-size:0.68rem;color:#6b6f8a;">❄ 归档</span>
+                <span style="font-size:0.68rem;color:var(--text-dim);">❄ 归档</span>
                 ${this.#sourceLabel(m)}
                 <span style="margin-left:auto;display:flex;gap:6px;">
                     <button data-mem-action="restore" data-mem-id="${m.id}" title="恢复" style="background:none;border:none;cursor:pointer;font-size:0.8rem;">♻️</button>
                     <button data-mem-action="delete-archived" data-mem-id="${m.id}" title="永久删除" style="background:none;border:none;cursor:pointer;font-size:0.8rem;">🗑️</button>
                 </span>
             </div>
-            <div style="font-size:0.78rem;color:#9aa3d6;line-height:1.4;">${escapeHtml(m.content)}</div>
+            <div style="font-size:0.78rem;color:var(--text-muted);line-height:1.4;">${escapeHtml(m.content)}</div>
         </div>`;
     }
 
     #listTabStyle(tab) {
         const active = this._listTab === tab;
-        return `background:${active ? '#4f7cff' : 'rgba(30,34,55,0.5)'};color:${active ? '#fff' : '#8e8eb3'};border:none;border-radius:10px;padding:4px 12px;font-size:0.72rem;cursor:pointer;`;
+        return `background:${active ? 'var(--accent)' : 'var(--bg-card-soft)'};color:${active ? '#fff' : 'var(--text-dim)'};border:none;border-radius:10px;padding:4px 12px;font-size:0.72rem;cursor:pointer;`;
     }
 
     #scopeTabStyle(scope) {
         const active = this._filter === scope;
-        return `background:${active ? '#4f7cff' : 'rgba(30,34,55,0.5)'};color:${active ? '#fff' : '#8e8eb3'};border:none;border-radius:10px;padding:4px 12px;font-size:0.72rem;cursor:pointer;`;
+        return `background:${active ? 'var(--accent)' : 'var(--bg-card-soft)'};color:${active ? '#fff' : 'var(--text-dim)'};border:none;border-radius:10px;padding:4px 12px;font-size:0.72rem;cursor:pointer;`;
     }
 
     /** 按记忆域筛选:当前角色 / 全局 / 全部 */
@@ -362,32 +362,32 @@ export class MemoryPanel {
 
     #logTabStyle(tab) {
         const active = this._logTab === tab;
-        return `background:${active ? '#4f7cff' : 'rgba(30,34,55,0.5)'};color:${active ? '#fff' : '#8e8eb3'};border:none;border-radius:10px;padding:4px 12px;font-size:0.72rem;cursor:pointer;`;
+        return `background:${active ? 'var(--accent)' : 'var(--bg-card-soft)'};color:${active ? '#fff' : 'var(--text-dim)'};border:none;border-radius:10px;padding:4px 12px;font-size:0.72rem;cursor:pointer;`;
     }
 
     #renderLogs() {
         const map = { extract: this._extractLogs, hit: this._hitLogs, inject: this._injectLogs };
         const logs = map[this._logTab] || [];
-        if (logs.length === 0) return '<div style="color:#6b6f8a;font-size:0.78rem;padding:8px 0;">暂无记录。</div>';
+        if (logs.length === 0) return '<div style="color:var(--text-dim);font-size:0.78rem;padding:8px 0;">暂无记录。</div>';
         const renderer = { extract: this.#extractLogItem, hit: this.#hitLogItem, inject: this.#injectLogItem }[this._logTab];
         return logs.map(l => renderer.call(this, l)).join('');
     }
 
-    #statCard(label, value, color = '#9aa3d6') {
-        return `<div style="flex:1;min-width:60px;background:rgba(30,34,55,0.5);border-radius:12px;padding:10px;text-align:center;">
+    #statCard(label, value, color = 'var(--text-dim)') {
+        return `<div style="flex:1;min-width:60px;background:var(--bg-card-soft);border-radius:12px;padding:10px;text-align:center;">
             <div style="font-size:1.3rem;font-weight:600;color:${color};">${value}</div>
-            <div style="font-size:0.7rem;color:#8e8eb3;">${label}</div>
+            <div style="font-size:0.7rem;color:var(--text-dim);">${label}</div>
         </div>`;
     }
 
     #extractLogItem(l) {
         const d = l.detail || {};
         const actionLabel = { new: '➕ 新建', dup: '⏭ 去重', fail: '⚠ 失败', none: '— 无事实' }[d.action] || d.action || '';
-        const color = d.action === 'fail' ? '#ff8f8f' : '#8e8eb3';
+        const color = d.action === 'fail' ? 'var(--danger)' : 'var(--text-dim)';
         const time = new Date(l.time).toLocaleTimeString('zh-CN', { hour12: false });
         const text = d.content ? escapeHtml(d.content) : (d.message || d.error || '');
         return `<div style="font-size:0.72rem;color:${color};padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
-            <span style="color:#6b6f8a;">[${time}]</span> ${actionLabel} ${text}
+            <span style="color:var(--text-dim);">[${time}]</span> ${actionLabel} ${text}
         </div>`;
     }
 
@@ -396,7 +396,7 @@ export class MemoryPanel {
         const time = new Date(l.time).toLocaleTimeString('zh-CN', { hour12: false });
         const injected = d.injected ? ' → 已注入' : '';
         return `<div style="font-size:0.72rem;color:#9fd6ff;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
-            <span style="color:#6b6f8a;">[${time}]</span> 🎯 命中(${d.method || 'L1'}) ${escapeHtml(d.content || '')}${injected}
+            <span style="color:var(--text-dim);">[${time}]</span> 🎯 命中(${d.method || 'L1'}) ${escapeHtml(d.content || '')}${injected}
         </div>`;
     }
 
@@ -405,7 +405,7 @@ export class MemoryPanel {
         const time = new Date(l.time).toLocaleTimeString('zh-CN', { hour12: false });
         const preview = (d.contents || []).map(c => escapeHtml(c)).join('；');
         return `<div style="font-size:0.72rem;color:#b7f0c0;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);">
-            <span style="color:#6b6f8a;">[${time}]</span> 💉 注入 ${d.count || 0} 条：${preview}
+            <span style="color:var(--text-dim);">[${time}]</span> 💉 注入 ${d.count || 0} 条：${preview}
         </div>`;
     }
 }

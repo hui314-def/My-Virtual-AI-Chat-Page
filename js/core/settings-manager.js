@@ -40,7 +40,7 @@ const DEFAULTS = Object.freeze({
     // 通用
     theme: 'dark',        // 'dark' | 'light' | 'auto'
     fontSize: 'medium',   // 'small' | 'medium' | 'large'
-    typingSpeed: 1.0,     // 0.1 ~ 1.0
+    typingSpeed: 1.0,     // 0.01 ~ 1.0（非线性：0.1≈54ms/字，0.01≈594ms/字）
 
     // 服务地址
     ttsApiUrl: Constants.DEFAULT_TTS_API_URL,

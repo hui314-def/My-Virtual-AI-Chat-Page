@@ -375,3 +375,411 @@ body.light-theme .bg-music-player-bar {
 body.light-theme .bg-music-player-bar .music-name { color: #333; }
 body.light-theme .bg-music-player-bar .music-btn { color: #555; }
 body.light-theme .bg-music-player-bar .music-btn:hover { background: rgba(95, 126, 255, 0.15); color: #222; }
+
+/* ============================================================
+   ★ 亮色适配补丁 v2 —— 覆盖首次适配遗漏的深色组件
+   (系统级 / base / sidebar / chat / components / 移动端 / 模板注入)
+   ============================================================ */
+
+/* ---------- 1. 系统级 ---------- */
+body.light-theme {
+    /* 兜底文字色:未单独着色的文本在亮色下必须用深字 */
+    color: #1e293b !important;
+
+    /* CSS 变量翻转(模板 / JS 内联 var() 引用的值随主题自动切换) */
+    --bg-deep: #f5f7fc;
+    --bg-dark: #eef2fa;
+    --bg-card: rgba(255, 255, 255, 0.92);
+    --bg-card-hover: #eef2ff;
+    --bg-card-soft: rgba(255, 255, 255, 0.9);
+    --bg-panel: rgba(240, 244, 255, 0.92);
+    --bg-sidebar: rgba(240, 244, 255, 0.92);
+    --bg-modal: rgba(255, 255, 255, 0.97);
+    --bg-input: #f8faff;
+    --bg-input-focus: #ffffff;
+    --btn-ghost-bg: #f0f4ff;
+    --btn-ghost-border: #cdd9ff;
+    --btn-ghost-text: #2563eb;
+    --border-subtle: rgba(203, 213, 240, 0.9);
+    --border-default: #cdd9ff;
+    --border-hover: #8aaeff;
+    --border-active: #3b82f6;
+    --text-primary: #1e293b;
+    --text-secondary: #1e3a8a;
+    --text-muted: #4b5563;
+    --text-dim: #64748b;
+    --text-placeholder: #94a3b8;
+    --accent: #2563eb;
+    --accent-glow: rgba(37, 99, 235, 0.3);
+    --accent-light: #3b5bdb;
+    --danger: #dc2626;
+    --success: #059669;
+    --bg-image-shade-a: rgba(0, 0, 0, 0.2);
+    --bg-image-shade-b: rgba(0, 0, 0, 0.1);
+    --toast-bg: #2563eb;
+}
+
+/* 加载遮罩:亮色改为浅色系 */
+body.light-theme #loading-overlay {
+    background: radial-gradient(circle at 20% 30%, #eef2fa, #dbe4f7);
+}
+body.light-theme #loading-overlay p { color: #2563eb; }
+body.light-theme #loading-overlay .loader-spinner {
+    border-color: rgba(37, 99, 235, 0.3);
+    border-top-color: #2563eb;
+}
+
+/* Firefox 滚动条(WebKit 版此前已覆盖) */
+body.light-theme .modal-body,
+body.light-theme .settings-content,
+body.light-theme .settings-sidebar {
+    scrollbar-color: #b9c8ff #eef2ff;
+}
+
+/* select:浅色箭头 + 亮色 hover/focus */
+body.light-theme select {
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%232563eb' d='M6 8L1 3h10z'/%3E%3C/svg%3E") !important;
+}
+body.light-theme select:hover {
+    background-color: #ffffff !important;
+    border-color: #8aaeff !important;
+    box-shadow: 0 0 10px rgba(37, 99, 235, 0.18) !important;
+    transform: scale(1.02) !important;
+}
+body.light-theme select:focus {
+    background-color: #ffffff !important;
+    border-color: #3b82f6 !important;
+    box-shadow: 0 0 14px rgba(37, 99, 235, 0.25) !important;
+    animation: none !important;
+}
+body.light-theme select option { background-color: #ffffff !important; }
+
+/* 输入占位符 */
+body.light-theme input::placeholder,
+body.light-theme textarea::placeholder {
+    color: #94a3b8 !important;
+}
+
+/* ---------- 2. base.css 组件 ---------- */
+/* 开关:关闭态浅色轨道 */
+body.light-theme .slider { background-color: #c7d2fe !important; }
+body.light-theme input:checked + .slider { background-color: #2563eb !important; }
+
+/* 通用取消按钮(除话题弹窗外所有弹窗) */
+body.light-theme .modal-btn.cancel {
+    background: #f0f4ff !important;
+    border: 1px solid #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme .modal-btn.cancel:hover { background: #e2e9ff !important; }
+
+/* 危险按钮 */
+body.light-theme .modal-btn.danger {
+    background: #fee2e2 !important;
+    border: 1px solid #fecaca !important;
+    color: #dc2626 !important;
+}
+body.light-theme .modal-btn.danger:hover { background: #fecaca !important; }
+
+/* 小按钮(✨生成 / 确定生成等) */
+body.light-theme .mini-btn {
+    background: #eef2ff !important;
+    border-color: #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme .mini-btn:hover {
+    background: #dbe4ff !important;
+    color: #1d4ed8 !important;
+    border-color: #8aaeff !important;
+}
+
+/* 头像 / 背景预览圆底 */
+body.light-theme .image-preview { background: #eef2ff !important; }
+
+/* ---------- 3. sidebar.css ---------- */
+/* 在线绿点:去掉深色描边 */
+body.light-theme .avatar::after {
+    border-color: #ffffff;
+    box-shadow: 0 0 4px rgba(46, 255, 176, 0.55);
+}
+body.light-theme .history-item:hover {
+    background: #e6edff;
+    border-color: #cdd9ff;
+}
+body.light-theme .history-item.active { box-shadow: 0 2px 8px rgba(30, 64, 175, 0.12); }
+body.light-theme .history-item i { color: #4a5a9e; }
+body.light-theme .history-avatar { background: #e6edff; }
+body.light-theme .history-default-icon { color: #2563eb; }
+body.light-theme .history-menu { box-shadow: 0 8px 20px rgba(30, 64, 175, 0.15); }
+body.light-theme .history-menu-trigger {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #cdd9ff;
+}
+body.light-theme .history-menu-trigger:hover { background: rgba(37, 99, 235, 0.15); }
+body.light-theme .history-menu-trigger i { color: #2563eb; }
+body.light-theme .history-menu-item { color: #1e293b; }
+body.light-theme .history-menu-item i { color: #2563eb; }
+body.light-theme .history-menu-item:hover { background: #e6edff; }
+body.light-theme .history-menu-item.delete-item { color: #dc2626; }
+body.light-theme .history-menu-item.delete-item i { color: #ef4444; }
+body.light-theme .setting-btn:hover { background: #e2e9ff; }
+body.light-theme .setting-btn i { color: #2563eb; }
+body.light-theme .sidebar { box-shadow: 4px 0 25px rgba(30, 64, 175, 0.12); }
+
+/* ---------- 4. chat.css ---------- */
+/* 输入中胶囊 */
+body.light-theme .typing-indicator {
+    background: rgba(255, 255, 255, 0.9);
+    border: 1px solid #cdd9ff;
+    color: #2563eb;
+}
+/* 文件 / 图片预览条 */
+body.light-theme .file-preview-area {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: #cdd9ff;
+}
+body.light-theme .file-preview-item i { color: #2563eb; }
+body.light-theme .image-preview-area {
+    background: rgba(255, 255, 255, 0.9);
+    border-color: #cdd9ff;
+}
+/* 气泡内附件胶囊 */
+body.light-theme .file-attachment {
+    background: rgba(37, 99, 235, 0.12);
+    color: #1d4ed8;
+}
+body.light-theme .file-attachment:hover { background: rgba(37, 99, 235, 0.2); }
+/* 消息操作菜单内部按钮与箭头 */
+body.light-theme .message-actions button { color: #1e3a8a; }
+body.light-theme .message-actions button:hover {
+    background: rgba(239, 68, 68, 0.12);
+    color: #dc2626;
+}
+body.light-theme .message-actions .delete-btn { color: #dc2626; }
+body.light-theme .message-actions::before { border-bottom-color: #cdddff; }
+/* 文件内容弹窗 */
+body.light-theme .file-content-modal { background: rgba(30, 41, 59, 0.5); }
+body.light-theme .file-content-modal-content {
+    background: #ffffff;
+    border-color: #cdd9ff;
+}
+body.light-theme .file-content-header {
+    border-bottom-color: #e5e9f0;
+    color: #1e3a8a;
+}
+body.light-theme .file-content-close { color: #6b7280; }
+body.light-theme .file-content-close:hover { color: #dc2626; }
+body.light-theme .file-content-body pre { color: #1e293b; }
+/* 思考过程折叠块(浅蓝面板 + 深字) */
+body.light-theme .think-details { background: rgba(37, 99, 235, 0.06); }
+body.light-theme .think-details summary,
+body.light-theme .think-title { color: #1d4ed8; }
+body.light-theme .think-details summary:hover { color: #1e3a8a; }
+body.light-theme .think-details summary::-webkit-details-marker { color: #2563eb; }
+body.light-theme .think-timer { color: #6b7280; }
+body.light-theme .think-details.thinking { border-color: rgba(37, 99, 235, 0.4); }
+body.light-theme .think-indicator { background: #2563eb; }
+body.light-theme .think-content {
+    color: #374151;
+    border-top-color: rgba(37, 99, 235, 0.2);
+}
+/* 内心 OS 折叠块(浅紫面板 + 深字) */
+body.light-theme .soul-details { background: rgba(147, 51, 234, 0.06); }
+body.light-theme .soul-details summary,
+body.light-theme .soul-title { color: #7c3aed; }
+body.light-theme .soul-details summary:hover { color: #6d28d9; }
+body.light-theme .soul-details summary::-webkit-details-marker { color: #8b5cf6; }
+body.light-theme .soul-details.soul-generating { border-color: rgba(147, 51, 234, 0.35); }
+body.light-theme .soul-indicator { background: #8b5cf6; }
+body.light-theme .soul-content {
+    color: #6d28d9;
+    border-top-color: rgba(147, 51, 234, 0.2);
+}
+/* 话题分隔线 */
+body.light-theme .topic-divider { color: #64748b; }
+body.light-theme .topic-divider::before,
+body.light-theme .topic-divider::after {
+    background: linear-gradient(90deg, transparent, #93b4ff, transparent);
+}
+body.light-theme .topic-divider i { color: #2563eb; }
+/* action-btn hover 边框 */
+body.light-theme .action-btn:hover { border-color: #8aaeff !important; }
+/* 建议种类圆点 */
+body.light-theme .suggest-kind::before {
+    background: #2563eb;
+    box-shadow: 0 0 6px rgba(37, 99, 235, 0.6);
+}
+
+/* ---------- 5. components.css ---------- */
+/* 弹窗遮罩调柔、阴影调浅、分隔线换浅色 */
+body.light-theme .settings-modal { background: rgba(15, 23, 42, 0.45); }
+body.light-theme .modal-content { box-shadow: 0 16px 40px rgba(30, 64, 175, 0.18); }
+body.light-theme .modal-header { border-bottom-color: rgba(37, 99, 235, 0.15); }
+body.light-theme .modal-footer { border-top-color: rgba(37, 99, 235, 0.15); }
+/* 通用关闭按钮(所有弹窗) */
+body.light-theme .modal-close { color: #64748b; }
+body.light-theme .modal-close:hover { color: #1e3a8a; }
+/* 自定义确认框正文 */
+body.light-theme #custom-dialog .modal-body p { color: #334155; }
+/* 参数值胶囊:黑底改浅蓝底 */
+body.light-theme .param-value { background: rgba(37, 99, 235, 0.08); }
+/* 新建话题按钮 */
+body.light-theme #new-topic-modal-btn {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: #ffffff !important;
+}
+/* 搜索下拉 */
+body.light-theme .search-dropdown-item { border-bottom-color: rgba(100, 130, 255, 0.15); }
+body.light-theme .search-dropdown-item:hover { background: #e6edff; }
+body.light-theme .search-dropdown-preview { color: #4b5563; }
+body.light-theme .search-dropdown-badge {
+    background: rgba(37, 99, 235, 0.12);
+    color: #2563eb;
+}
+/* 模型参数滑条 */
+body.light-theme .model-param-item input[type="range"] { background: #d6dffa; }
+body.light-theme .model-param-item input[type="range"]::-webkit-slider-thumb { background: #2563eb; }
+/* 音乐播放器亮色 hover/拖拽 */
+body.light-theme .bg-music-player-bar:hover { background: #ffffff; }
+body.light-theme .bg-music-player-bar.dragging {
+    box-shadow: 0 12px 32px rgba(30, 64, 175, 0.25);
+    border-color: rgba(37, 99, 235, 0.5);
+}
+body.light-theme .bg-music-player-bar .music-volume-slider { background: #c7d2fe; }
+body.light-theme .bg-music-player-bar .music-volume-slider::-webkit-slider-thumb,
+body.light-theme .bg-music-player-bar .music-volume-slider::-moz-range-thumb { background: #2563eb; }
+/* 提示词注入系统(pi-*) */
+body.light-theme .pi-status { color: #64748b; }
+body.light-theme .pi-card {
+    background: rgba(255, 255, 255, 0.85);
+    border-color: rgba(100, 130, 255, 0.25);
+}
+body.light-theme .pi-card.pi-dragging {
+    border-color: #2563eb;
+    box-shadow: 0 0 12px rgba(37, 99, 235, 0.3);
+}
+body.light-theme .pi-drag-handle { color: #94a3b8; }
+body.light-theme .pi-drag-handle:hover { background: rgba(37, 99, 235, 0.12); color: #2563eb; }
+body.light-theme .pi-card-name { color: #1e293b; }
+body.light-theme .pi-card-sub { color: #64748b; }
+body.light-theme .pi-badge {
+    color: #2563eb;
+    background: rgba(37, 99, 235, 0.1);
+    border-color: rgba(37, 99, 235, 0.25);
+}
+body.light-theme .pi-badge-warn {
+    color: #b45309;
+    background: rgba(245, 158, 11, 0.12);
+    border-color: rgba(245, 158, 11, 0.3);
+}
+body.light-theme .pi-btn {
+    background: #eef2ff;
+    border-color: #cdd9ff;
+    color: #2563eb;
+}
+body.light-theme .pi-btn:hover { background: #dbe4ff; }
+body.light-theme .pi-btn-danger:hover {
+    background: #fee2e2;
+    border-color: #fecaca;
+    color: #dc2626;
+}
+body.light-theme .pi-empty {
+    color: #64748b;
+    border-color: rgba(100, 130, 255, 0.25);
+}
+body.light-theme .pi-form-hint { color: #64748b; }
+body.light-theme .pi-form-hint code {
+    background: rgba(37, 99, 235, 0.1);
+    color: #2563eb;
+}
+body.light-theme .pi-editor-form label { color: #334155; }
+body.light-theme .pi-editor-form input[type="text"],
+body.light-theme .pi-editor-form textarea {
+    background: #f8faff;
+    border-color: #cdd9ff;
+    color: #1e293b;
+}
+
+/* ---------- 6. 移动端(responsive.css 在 light-theme.css 之后加载,补 !important) ---------- */
+body.light-theme .menu-toggle {
+    background: #f0f4ff !important;
+    border: 1px solid #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme .mobile-collapse-overlay { background: rgba(15, 23, 42, 0.45) !important; }
+body.light-theme .mobile-collapse-menu {
+    background: rgba(255, 255, 255, 0.97) !important;
+    box-shadow: 0 -8px 30px rgba(30, 64, 175, 0.18) !important;
+}
+body.light-theme button.mobile-collapse-item {
+    background: #f0f4ff !important;
+    border-color: #cdd9ff !important;
+    color: #1e3a8a !important;
+}
+body.light-theme button.mobile-collapse-close {
+    background: #fee2e2 !important;
+    border-color: #fecaca !important;
+    color: #dc2626 !important;
+}
+
+/* ---------- 7. 模板注入 / 内联深色控件(modal.html 注入的 <style> 位于 head 末尾,补 !important) ---------- */
+/* 角色设定折叠渐隐遮罩 */
+body.light-theme .persona-field-wrap::after {
+    background: linear-gradient(to bottom, rgba(248, 250, 255, 0), rgba(240, 244, 255, 0.95));
+}
+/* 折叠展开按钮 */
+body.light-theme .persona-toggle-btn {
+    background: #eef2ff !important;
+    border-color: #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme .persona-toggle-btn:hover { background: #dbe4ff !important; }
+/* AI 生成类主按钮(内联渐变压制为品牌蓝) */
+body.light-theme #chat-bg-music-ai-generate,
+body.light-theme #persona-gen-confirm {
+    background: #2563eb !important;
+    border-color: #2563eb !important;
+    color: #ffffff !important;
+}
+/* AI 音乐试听按钮(深绿半透明 → 浅绿) */
+body.light-theme #chat-bg-music-ai-play {
+    background: rgba(5, 150, 105, 0.12) !important;
+    border-color: rgba(5, 150, 105, 0.4) !important;
+    color: #047857 !important;
+}
+/* 角色生成控制面板(内联深色框) */
+body.light-theme #persona-gen-controls {
+    background: rgba(240, 244, 255, 0.9) !important;
+    border-color: rgba(37, 99, 235, 0.25) !important;
+}
+body.light-theme #persona-gen-controls small { color: #334155 !important; }
+
+/* dialogs.html 内联深色次级按钮(带 id, !important 压制内联) */
+body.light-theme #show-all-topics-btn,
+body.light-theme #auth-avatar-upload,
+body.light-theme #auth-avatar-reuse,
+body.light-theme #auth-rename-btn,
+body.light-theme #auth-change-password-btn,
+body.light-theme #test-model-connection-btn,
+body.light-theme #fetch-voices-btn,
+body.light-theme #regenerate-suggest-btn {
+    background: #f0f4ff !important;
+    border-color: #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme #auth-delete-account-btn {
+    background: #fee2e2 !important;
+    border-color: #fecaca !important;
+    color: #dc2626 !important;
+}
+/* dialogs.html 深色半透明容器(模型列表 / 音色面板) */
+body.light-theme #model-list-container {
+    background: rgba(240, 244, 255, 0.9) !important;
+}
+body.light-theme #voice-clone-panel,
+body.light-theme #voice-design-panel {
+    background: rgba(240, 244, 255, 0.9) !important;
+}
+body.light-theme #voice-list-display,
+body.light-theme #design-status { color: #4b5563 !important; }

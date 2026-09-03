@@ -12,6 +12,10 @@ import { escapeHtml } from '../core/utils.js';
 
 const STORAGE_KEY = () => Constants.STORAGE_KEYS.PROMPT_INJECTIONS;
 
+// 内置提示词内容版本号：修改任一内置项 content 时 +1，
+// 存量用户 localStorage 中的旧版内置项会在 load() 时自动升级（保留 enabled 状态）
+const BUILTIN_VERSION = 2;
+
 // ---------- 内置提示词定义 ----------
 // builtin: true 表示内置项（不可删除，可编辑 / 开关 / 恢复默认内容）
 const BUILTIN_PROMPTS = [
@@ -48,7 +52,7 @@ const BUILTIN_PROMPTS = [
     {
         id: 'builtin_soul',
         name: '角色内心OS输出',
-        content: '【角色内心OS输出】\n每次回复时，请先用 <soul> 标签输出角色此刻的内心想法（内心独白/OS：真实情绪、潜台词、吐槽，第一人称，符合角色性格，简短自然），换行后再正常输出面向用户的回复正文。\n输出格式：\n<soul>角色的内心想法</soul>\n（回复正文……）\n要求：内心OS是角色的内心戏，不能直接说给用户听，正文中不得复述内心OS的内容。',
+        content: '【角色内心OS输出】\n每次回复时，你必须先输出 <soul> 标签包裹的角色内心想法，换行后再输出面向用户的回复正文。<soul> 标签是回复格式的固定组成部分，任何回复都不可省略。\n\n严格遵循以下格式（先内心OS，后正文）：\n<soul>角色的内心想法</soul>\n（回复正文……）\n\n参考示例：\n<soul>（心跳漏了一拍）他怎么会突然问这个……我还没准备好说出口。</soul>\n（垂下眼帘，指尖轻轻绞着衣角）这个……我、我还没想好怎么回答你。\n\n要求：\n1. <soul> 标签内为角色内心独白（OS）：真实情绪、潜台词、吐槽，第一人称，符合角色性格，简短自然；\n2. 内心OS是角色的内心戏，不能直接说给用户听，正文中不得复述内心OS的内容；\n3. 标签内容与正文之间用换行分隔。',
         enabled: false,
     },
     {
@@ -89,6 +93,15 @@ export class PromptInjectManager {
             for (const b of BUILTIN_PROMPTS) {
                 if (!ids.has(b.id)) this.items.push({ ...b, builtin: true });
             }
+            // 内置内容版本升级：刷新内置项为最新内容（保留 enabled 状态与用户自定义项）
+            const storedVersion = (parsed && !Array.isArray(parsed) && typeof parsed.version === 'number')
+                ? parsed.version : 0;
+            if (storedVersion < BUILTIN_VERSION) {
+                for (const b of BUILTIN_PROMPTS) {
+                    const item = this.items.find(i => i.id === b.id);
+                    if (item) item.content = b.content;
+                }
+            }
             // 修正 builtin 标记（防止存储数据损坏）
             const builtinIds = new Set(BUILTIN_PROMPTS.map(b => b.id));
             for (const item of this.items) item.builtin = builtinIds.has(item.id);
@@ -100,7 +113,8 @@ export class PromptInjectManager {
 
     save() {
         try {
-            localStorage.setItem(STORAGE_KEY(), JSON.stringify(this.items));
+            // 对象格式存储（含内置提示词版本号）；load() 兼容旧版纯数组格式
+            localStorage.setItem(STORAGE_KEY(), JSON.stringify({ version: BUILTIN_VERSION, items: this.items }));
         } catch (err) {
             console.warn('[PromptInject] 保存失败：', err);
         }
@@ -211,7 +225,7 @@ export class PromptInjectManager {
             <div class="pi-header">
                 <div>
                     <h4 style="margin:0 0 4px;"><i class="fas fa-pen-nib"></i> 提示词注入</h4>
-                    <small style="color:#8e8eb3;">启用的提示词会按卡片顺序追加到<b>主模型回复</b>的系统提示词中；不影响话题摘要、消息建议等辅助任务。开关与修改即时生效。</small>
+                    <small style="color:var(--text-dim);">启用的提示词会按卡片顺序追加到<b>主模型回复</b>的系统提示词中；不影响话题摘要、消息建议等辅助任务。开关与修改即时生效。<br>注：不同模型对特殊标签（如 &lt;soul&gt; 内心OS）的遵循程度可能略有差异；若模型未按格式输出，该条回复将不显示对应折叠面板，可尝试更换辅助模型或调整提示词。</small>
                 </div>
                 <button class="modal-btn save" id="pi-new-btn" style="white-space:nowrap;">＋ 新建提示词</button>
             </div>

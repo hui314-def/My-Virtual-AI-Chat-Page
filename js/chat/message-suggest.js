@@ -121,6 +121,8 @@ export class MessageSuggest {
         this.closeModal();
         this.messageInputEl.value = text;
         this.messageInputEl.style.height = 'auto';
+        // 使用过建议后清空缓存：下次打开弹窗直接重新生成（避免沿用旧的 3 条）
+        this._cache = { key: '', suggestions: [] };
         this.sendUserMessage();
     }
 
@@ -155,7 +157,7 @@ export class MessageSuggest {
         });
         return await modelService.generateText(this._buildPrompt(), {
             temperature: 1,    // 稍高温度，3 条建议更有差异性
-            maxTokens: 300,      // 3 条建议约 100~200 字，留足余量
+            maxTokens: 1000,      // 3 条建议约 100~200 字，留足余量
             thinkLevel: 0,       // 丢弃 thinking，避免污染 JSON 解析
             jsonFormat: true,    // Ollama → format:'json' / OpenAI 兼容 → response_format
         });

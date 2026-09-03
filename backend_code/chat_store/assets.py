@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """图片/二进制资源落盘存储：把 base64 data URL 存成文件，DB 里只留短引用。
 文件目录默认在 backend_code/chat_store/assets（可用环境变量 ASSET_DIR 覆盖，如 D:\\ai_chat_assets）。"""
 import os

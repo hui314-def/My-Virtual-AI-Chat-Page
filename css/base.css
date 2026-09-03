@@ -39,6 +39,16 @@
     --font-sm: 0.75rem;
     --font-base: 0.9rem;
     --font-lg: 1.1rem;
+
+    /* ---- 动态面板 / 模板内联样式专用(JS 与 templates 中的 var() 引用,随主题翻转) ---- */
+    --bg-card-soft: rgba(30, 34, 55, 0.5);   /* 半透明深卡片底(记忆/知识库/模型列表等) */
+    --bg-panel: rgba(20, 24, 45, 0.55);      /* 更深一档面板底 */
+    --btn-ghost-bg: rgba(45, 55, 85, 0.6);   /* 次级按钮底(模板内联用) */
+    --btn-ghost-border: rgba(100, 130, 255, 0.4);
+    --btn-ghost-text: #ccd6ff;
+    --bg-image-shade-a: rgba(0, 0, 0, 0.65); /* 聊天背景图顶部压暗渐变(JS 内联引用) */
+    --bg-image-shade-b: rgba(0, 0, 0, 0.55);
+    --toast-bg: #2a2f55;                     /* 全局提示条背景 */
 }
 
 /* ---------- 加载遮罩 ---------- */

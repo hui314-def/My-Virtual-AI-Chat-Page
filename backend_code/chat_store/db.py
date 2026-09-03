@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 """MySQL 连接助手 + 建库建表（幂等）。"""
 import os
 import pymysql
