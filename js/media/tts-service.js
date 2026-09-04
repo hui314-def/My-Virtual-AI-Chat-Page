@@ -1,4 +1,5 @@
 import Constants from '../core/constants.js';
+import SettingsManager from '../core/settings-manager.js';
 
 /**
  * 语音合成服务
@@ -38,8 +39,8 @@ export class TTsService {
      */
     static async getVoices(forceRefresh = false) {
         if (this.#voiceCache && !forceRefresh) return this.#voiceCache;
-        const globalSettings = JSON.parse(localStorage.getItem(Constants.STORAGE_KEYS.GLOBAL_SETTINGS)) || {};
-        const apiUrl = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
+        // 通过 SettingsManager 读取（感知账号命名空间），避免直读裸键回退默认地址
+        const apiUrl = SettingsManager.getTtsApiUrl() || Constants.DEFAULT_TTS_API_URL;
         try {
             const response = await fetch(`${apiUrl}/voices`);
             if (!response.ok) throw new Error();
@@ -83,22 +84,98 @@ export class TTsService {
     }
 
     /**
-     * 更新"可用音色列表"显示区域（span元素）
-     * @param {HTMLElement} displaySpan - 用于显示音色列表的 span 元素
+     * 更新"可用音色列表"显示区域（胶囊列表，点击可复制）
+     * @param {HTMLElement} displaySpan - 用于显示音色列表的元素
      * @param {boolean} forceRefresh - 是否强制刷新缓存
      * @returns {Promise<void>}
      */
     static async updateVoiceDisplay(displaySpan, forceRefresh = false) {
         const voices = await this.getVoices(forceRefresh);
-        if (voices.length === 0) {
-            displaySpan.innerText = '无可用音色';
-        } else {
-            displaySpan.innerHTML = voices.join(', ');
+        this.renderVoiceList(displaySpan, voices);
+    }
+
+    /**
+     * 将音色列表渲染为胶囊标签（并同步数量徽标）。
+     * default 为内置默认音色（带「内置」标识，不可删除）；其余音色带 × 删除按钮，
+     * 点击后调后端 DELETE /voices/{name}，成功即刷新列表并通知外部同步各语音下拉。
+     * @param {HTMLElement} el - 列表容器元素（#voice-list-display）
+     * @param {string[]} voices - 音色名称数组；空 / 非法时显示空态提示
+     */
+    static renderVoiceList(el, voices) {
+        if (!el) return;
+        el.classList.remove('voice-chip-empty');
+        el.innerHTML = '';
+        const countBadge = document.getElementById('voice-count-badge');
+        if (!Array.isArray(voices) || voices.length === 0) {
+            el.classList.add('voice-chip-empty');
+            el.textContent = '无可用音色，请先克隆或设计';
+            if (countBadge) { countBadge.style.display = 'none'; countBadge.textContent = ''; }
+            return;
         }
+        if (countBadge) {
+            countBadge.style.display = 'inline-flex';
+            countBadge.textContent = `${voices.length} 个`;
+        }
+        const baseUrl = SettingsManager.getTtsApiUrl() || Constants.DEFAULT_TTS_API_URL;
+        const apiKey = SettingsManager.getTtsApiKey();
+        const frag = document.createDocumentFragment();
+        for (const voice of voices) {
+            const chip = document.createElement('div');
+            chip.className = 'voice-chip';
+            const nameSpan = document.createElement('span');
+            nameSpan.className = 'voice-chip-name';
+            nameSpan.textContent = voice;
+            nameSpan.title = voice;
+            chip.appendChild(nameSpan);
+            if (voice === 'default') {
+                // 内置默认音色：不可删除，加小标识
+                const tag = document.createElement('span');
+                tag.className = 'voice-chip-tag';
+                tag.textContent = '内置';
+                chip.appendChild(tag);
+            } else {
+                const del = document.createElement('button');
+                del.type = 'button';
+                del.className = 'voice-chip-del';
+                del.title = '删除音色：' + voice;
+                del.textContent = '×';
+                del.addEventListener('click', async () => {
+                    if (!window.confirm(`确定要删除音色「${voice}」吗？\n删除后该音色将无法再使用。`)) return;
+                    del.disabled = true;
+                    try {
+                        const headers = {};
+                        if (apiKey) headers['X-API-Key'] = apiKey;
+                        const resp = await fetch(`${baseUrl}/voices/${encodeURIComponent(voice)}`, {
+                            method: 'DELETE',
+                            headers,
+                        });
+                        let data = {};
+                        try { data = await resp.json(); } catch (_) { /* 非 JSON 响应 */ }
+                        if (!resp.ok) {
+                            throw new Error(data.error || data.detail || `删除失败（HTTP ${resp.status}）`);
+                        }
+                        // 删除成功：清缓存 → 重新拉取渲染 → 通知各「对话设置」刷新音色下拉
+                        this.clearVoiceCache();
+                        await this.updateVoiceDisplay(el, true);
+                        window.dispatchEvent(new CustomEvent('tts-voices-changed', { detail: { voice } }));
+                    } catch (err) {
+                        window.alert('删除音色失败：' + (err.message || '未知错误'));
+                    } finally {
+                        del.disabled = false;
+                    }
+                });
+                chip.appendChild(del);
+            }
+            frag.appendChild(chip);
+        }
+        el.appendChild(frag);
     }
 
     // 清空音色缓存（音色克隆成功后调用）
     static clearVoiceCache() { this.#voiceCache = null; }
+
+    // 直接写入音色缓存（「获取音色列表」成功后同步，保证各处下拉/显示都拿最新列表）
+    static setVoiceCache(voices) { this.#voiceCache = Array.isArray(voices) ? voices.slice() : []; }
 
     // 是否正在播放
     isSpeaking() { return this.#isSpeaking; }
@@ -221,9 +298,9 @@ export class TTsService {
         this.#currentController = controller;
 
         // 获取配置
-        const globalSettings = JSON.parse(localStorage.getItem(Constants.STORAGE_KEYS.GLOBAL_SETTINGS)) || {};
-        const ttsApiUrl = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
-        const ttsApiKey = globalSettings.ttsApiKey || '';
+        // 通过 SettingsManager 读取（感知账号命名空间），避免直读裸键回退默认地址
+        const ttsApiUrl = SettingsManager.getTtsApiUrl() || Constants.DEFAULT_TTS_API_URL;
+        const ttsApiKey = SettingsManager.getTtsApiKey();
 
         const headers = { 'Content-Type': 'application/json' };
         if (ttsApiKey) headers['X-API-Key'] = ttsApiKey;
@@ -390,9 +467,9 @@ export class TTsService {
         this.#currentController = controller;
 
         // 获取配置
-        const globalSettings = JSON.parse(localStorage.getItem(Constants.STORAGE_KEYS.GLOBAL_SETTINGS)) || {};
-        const ttsApiUrl = globalSettings.ttsApiUrl || Constants.DEFAULT_TTS_API_URL;
-        const ttsApiKey = globalSettings.ttsApiKey || '';
+        // 通过 SettingsManager 读取（感知账号命名空间），避免直读裸键回退默认地址
+        const ttsApiUrl = SettingsManager.getTtsApiUrl() || Constants.DEFAULT_TTS_API_URL;
+        const ttsApiKey = SettingsManager.getTtsApiKey();
 
         const headers = { 'Content-Type': 'application/json' };
         if (ttsApiKey) headers['X-API-Key'] = ttsApiKey;

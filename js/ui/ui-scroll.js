@@ -14,6 +14,7 @@ export class UiScroll {
         this.sendBtn = sendBtnEl;
         this.isProcessing = false;      // 请求进行中(全局唯一锁)
         this.autoScrollEnabled = true;  // 是否允许自动滚动
+        this._lastProgrammaticScroll = 0; // 最近一次程序滚动时间戳（区分程序/用户滚动）
     }
 
     // ==================== 请求生命周期管理(避免并发与竞态) ====================
@@ -51,8 +52,17 @@ export class UiScroll {
     updateAutoScrollFlag() {
         if (!this.chatMessages) return;
         const { scrollTop, scrollHeight, clientHeight } = this.chatMessages;
-        const atBottom = scrollHeight - scrollTop - clientHeight <= Constants.SCROLL_THRESHOLD; // 距离底部阈值(px)
-        this.autoScrollEnabled = atBottom;
+        const distance = scrollHeight - scrollTop - clientHeight; // 距底部距离(px)
+        // 程序滚动（scrollToBottom 等）触发的 scroll 事件会滞后派发：此时滚动条距底
+        // 若只差少量余量（如 pre-wrap 内容尾部的空行/连续换行），不应误判为「用户滚上去了」
+        // 而关闭自动跟随（这正是“连续 2 个换行后不再强制回滚”的根因）。
+        const isRecentProgrammatic = (performance.now() - this._lastProgrammaticScroll) < 120;
+        if (isRecentProgrammatic && distance <= Constants.SCROLL_THRESHOLD * 3) {
+            this.autoScrollEnabled = true;
+            return;
+        }
+        // 用户真实滚动：允许一定尾部余量（空行/内边距），超过才视为离开底部
+        this.autoScrollEnabled = distance <= Constants.SCROLL_THRESHOLD * 2;
     }
 
     conditionalScrollToBottom() {
@@ -67,6 +77,9 @@ export class UiScroll {
     }
 
     scrollToBottom() {
-        if (this.chatMessages) this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+        if (this.chatMessages) {
+            this._lastProgrammaticScroll = performance.now();
+            this.chatMessages.scrollTop = this.chatMessages.scrollHeight;
+        }
     }
 }

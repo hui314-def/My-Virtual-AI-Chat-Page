@@ -482,14 +482,10 @@ ${!userName ? '3. 不要使用"你好，我是..."这类模板化开场\n' : '4.
                 try {
                     const modelService = ctx.getModelService();
                     // 同步最新配置（辅助任务使用「辅助任务模型」，未设置则跟随主模型）
-                    modelService.updateConfig({
-                        modelHost: SettingsManager.getModelHost(),
-                        apiKey: SettingsManager.getApiKey(),
-                        modelName: SettingsManager.getAuxEffectiveModel(),
-                    });
+                    modelService.updateConfig(SettingsManager.getAuxRequestConfig());
                     const greeting = await modelService.generateText(prompt, {
                         temperature: 0.8,
-                        maxTokens: 200
+                        maxTokens: 1000
                     });
                     if (greeting && greeting.trim()) {
                         roleGreeting.value = greeting.trim();
@@ -574,11 +570,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 try {
                     const modelService = ctx.getModelService();
                     // 同步最新配置（辅助任务使用「辅助任务模型」，未设置则跟随主模型）
-                    modelService.updateConfig({
-                        modelHost: SettingsManager.getModelHost(),
-                        apiKey: SettingsManager.getApiKey(),
-                        modelName: SettingsManager.getAuxEffectiveModel(),
-                    });
+                    modelService.updateConfig(SettingsManager.getAuxRequestConfig());
                     const persona = await modelService.generateText(prompt, {
                         temperature: 0.8,
                         maxTokens: 600
@@ -828,11 +820,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 try {
                     // 1. 模型生成细致具体的英文提示词（辅助任务使用「辅助任务模型」，未设置则跟随主模型）
                     const modelService = ctx.getModelService();
-                    modelService.updateConfig({
-                        modelHost: SettingsManager.getModelHost(),
-                        apiKey: SettingsManager.getApiKey(),
-                        modelName: SettingsManager.getAuxEffectiveModel(),
-                    });
+                    modelService.updateConfig(SettingsManager.getAuxRequestConfig());
                     const promptText = `你是音乐提示词专家。根据用户的音乐风格描述，创作一段用于 AI 音乐生成（Stable Audio）的英文提示词。
 
 要求：
@@ -952,6 +940,21 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         s.ttsEnabled = document.getElementById('tts-switch').checked;
         s.ttsVoice = document.getElementById('tts-voice-select').value;
         return s;
+    }
+
+    /**
+     * 刷新「对话设置」弹窗中当前角色的语音合成音色下拉。
+     * 在全局设置的音色列表更新后（获取列表 / 克隆 / 设计音色）调用；
+     * 弹窗未打开或语音开关未开启时自动跳过；重新拉取列表并尽量保持当前选中项。
+     */
+    async refreshSettingsVoiceSelect() {
+        const modal = document.getElementById('settings-modal');
+        if (!modal || modal.style.display !== 'flex') return;
+        const ttsSwitch = document.getElementById('tts-switch');
+        const ttsVoiceSelect = document.getElementById('tts-voice-select');
+        if (!ttsSwitch || !ttsSwitch.checked || !ttsVoiceSelect) return;
+        const keep = ttsVoiceSelect.value || null;
+        await TTsService.populateVoiceSelect(ttsVoiceSelect, keep, true);
     }
 
     closeSettingsModal() {
@@ -1138,6 +1141,12 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
     // ==================== 全局设置弹窗 ====================
     async openGlobalSettings() {
         const ctx = this.ctx;
+        // 一次性注册：音色删除成功后，刷新打开中的「对话设置」语音下拉
+        const gModal = document.getElementById('global-settings-modal');
+        if (gModal && !gModal._voiceChangeBound) {
+            gModal._voiceChangeBound = true;
+            window.addEventListener('tts-voices-changed', () => this.refreshSettingsVoiceSelect());
+        }
         const modelHostInput = document.getElementById('model-host');
         const apiKeyInput = document.getElementById('api-key');
         // 主机地址 / API Key 优先取「当前厂商」的独立设置。
@@ -1256,6 +1265,8 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 const audioText = document.getElementById('clone-audio-text').value.trim();
                 if (!audioText) { this.customAlert('请填写音频对应的文本内容'); return; }
 
+                // 先同步表单中的 TTS 地址/Key 到全局设置，克隆请求走最新配置
+                this._syncTtsFormToSettings();
                 isCloning = true;
                 const formData = new FormData();
                 formData.append('voice_name', voiceName);
@@ -1275,6 +1286,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                         TTsService.clearVoiceCache();
                         const voiceDisplaySpan = document.getElementById('voice-list-display');
                         if (voiceDisplaySpan) await TTsService.updateVoiceDisplay(voiceDisplaySpan, true);
+                        await this.refreshSettingsVoiceSelect(); // 若对话设置弹窗正打开，同步刷新其音色下拉
                         document.getElementById('clone-voice-name').value = '';
                         document.getElementById('clone-audio-file').value = '';
                         document.getElementById('clone-audio-text').value = '';
@@ -1307,6 +1319,8 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 if (!dDesc) { this.customAlert('请输入音色描述提示词'); return; }
                 const dPreview = document.getElementById('design-voice-preview').value.trim();
 
+                // 先同步表单中的 TTS 地址/Key 到全局设置，设计请求走最新配置
+                this._syncTtsFormToSettings();
                 isDesigning = true;
                 const designStatus = document.getElementById('design-status');
                 const designAudio = document.getElementById('design-audio');
@@ -1338,6 +1352,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                         TTsService.clearVoiceCache();
                         const voiceDisplaySpan = document.getElementById('voice-list-display');
                         if (voiceDisplaySpan) await TTsService.updateVoiceDisplay(voiceDisplaySpan, true);
+                        await this.refreshSettingsVoiceSelect(); // 若对话设置弹窗正打开，同步刷新其音色下拉
                         document.getElementById('design-voice-name').value = '';
                         document.getElementById('design-voice-desc').value = '';
                         document.getElementById('design-voice-preview').value = '';
@@ -1573,6 +1588,19 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         }
     }
 
+    /** 将全局设置弹窗表单中的 TTS 地址/Key 同步到全局存储（发起实际 TTS 请求前调用；地址为空则跳过） */
+    _syncTtsFormToSettings() {
+        const urlInput = document.getElementById('tts-api-url');
+        if (!urlInput) return;
+        const url = urlInput.value.trim();
+        if (!url) return;
+        const keyInput = document.getElementById('tts-api-key');
+        SettingsManager.update({
+            ttsApiUrl: url,
+            ttsApiKey: keyInput ? keyInput.value.trim() : '',
+        });
+    }
+
     closeGlobalModal() {
         const modal = document.getElementById('global-settings-modal');
         this.closeModalWithAnimation(modal);
@@ -1611,6 +1639,9 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             const models = ModelService.getModels();
             currentModel = models[0] || Constants.DEFAULT_MODEL_NAME;
         }
+        // 辅助任务模型及其所属厂商：选中模型后自动解析其厂商（跟随主模型时为空）
+        const auxModelVal = (document.getElementById('global-aux-model')?.value) || '';
+        const auxProviderVal = auxModelVal ? (SettingsManager.findProviderOfModel(auxModelVal) || '') : '';
 
         const globalSettings = {
             modelHost: document.getElementById('model-host').value,
@@ -1624,7 +1655,8 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             topP: parseFloat(document.getElementById('global-top-p').value),
             thinkLevel: parseInt(document.getElementById('global-think-level').value),
             maxTokens: parseInt(document.getElementById('global-max-tokens').value),
-            auxModel: (document.getElementById('global-aux-model')?.value) || '',
+            auxModel: auxModelVal,
+            auxProvider: auxProviderVal,
             theme: document.getElementById('global-theme').value,
             fontSize: fontSize,
             modelName: currentModel,

@@ -818,8 +818,7 @@ function renderMessages(chatId, topicIndex = null) {
 }
 
 function getTypingSpeed() {
-    const slider = document.getElementById('global-typing-speed');
-    return slider ? parseFloat(slider.value) || 1 : 1;
+    return SettingsManager.getTypingSpeed();
 }
 
 async function simulateAIResponse(userMsg, imageUrls = []) {
@@ -845,7 +844,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
     typingDiv.className = 'message ai';
     typingDiv.innerHTML = `<div class="avatar-msg"><i class="fas fa-robot"></i></div><div class="bubble typing-bubble"><div class="typing-indicator"><i class="fas fa-ellipsis-h"></i> ${roleName} 正在思考...</div></div>`;
     chatMessages.appendChild(typingDiv);
-    if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
+    if (SettingsManager.getAutoScrollAfterSend()) uiScroll.forceScrollToBottom();
     // 思考计时器句柄：必须在 try 外声明（finally 清理时需要访问）
     let thinkTickTimer = null;
     let displayDone = false;     // 流已正常结束（排空队列后打字机退出）
@@ -1084,13 +1083,20 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                     if (item.type === 'soul-open') {
                         ensureSoulPanel();
                     } else if (item.type === 'soul-close') {
+                        // 折叠会令消息高度骤减、视口错位：若此前本就贴底跟随，折叠后强制修正并保持跟随，
+                        // 否则正文输出阶段会停在折叠处不再滚动
+                        const wasAutoFollowing = uiScroll.autoScrollEnabled;
                         finishSoulPanel();
+                        if (wasAutoFollowing) uiScroll.forceScrollToBottom();
                     } else {
                         const text = item.text;
                         for (let i = 0; i < text.length; i += CHARS_PER_TICK) {
                             if (item.type === 'soul-text') appendSoulText(text.slice(i, i + CHARS_PER_TICK));
                             else appendContent(text.slice(i, i + CHARS_PER_TICK));
                             if (interval > 0) await sleep(interval * CHARS_PER_TICK);
+                            // 每个渲染小节后跟随滚动：慢速打字时视口平滑贴底；
+                            // 若只在整段 item 完成后滚动，长文本（尤其整段内心OS/大段正文）会长时间不跟随
+                            uiScroll.conditionalScrollToBottom();
                         }
                     }
                     uiScroll.conditionalScrollToBottom();
@@ -1192,7 +1198,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 contentP.style.whiteSpace = 'pre-wrap';
                 bubble.insertBefore(contentP, bubble.querySelector('.msg-time') || null);
                 chatMessages.appendChild(messageDiv);
-                if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
+                if (SettingsManager.getAutoScrollAfterSend()) uiScroll.forceScrollToBottom();
                 isFirstChunk = false;
             }
 
@@ -1299,7 +1305,7 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 msgActions.showMessageActions(messageDiv, 'ai', fullReply, getCurrentTime(), false, null, currentChat.settings?.avatarUrl, null);
             });
         }
-        if (SettingsManager.getAutoScrollAfterSend()) uiScroll.scrollToBottom();
+        if (SettingsManager.getAutoScrollAfterSend()) uiScroll.forceScrollToBottom();
         uiAppearance.updateStatusIndicator('online');
         // 保存消息到存储
         const targetChat = chats.find(c => c.id == currentChatId);
@@ -1849,6 +1855,44 @@ function bindSettingsPanel() {
         testBtn.addEventListener('click', testBtn._testHandler);
     }
 
+    // 新增：保存预设按钮（手动将当前填写的 Host/Key 以及当前的 Provider 模型列表落库）
+    const savePresetBtn = document.getElementById('save-provider-preset-btn');
+    if (savePresetBtn) {
+        savePresetBtn.addEventListener('click', async () => {
+            const hostInput = document.getElementById('model-host');
+            const keyInput = document.getElementById('api-key');
+            const providerSelect = document.getElementById('model-provider');
+
+            if (!providerSelect || !hostInput || !keyInput) return;
+
+            const provider = providerSelect.value;
+            const host = hostInput.value.trim();
+            const apiKey = keyInput.value.trim();
+            // 当前生效模型（保存的是设置面板中「当前使用」的模型）
+            const modelName = SettingsManager.getModelName();
+            // 关键：保存的是当前 ModelService 维护的、属于该厂商的模型列表
+            const currentModels = ModelService.getModels();
+
+            if (!host) {
+                modalManager.showBriefToast('⚠️ 主机地址不能为空');
+                return;
+            }
+
+            await SettingsManager.saveProviderPreset(provider, {
+                apiKey: apiKey,
+                modelHost: host,
+                models: currentModels,
+                currentModel: modelName
+            });
+
+            modalManager.showBriefToast(`✅ 厂商 [${provider}] 的预设已保存！`);
+            // 立即刷新快速切换下拉框，让新保存的厂商预设即时可见
+            if (typeof modelConfigUI.updateModelSelector === 'function') {
+                modelConfigUI.updateModelSelector();
+            }
+        });
+    }
+
     // 左下角设置按钮（打开全局设置）
     const settingBtn = document.querySelector('.setting-btn');
     if (settingBtn) {
@@ -1879,24 +1923,44 @@ function bindSettingsPanel() {
     // 重置快捷键
     document.getElementById('reset-shortcuts-btn')?.addEventListener('click', () => shortcutManager.reset());
 
-    // 获取 TTS 音色列表
+    // 获取 TTS 音色列表（胶囊展示，点击可复制）
     document.getElementById('fetch-voices-btn')?.addEventListener('click', async () => {
-        const apiUrl = document.getElementById('tts-api-url').value;
+        const apiUrl = document.getElementById('tts-api-url').value.trim();
+        const apiKey = (document.getElementById('tts-api-key').value || '').trim();
         if (!apiUrl) { modalManager.customAlert('请先填写 TTS API 地址'); return; }
+        // 先同步到全局设置：让后续实际请求（/voices、/tts、克隆/设计等）使用最新地址与 Key
+        SettingsManager.update({ ttsApiUrl: apiUrl, ttsApiKey: apiKey });
+        const btn = document.getElementById('fetch-voices-btn');
+        const displaySpan = document.getElementById('voice-list-display');
+        const originalHtml = btn ? btn.innerHTML : '';
+        // 在胶囊容器中显示一段状态提示（加载中 / 失败）
+        const setStatus = (text, isError = false) => {
+            if (!displaySpan) return;
+            displaySpan.classList.add('voice-chip-empty');
+            displaySpan.innerHTML = '';
+            const hint = document.createElement('span');
+            hint.textContent = text;
+            if (isError) hint.style.color = '#ff8080';
+            displaySpan.appendChild(hint);
+        };
+        if (btn) { btn.disabled = true; btn.style.opacity = '0.65'; btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 获取中...'; }
+        setStatus('正在获取音色列表...');
         try {
             const response = await fetch(`${apiUrl}/voices`);
             if (!response.ok) throw new Error('获取失败');
             const data = await response.json();
             const voiceList = data.voices || [];
-            const displaySpan = document.getElementById('voice-list-display');
-            if (voiceList.length === 0) {
-                displaySpan.innerText = '无可用音色';
-            } else {
-                displaySpan.innerHTML = voiceList.join(', ');
+            // 胶囊展示 + 同步缓存 + 刷新打开中的「对话设置」语音下拉：各角色可选列表保持最新
+            TTsService.renderVoiceList(displaySpan, voiceList);
+            TTsService.setVoiceCache(voiceList);
+            if (modalManager && typeof modalManager.refreshSettingsVoiceSelect === 'function') {
+                await modalManager.refreshSettingsVoiceSelect();
             }
         } catch (err) {
             console.error(err);
-            document.getElementById('voice-list-display').innerText = '获取失败，请检查服务地址';
+            setStatus('获取失败，请检查服务地址', true);
+        } finally {
+            if (btn) { btn.disabled = false; btn.style.opacity = ''; btn.innerHTML = originalHtml; }
         }
     });
 

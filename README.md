@@ -146,14 +146,14 @@ python backend_code/tts/voxcpm_tts_server.py
 
 默认监听端口 5000，**接口与 MOSS 版完全兼容**（`/voices` `/tts` `/tts/stream` `/clone_voice` `/design_voice`），前端无需任何改动。音色克隆将参考音频（3~10 秒清晰人声）提取为音色特征，存入 `backend_code/tts/音色库/*.pt`，之后合成无需原音频（一次编码，永久复用）。支持 SSE 流式合成（边生成边播）。支持**音色设计**：前端「音色设计」表单仅填自然语言描述（如"年轻女性，温柔甜美"）即可凭空生成全新音色（无需参考音频），存入 `音色库/*.vdesc.json`，之后合成时自动应用该描述。可通过环境变量配置模型路径与设备：
 
+⚠️ 注意事项：VoxCPM2 模型较大，流式输出有显卡性能要求，若出现卡顿可尝试降低采样率或使用非流式输出。
+
 ```bash
 # Windows PowerShell
 $env:VOXCPM_MODEL_PATH = "your/path/to/model" 
 $env:VOXCPM_DEVICE = "cuda"                              # cuda / cpu（默认自动检测）
 python backend_code/tts/voxcpm_tts_server.py
 ```
-
-⚠️ 流式输出有显卡性能要求，若出现卡顿可尝试降低采样率或使用非流式输出。
 
 ### 4. 图片生成服务（可选）
 

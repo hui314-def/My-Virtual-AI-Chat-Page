@@ -245,6 +245,48 @@ async def get_voices():
     return {"voices": names}
 
 
+# ── DELETE /voices/{voice_name} ────────────────────────────────────────────
+
+@app.delete("/voices/{voice_name}")
+async def delete_voice(request: Request, voice_name: str):
+    """从 voice_map.json 删除音色映射，并尽力同步删除云端音色（失败仅告警）。
+
+    default 不可删除；若删除的是当前 default 指向的音色，default 键一并移除
+    （重启服务后会自动重新指定默认音色）。
+    """
+    if REQUIRE_AUTH:
+        key = request.headers.get("X-API-Key", "")
+        if key != TTS_API_KEY:
+            return JSONResponse({"error": "未授权访问，请提供有效的 API Key"}, status_code=401)
+
+    if not voice_name or voice_name == "default":
+        return JSONResponse({"error": "default 为默认音色，不可删除"}, status_code=400)
+
+    with _voice_map_lock:
+        if voice_name not in _voice_map:
+            return JSONResponse({"error": f"未找到音色 '{voice_name}'"}, status_code=404)
+        voice_id = _voice_map[voice_name]
+        removed_default = False
+        if _voice_map.get("default") == voice_id:
+            del _voice_map["default"]
+            removed_default = True
+        del _voice_map[voice_name]
+        save_voice_map()
+
+    # 云端删除（尽力而为：失败仅告警，本地映射已删除）
+    if voice_id:
+        try:
+            client = get_mosi_client()
+            await asyncio.to_thread(client.delete_voice, voice_id)
+        except Exception as e:
+            logger.warning(f"云端删除音色 {voice_name} 失败（本地已删除）: {e}")
+
+    msg = f"音色 '{voice_name}' 已删除"
+    if removed_default:
+        msg += "；原默认音色已被重置，重启服务后自动重新指定"
+    return {"message": msg}
+
+
 # ── POST /tts ─────────────────────────────────────────────────────────────
 
 @app.post("/tts")

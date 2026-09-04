@@ -69,7 +69,7 @@ echo    [2] 图片生成服务  （image_gen，需配合 ComfyUI）
 echo    [3] 知识库服务    （knowledge_base，含向量数据库）
 echo    [4] 千问语音合成服务  （qwen_tts，本地模型体积较大，建议 Python 3.12）
 echo    [5] moss语音合成服务  （调用云端moss_tts）
-echo    [6] 聊天存储服务  （端口 8001，需要安装MySQL）   %S6%
+echo    [6] 聊天存储服务  （端口 8001，需要安装MySQL）
 echo    [0] 退出
 echo  ------------------------------------------------------------
 set "choice="

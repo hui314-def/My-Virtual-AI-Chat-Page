@@ -149,6 +149,9 @@
                             <button type="button" id="test-model-connection-btn" class="action-btn" style="background: rgba(45,55,85,0.6);">
                                 <i class="fas fa-plug"></i> 测试连接
                             </button>
+                            <button type="button" id="save-provider-preset-btn" class="modal-btn save" style="padding: 6px 12px; font-size: 0.8rem; white-space: nowrap;">
+                                <i class="fas fa-save"></i> 保存预设
+                            </button>
                             <span id="test-connection-status" style="font-size: 0.8rem;"></span>
                         </div>
                     </div>
@@ -218,12 +221,12 @@
                         <small>如果 TTS 服务需要鉴权，请填写对应的 API Key</small>
                     </div>
                     <div class="form-group">
-                        <label>可用音色</label>
+                        <label>可用音色<span id="voice-count-badge" class="voice-count-badge" style="display:none;"></span></label>
                         <div style="display: flex; gap: 12px; align-items: center;">
                             <button type="button" id="fetch-voices-btn" class="action-btn" style="background: rgba(45,55,85,0.6);"><i class="fas fa-list"></i> 获取音色列表</button>
-                            <span id="voice-list-display" style="color: #b7c4ff; font-size: 0.8rem;">未加载</span>
                         </div>
-                        <small>点击按钮从后端获取已注册的音色名称</small>
+                        <div id="voice-list-display" class="voice-chip-list voice-chip-empty">未加载</div>
+                        <small>default 为内置默认音色；其余音色可点 × 删除，删除后不可恢复</small>
                     </div>
                     <div class="form-group" style="margin-top: 20px; border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px;">
                         <label><i class="fas fa-clone"></i> 音色克隆</label>

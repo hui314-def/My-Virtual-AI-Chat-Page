@@ -103,14 +103,10 @@ export class MemoryExtractor {
     /** 提取核心：模型调用 → JSON 解析 → 去重 → 写入 → 日志 */
     async #extract(chatId, text) {
         const modelService = this.getModelService();
-        // 使用「辅助任务模型」(可在模型设置中选择；未设置则跟随主模型)
+        // 使用「辅助任务模型」(可在模型设置中选择；未设置则跟随主模型；跨厂商时自动携带其连接配置)
         // ModelService 是懒创建单例,切换模型只更新 SettingsManager,这里需手动同步 config
         if (modelService && typeof modelService.updateConfig === 'function') {
-            modelService.updateConfig({
-                modelHost: SettingsManager.getModelHost(),
-                apiKey: SettingsManager.getApiKey(),
-                modelName: SettingsManager.getAuxEffectiveModel(),
-            });
+            modelService.updateConfig(SettingsManager.getAuxRequestConfig());
         }
         let facts = [];
         try {

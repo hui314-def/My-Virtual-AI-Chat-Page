@@ -199,6 +199,26 @@ def get_voices():
     return {"voices": voices}
 
 
+@app.delete('/voices/{voice_name}')
+async def delete_voice(voice_name: str, _credentials=Depends(require_api_key)):
+    """删除音色库中的音色（*.pkl）。default 为默认音色，不可删除。"""
+    if not voice_name or voice_name == 'default':
+        raise HTTPException(status_code=400, detail="default 为默认音色，不可删除")
+    if '/' in voice_name or '\\' in voice_name or voice_name in ('.', '..') or voice_name.startswith('.'):
+        raise HTTPException(status_code=400, detail="非法的音色名称")
+
+    pkl_path = os.path.join(VOICE_LIBRARY_DIR, f"{voice_name}.pkl")
+    if not os.path.exists(pkl_path):
+        raise HTTPException(status_code=404, detail=f"未找到音色 '{voice_name}'")
+
+    try:
+        os.remove(pkl_path)
+    except OSError as e:
+        raise HTTPException(status_code=500, detail=f"删除失败: {e}")
+    VOICE_PROMPT_MAP.pop(voice_name, None)
+    return {"message": f"音色 '{voice_name}' 已删除"}
+
+
 @app.post('/tts')
 async def tts_synthesis(request: Request, _credentials=Depends(require_api_key)):
     data = await request.json()

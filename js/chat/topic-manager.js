@@ -243,13 +243,10 @@ export class TopicManager {
 `;
 
         const modelService = this.getModelService();
-        // 使用「辅助任务模型」(话题摘要类轻量任务，可在模型设置中选择；未设置则跟随主模型)
+        // 使用「辅助任务模型」(话题摘要类轻量任务，可在模型设置中选择；未设置则跟随主模型；
+        // 跨厂商辅助模型时自动携带对应厂商的连接配置)
         if (modelService && typeof modelService.updateConfig === 'function') {
-            modelService.updateConfig({
-                modelHost: SettingsManager.getModelHost(),
-                apiKey: SettingsManager.getApiKey(),
-                modelName: SettingsManager.getAuxEffectiveModel(),
-            });
+            modelService.updateConfig(SettingsManager.getAuxRequestConfig());
         }
         try {
             const summary = await modelService.generateText(prompt, { temperature: 0.3, maxTokens: 100 });

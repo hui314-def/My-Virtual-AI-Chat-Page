@@ -149,12 +149,8 @@ export class MessageSuggest {
     async _fetchFromModel() {
         const settingsManager = this.getSettingsManager();
         const modelService = this.getModelService();
-        // 使用「辅助任务模型」(可在模型设置中选择；未设置则跟随主模型)
-        modelService.updateConfig({
-            modelHost: settingsManager.getModelHost(),
-            apiKey: settingsManager.getApiKey(),
-            modelName: settingsManager.getAuxEffectiveModel(),
-        });
+        // 使用「辅助任务模型」(可在模型设置中选择；未设置则跟随主模型；跨厂商时自动携带其连接配置)
+        modelService.updateConfig(settingsManager.getAuxRequestConfig());
         return await modelService.generateText(this._buildPrompt(), {
             temperature: 1,    // 稍高温度，3 条建议更有差异性
             maxTokens: 1000,      // 3 条建议约 100~200 字，留足余量

@@ -648,6 +648,13 @@ class MossClient:
         resp = self._request("GET", "/v1/audio/voices")
         return resp if isinstance(resp, list) else resp.get("data", resp.get("voices", []))
 
+    def delete_voice(self, voice_id: str) -> Dict:
+        """删除音色。DELETE /v1/audio/voices/{voice_id}
+
+        平台若不支持删除（404/405）会抛 MossAPIError，调用方需容忍并降级（仅删本地映射）。
+        """
+        return self._request("DELETE", f"/v1/audio/voices/{voice_id}")
+
     def create_voice(
         self,
         audio_sample_path: str,

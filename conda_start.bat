@@ -46,23 +46,35 @@ if not defined VPY (
     exit /b 1
 )
 
+REM ---------- 定义 ANSI 颜色（让终端变得炫酷） ----------
+for /F "delims=#" %%E in ('"prompt #$E# & for %%F in (1) do rem"') do set "ESC=%%E"
+set "Cyan=%ESC%[36;1m"
+set "Yellow=%ESC%[33;1m"
+set "Green=%ESC%[32;1m"
+set "Reset=%ESC%[0m"
+set "Red=%ESC%[31;1m"
+
 echo.
-echo  ============================================================
-echo     虚拟AI · 灵境投影 —— 一键启动（conda 版）
-echo     环境：%CONDA_ENV%
-echo  ============================================================
+echo %Yellow%╔════════════════════════════════════════════════════════════════╗%Reset%
+echo %Yellow%║  %Cyan%✦ 虚拟AI · 灵境投影  ✦%Yellow%
+echo %Yellow%║  %Green%一键启动器 (conda 环境)%Yellow%
+echo %Yellow%╠════════════════════════════════════════════════════════════════╣%Reset%
+echo %Yellow%║  %Reset%▶ 环境: %Green%%CONDA_ENV%%Reset%
+echo %Yellow%║  %Reset%▶ 模式: 后台最小化运行 (任务栏可见)%Yellow%
+echo %Yellow%║  %Reset%▶ 提示: 菜单选项支持多选 (如 23、234)%Yellow%
+echo %Yellow%╚════════════════════════════════════════════════════════════════╝%Reset%
 echo.
 
 REM ---------- 检测各后端依赖是否安装 ----------
-"%VPY%" -c "import fastapi" >nul 2>&1
+"%VPY%" -m pip show fastapi >nul 2>&1
 if not errorlevel 1 set "OK2=1"
-"%VPY%" -c "import chromadb" >nul 2>&1
+"%VPY%" -m pip show chromadb >nul 2>&1
 if not errorlevel 1 set "OK3=1"
-"%VPY%" -c "import torch" >nul 2>&1
+"%VPY%" -m pip show  torch >nul 2>&1
 if not errorlevel 1 set "OK4=1"
-"%VPY%" -c "import requests" >nul 2>&1
+"%VPY%" -m pip show  requests >nul 2>&1
 if not errorlevel 1 set "OK5=1"
-"%VPY%" -c "import pymysql, jwt, bcrypt" >nul 2>&1
+"%VPY%" -m pip show pymysql, jwt, bcrypt >nul 2>&1
 if not errorlevel 1 set "OK6=1"
 
 REM 若没有任何后端依赖，直接启动前端
@@ -73,34 +85,38 @@ if not defined OK2 if not defined OK3 if not defined OK4 if not defined OK5 (
 )
 
 REM ---------- 生成状态显示 ----------
-set "S2=未安装"
-set "S3=未安装"
-set "S4=未安装"
-set "S5=未安装"
-set "S6=未安装"
-if defined OK2 set "S2=已安装"
-if defined OK3 set "S3=已安装"
-if defined OK4 set "S4=已安装"
-if defined OK5 set "S5=已安装"
-if defined OK6 set "S6=已安装"
+set "S2=%Red%未安装%Reset%"
+set "S3=%Red%未安装%Reset%"
+set "S4=%Red%未安装%Reset%"
+set "S5=%Red%未安装%Reset%"
+set "S6=%Red%未安装%Reset%"
+if defined OK2 set "S2=%Green%已安装%Reset%"
+if defined OK3 set "S3=%Green%已安装%Reset%"
+if defined OK4 set "S4=%Green%已安装%Reset%"
+if defined OK5 set "S5=%Green%已安装%Reset%"
+if defined OK6 set "S6=%Green%已安装%Reset%"
 
 REM ---------- 后端选择菜单 ----------
 :menu
-echo  ------------------------------------------------------------
-echo   请选择要启动的后端服务（可多选，例如 23、234、2345）：
-echo.
-echo    [1] 全部已安装的后端
-echo    [2] 图片生成服务  （端口 5050）   %S2%
-echo    [3] 知识库服务    （端口 5051）   %S3%
-echo    [4] 千问语音合成服务  （端口 5000）   %S4%
-echo    [5] moss语音合成服务  （端口 5000）   %S5%
-echo    [6] 聊天存储服务  （端口 8001）   %S6%
-echo    [0] 不启动后端，仅启动前端
-echo  ------------------------------------------------------------
+echo %Yellow%╔════════════════════════════════════════════════════════════════════╗%Reset%
+echo %Yellow%║  %Cyan%★ 请选择要启动的后端服务（可多选，如 23、234、2345）%Yellow%
+echo %Yellow%║
+echo %Yellow%║     [1] %Reset%全部已安装的后端%Yellow%
+echo %Yellow%║     [2] %Reset%图片生成服务  (端口 5050)  %S2%%Yellow%
+echo %Yellow%║     [3] %Reset%知识库服务    (端口 5051)  %S3%%Yellow%
+echo %Yellow%║     [4] %Reset%千问语音合成服务 (端口 5000)  %S4%%Yellow%
+echo %Yellow%║     [5] %Reset%moss语音合成服务 (端口 5555)  %S5%%Yellow%
+echo %Yellow%║     [6] %Reset%聊天存储服务  (端口 8001)  %S6%%Yellow%
+echo %Yellow%║     [0] %Reset%不启动后端，仅启动前端%Yellow%
+echo %Yellow%║     [K] %Reset%停止所有已启动的服务（杀死后台进程）%Yellow%
+echo %Yellow%║                                                               
+echo %Yellow%║  %Reset%输入 (23、234，K=停止，直接回车=仅前端) :%Yellow%
+echo %Yellow%╚════════════════════════════════════════════════════════════════════╝%Reset%
 set "choice="
-set /p "choice=  请输入选择（如 23、234、1，直接回车=仅前端，不要同时运行45）: "
+set /p "choice=  > "
 
 set "choice=%choice: =%"
+if /i "%choice%"=="K" goto stop_all
 if "%choice%"=="0" goto start_frontend
 if "%choice%"=="" goto start_frontend
 
@@ -154,6 +170,22 @@ if not errorlevel 1 (
     )
 )
 
+goto start_frontend
+
+:stop_all
+echo.
+echo "正在终止所有 AIChat 相关服务（包括前端）..."
+taskkill /FI "WINDOWTITLE eq AIChat_*" /T /F >nul 2>&1
+if errorlevel 1 (
+    echo "没有找到正在运行的 AIChat 服务。"
+) else (
+    echo "所有服务已成功终止。"
+)
+echo.
+timeout /t 1 /nobreak >nul
+pause
+exit /b 0
+
 REM ---------- 启动前端 ----------
 :start_frontend
 echo.
@@ -162,16 +194,18 @@ echo   前端网页服务启动中 ...
 echo.
 echo   访问地址：http://localhost:%PORT%/
 echo  ============================================================
-echo.
-echo   按 Ctrl+C 可停止前端服务。
-echo.
 
-"%VPY%" -m http.server %PORT%
+set "FRONT_TITLE=AIChat_Frontend_%PORT%"
+start /MIN "%FRONT_TITLE%" "%VPY%" -m http.server %PORT%
+
+timeout /t 2 /nobreak >nul
+
+start http://localhost:%PORT%
 if errorlevel 1 (
     echo.
     echo  [错误] 前端启动失败。可能原因：
-    echo         (1) 端口 %PORT% 已被占用，可换端口：conda_start.bat 9000
-    echo         (2) conda 环境 %CONDA_ENV% 的 python 异常
+    echo    1、 端口 %PORT% 已被占用，可换端口：conda_start.bat 9000
+    echo    2、 conda 环境 %CONDA_ENV% 的 python 异常
     echo.
 )
 pause
@@ -181,5 +215,6 @@ REM ---------- 子程序：启动单个后端 ----------
 :launch
 REM %~1 = 标题  %~2 = 端口  %~3 = 入口文件  %~4 = 工作目录
 echo  [启动] %~1（端口 %~2）...
-start "%~1" /D "%~4" "%VPY%" "%~3"
+set "WIN_TITLE=AIChat_%~2_%~1"
+start /MIN "%WIN_TITLE%" /D "%~4" "%VPY%" "%~3"
 goto :eof

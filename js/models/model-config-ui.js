@@ -90,44 +90,153 @@ export class ModelConfigUI {
         });
     }
 
-    // 渲染「辅助任务模型」下拉框(全局设置 -> 模型设置)，与模型列表同源
+    // 渲染「辅助任务模型」下拉框(全局设置 -> 模型设置)
+    // 与快速切换菜单同源：仅展示「手动保存过预设」的厂商及其模型，无预设时回退旧列表
     renderAuxModelSelect() {
+        // 每次刷新前，先清理掉切换厂商时产生的「空壳」记录（与快速切换菜单一致）
+        try { SettingsManager.pruneUnsavedProviders(); } catch (e) { /* 忽略清理失败 */ }
+
         const select = document.getElementById('global-aux-model');
         if (!select) return;
-        const models = ModelService.getModels();
-        const current = SettingsManager.getAuxModel();
+
+        const current = SettingsManager.getAuxModel();   // 当前辅助模型（'' = 跟随主模型）
         const mainModel = SettingsManager.getModelName();
+        const allProviderStates = SettingsManager.getAllProviderStates();
+        const providerIds = Object.keys(allProviderStates);
+
         select.innerHTML = '';
+
+        // 首项：跟随主模型
         const followOpt = document.createElement('option');
         followOpt.value = '';
         followOpt.textContent = mainModel ? `跟随主模型（${mainModel}）` : '跟随主模型';
         select.appendChild(followOpt);
-        models.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model === mainModel ? `${model}（主模型）` : model;
-            if (model === current) option.selected = true;
-            select.appendChild(option);
+
+        // 只展示用户手动保存过预设的厂商（preset === true）
+        const presetPids = providerIds.filter(pid => {
+            const st = allProviderStates[pid];
+            return st && st.preset === true;
         });
+
+        let addedAny = false;
+        presetPids.forEach(pid => {
+            const state = allProviderStates[pid];
+            let models = (state && state.models) || [];
+            // 兼容旧数据：预设只存了 currentModel 而无 models 数组时，视为单模型
+            if (models.length === 0 && state && typeof state.currentModel === 'string' && state.currentModel) {
+                models = [state.currentModel];
+            }
+            if (models.length === 0) return; // 不显示空组
+
+            const group = document.createElement('optgroup');
+            const provider = Constants.MODEL_PROVIDERS[pid];
+            group.label = (provider && provider.label) ? provider.label : pid;
+
+            models.forEach(model => {
+                const option = document.createElement('option');
+                option.value = model;
+                option.textContent = model === mainModel ? `${model}（主模型）` : model;
+                if (model === current) option.selected = true;
+                group.appendChild(option);
+            });
+            select.appendChild(group);
+            addedAny = true;
+        });
+
+        // 尚未手动保存任何预设（老用户 / 首次使用）：回退展示旧全局模型列表
+        if (!addedAny) {
+            const legacyModels = ModelService.getModels();
+            const models = legacyModels.length > 0 ? legacyModels : (mainModel ? [mainModel] : []);
+            if (models.length > 0) {
+                const group = document.createElement('optgroup');
+                group.label = '默认';
+                models.forEach(model => {
+                    const option = document.createElement('option');
+                    option.value = model;
+                    option.textContent = model === mainModel ? `${model}（主模型）` : model;
+                    if (model === current) option.selected = true;
+                    group.appendChild(option);
+                });
+                select.appendChild(group);
+                addedAny = true;
+            }
+        }
+
+        // 未配置独立辅助模型（'' = 跟随主模型）时，默认选中首项
         if (!current) followOpt.selected = true;
     }
 
-    // 更新快速切换下拉框
+    // 更新快速切换下拉框（方案 A：仅展示「手动保存过预设」的厂商分组）
     updateModelSelector() {
-        const models = ModelService.getModels();
+        // 每次刷新前，先清理掉切换厂商时产生的「空壳」记录（无 preset 标记且无任何连接参数）
+        try { SettingsManager.pruneUnsavedProviders(); } catch (e) { /* 忽略清理失败 */ }
+
         const select = document.getElementById('quick-model-select');
         if (!select) return;
+
         const currentModel = SettingsManager.getModelName();
+        const allProviderStates = SettingsManager.getAllProviderStates();
+        const providerIds = Object.keys(allProviderStates);
+
         select.innerHTML = '';
-        models.forEach(model => {
-            const option = document.createElement('option');
-            option.value = model;
-            option.textContent = model;
-            if (model === currentModel) option.selected = true;
-            select.appendChild(option);
+        let addedAny = false;
+
+        // 1. 只展示用户通过「保存预设」按钮手动保存过的厂商（preset === true）
+        const presetPids = providerIds.filter(pid => {
+            const st = allProviderStates[pid];
+            return st && st.preset === true;
         });
-        if (models.length === 0) {
-            select.innerHTML = '<option>无模型</option>';
+
+        presetPids.forEach(pid => {
+            const state = allProviderStates[pid];
+            let models = (state && state.models) || [];
+            // 兼容旧数据：预设只存了 currentModel 而无 models 数组时，视为单模型
+            if (models.length === 0 && state && typeof state.currentModel === 'string' && state.currentModel) {
+                models = [state.currentModel];
+            }
+            if (models.length === 0) return; // 不显示空组
+
+            const group = document.createElement('optgroup');
+            // 优先使用 Constants 中的友好厂商名，未注册的自定义厂商回退为 ID
+            const provider = Constants.MODEL_PROVIDERS[pid];
+            group.label = (provider && provider.label) ? provider.label : pid;
+
+            models.forEach(mName => {
+                const option = document.createElement('option');
+                option.value = mName;
+                option.textContent = mName;
+                if (mName === currentModel) option.selected = true;
+                group.appendChild(option);
+            });
+            select.appendChild(group);
+            addedAny = true;
+        });
+
+        // 2. 尚未手动保存过任何预设（老用户 / 首次使用）时，回退展示旧全局模型列表
+        if (!addedAny) {
+            const legacyModels = ModelService.getModels();
+            const models = legacyModels.length > 0 ? legacyModels : (currentModel ? [currentModel] : []);
+            if (models.length > 0) {
+                const group = document.createElement('optgroup');
+                group.label = '默认';
+                models.forEach(mName => {
+                    const option = document.createElement('option');
+                    option.value = mName;
+                    option.textContent = mName;
+                    if (mName === currentModel) option.selected = true;
+                    group.appendChild(option);
+                });
+                select.appendChild(group);
+                addedAny = true;
+            }
+        }
+
+        // 3. 彻底无模型时给出占位提示
+        if (!addedAny) {
+            const option = document.createElement('option');
+            option.value = '';
+            option.textContent = '暂无可用模型，请在设置中保存预设';
+            select.appendChild(option);
         }
     }
 
@@ -137,14 +246,41 @@ export class ModelConfigUI {
         if (!select) return;
         select.addEventListener('change', (e) => {
             const newModel = e.target.value;
-            SettingsManager.update({ modelName: newModel });
-            // 同步更新全局设置弹窗中的输入框
+            if (!newModel) return;
+
+            // 1. 尋找該模型屬於哪個廠商
+            const allStates = SettingsManager.getAllProviderStates();
+            let targetPid = null;
+
+            for (const [pid, state] of Object.entries(allStates)) {
+                if (state.models && state.models.includes(newModel)) {
+                    targetPid = pid;
+                    break;
+                }
+            }
+
+            // 2. 更新配置
+            const updates = { modelName: newModel };
+            let targetLabel = '';
+            if (targetPid) {
+                updates.modelProvider = targetPid; // 同步更新當前廠商
+                const state = allStates[targetPid];
+                // 重要：也要把該廠商的連線配置同步回全局，確保 getModelService 能讀到正確的 host/key
+                if (state.modelHost) updates.modelHost = state.modelHost;
+                if (state.apiKey !== undefined) updates.apiKey = state.apiKey;
+                // 显示友好的厂商名（未注册的自定义厂商回退为 ID）
+                const provider = Constants.MODEL_PROVIDERS[targetPid];
+                targetLabel = (provider && provider.label) ? provider.label : targetPid;
+            }
+
+            SettingsManager.update(updates);
+
+            // 3. 同步 UI
             const modelNameInput = document.getElementById('global-model-name');
             if (modelNameInput) modelNameInput.value = newModel;
-            // 刷新模型列表高亮（若列表已渲染）
+
             this.renderModelListUI();
-            // 显示提示
-            this.modalManager.showBriefToast(`已切换到模型：${newModel}`)
+            this.modalManager.showBriefToast(`已切換到 ${targetLabel ? targetLabel + ' · ' : ''}${newModel}`);
         });
     }
 

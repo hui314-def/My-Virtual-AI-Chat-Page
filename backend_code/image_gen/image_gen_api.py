@@ -214,7 +214,7 @@ async def generate_image(data: GenerateImageRequest, _=Depends(verify_api_key)):
     try:
         workflow = load_workflow(WORKFLOW_FILE_IMAGE)
         workflow = set_image_workflow_params(
-            workflow, data.prompt, data.negative, data.size, data.count, data.model
+            workflow, data.prompt, data.negative, data.size, data.count
         )
 
         prompt_id = queue_prompt(workflow)

@@ -71,7 +71,7 @@ CFG_VALUE = float(os.environ.get("VOXCPM_CFG", "2.0"))
 SAMPLE_RATE = 48000  # VoxCPM2 输出固定 48kHz
 
 TTS_HOST = os.environ.get("TTS_HOST", "0.0.0.0")
-TTS_PORT = int(os.environ.get("TTS_PORT", "5000"))
+TTS_PORT = int(os.environ.get("TTS_PORT", "5500"))
 
 # ── 音频缓存配置（与 moss 版一致）─────────────────────────────────────────
 MAX_CACHE_SIZE_GB = 5
@@ -275,6 +275,55 @@ async def get_voices():
         + [p.name.removesuffix(".vdesc.json") for p in VOICE_LIBRARY_DIR.glob("*.vdesc.json")]
     )
     return {"voices": names}
+
+
+# ── DELETE /voices/{voice_name} ────────────────────────────────────────────
+
+def _safe_voice_name(voice_name: str) -> Optional[str]:
+    """校验音色名（禁止路径穿越等非法输入），合法返回原名，否则 None。"""
+    if not voice_name or voice_name in (".", "..") or voice_name.startswith("."):
+        return None
+    if "/" in voice_name or "\\" in voice_name:
+        return None
+    if Path(voice_name).name != voice_name:
+        return None
+    return voice_name
+
+
+@app.delete("/voices/{voice_name}")
+async def delete_voice(request: Request, voice_name: str):
+    """删除音色库中的音色（克隆 .pt / 设计 .vdesc.json）。default 为内置音色，不可删除。"""
+    denied = _check_auth(request)
+    if denied:
+        return denied
+
+    name = _safe_voice_name(voice_name)
+    if name is None:
+        return JSONResponse({"error": "非法的音色名称"}, status_code=400)
+    if name == "default":
+        return JSONResponse({"error": "default 为内置默认音色，不可删除"}, status_code=400)
+
+    removed = []
+    pt_path = VOICE_LIBRARY_DIR / f"{name}.pt"
+    if pt_path.exists():
+        try:
+            pt_path.unlink()
+            removed.append(pt_path.name)
+        except OSError as e:
+            return JSONResponse({"error": f"删除 {pt_path.name} 失败: {e}"}, status_code=500)
+
+    vdesc_path = VOICE_LIBRARY_DIR / f"{name}.vdesc.json"
+    if vdesc_path.exists():
+        try:
+            vdesc_path.unlink()
+            removed.append(vdesc_path.name)
+        except OSError as e:
+            return JSONResponse({"error": f"删除 {vdesc_path.name} 失败: {e}"}, status_code=500)
+
+    if not removed:
+        return JSONResponse({"error": f"未找到音色 '{name}'"}, status_code=404)
+
+    return {"message": f"音色 '{name}' 已删除", "deleted": removed}
 
 
 # ── POST /tts ─────────────────────────────────────────────────────────────

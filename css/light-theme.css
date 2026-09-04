@@ -783,3 +783,34 @@ body.light-theme #voice-design-panel {
 }
 body.light-theme #voice-list-display,
 body.light-theme #design-status { color: #4b5563 !important; }
+
+/* 可用音色胶囊列表（浅色适配） */
+body.light-theme .voice-chip-list {
+    background: rgba(240, 244, 255, 0.85);
+    border-color: rgba(100, 120, 200, 0.3);
+}
+body.light-theme .voice-chip-list.voice-chip-empty { color: #6b7280; }
+body.light-theme .voice-chip {
+    color: #3b3f8f;
+    background: linear-gradient(135deg, rgba(140, 160, 255, 0.25), rgba(190, 150, 255, 0.22));
+    border-color: rgba(110, 130, 210, 0.45);
+}
+body.light-theme .voice-chip-tag {
+    color: #1d4ed8;
+    background: rgba(59, 130, 246, 0.12);
+    border-color: rgba(59, 130, 246, 0.3);
+}
+body.light-theme .voice-chip-del {
+    color: #dc2626;
+    background: rgba(220, 38, 38, 0.1);
+}
+body.light-theme .voice-chip-del:hover {
+    color: #ffffff;
+    background: rgba(220, 38, 38, 0.8);
+    border-color: rgba(220, 38, 38, 0.5);
+}
+body.light-theme .voice-count-badge {
+    color: #4b5563;
+    background: rgba(100, 120, 200, 0.12);
+    border-color: rgba(100, 120, 200, 0.3);
+}

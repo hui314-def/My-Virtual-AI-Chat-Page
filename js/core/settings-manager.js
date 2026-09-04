@@ -23,6 +23,9 @@ const DEFAULTS = Object.freeze({
     modelName: Constants.DEFAULT_MODEL_NAME,
     // 辅助任务模型（话题摘要/消息建议/记忆提取/开场白/人设/英文提示词），空字符串 = 跟随主模型
     auxModel: '',
+    // 辅助任务模型所属厂商：空字符串 = 跟随主模型所在厂商；
+    // 选择其他厂商的辅助模型时记录其厂商，辅助任务请求将使用该厂商的连接配置
+    auxProvider: '',
 
     // 用户相关
     username: Constants.DEFAULT_USERNAME,
@@ -154,7 +157,22 @@ export class SettingsManager {
     // ========== 按厂商（provider）保存/恢复设置 ==========
     // 每个厂商独立保存：apiKey、modelHost、models（模型列表）、currentModel
 
-    /** @returns {Object} 所有厂商的保存状态 */
+    /** @returns {Object} 所有厂商的保存状态 (Public) */
+    static getAllProviderStates() {
+        return this.#_readProviderStates();
+    }
+
+    /** @returns {string} 当前生效的厂商标识 */
+    static getActiveProvider() {
+        return this._read().modelProvider ?? 'ollama';
+    }
+
+    /** @param {string} providerId 设置当前的有效厂商 */
+    static setActiveProvider(providerId) {
+        return this.update({ modelProvider: providerId });
+    }
+
+    /** @returns {Object} 所有厂商的保存状态 (Private) */
     static #_readProviderStates() {
         try {
             const raw = localStorage.getItem(_providerKey());
@@ -175,20 +193,63 @@ export class SettingsManager {
     }
 
     /**
-     * 为指定厂商保存当前设置快照
+     * 为指定厂商保存当前设置快照（自动暂存路径：切换厂商时调用，不标记为手动预设）
      * @param {string} providerId - 厂商标识（如 'ollama', 'deepseek'）
      * @param {{apiKey?: string, modelHost?: string, models?: string[], currentModel?: string}} state
      */
     static saveProviderState(providerId, state) {
         if (!providerId) return false;
         const states = this.#_readProviderStates();
+        const prev = states[providerId] || {};
         states[providerId] = {
             apiKey: state.apiKey ?? '',
             modelHost: state.modelHost ?? '',
             models: state.models ?? [],
             currentModel: state.currentModel ?? '',
+            // 保留「手动保存预设」标记：自动暂存不得覆盖用户主动保存的状态
+            preset: prev.preset === true,
         };
         return this.#_writeProviderStates(states);
+    }
+
+    /**
+     * 手动保存厂商预设（点击「保存预设」按钮时调用）。
+     * 与 saveProviderState 的区别：会写入 preset: true 标记，
+     * 只有带该标记的厂商才会出现在「快速切换模型菜单」中。
+     * @param {string} providerId - 厂商标识（如 'ollama', 'deepseek'）
+     * @param {{apiKey?: string, modelHost?: string, models?: string[], currentModel?: string}} state
+     */
+    static saveProviderPreset(providerId, state) {
+        if (!providerId) return false;
+        const states = this.#_readProviderStates();
+        const prev = states[providerId] || {};
+        states[providerId] = {
+            apiKey: state.apiKey ?? prev.apiKey ?? '',
+            modelHost: state.modelHost ?? prev.modelHost ?? '',
+            models: state.models ?? prev.models ?? [],
+            currentModel: state.currentModel ?? prev.currentModel ?? '',
+            preset: true,
+        };
+        return this.#_writeProviderStates(states);
+    }
+
+    /**
+     * 清理「从未手动保存、且无任何连接参数」的空壳厂商记录
+     * （由切换厂商时的自动暂存产生，会污染快速切换菜单）。
+     * 保留：带 preset 标记、或已填写 modelHost/apiKey 的厂商（避免误删半成品配置）。
+     * @returns {string[]} 被清理的厂商 id 列表
+     */
+    static pruneUnsavedProviders() {
+        const states = this.#_readProviderStates();
+        const removed = [];
+        for (const [pid, st] of Object.entries(states)) {
+            if (st && st.preset !== true && !st.modelHost && !st.apiKey) {
+                delete states[pid];
+                removed.push(pid);
+            }
+        }
+        if (removed.length > 0) this.#_writeProviderStates(states);
+        return removed;
     }
 
     /**
@@ -212,8 +273,51 @@ export class SettingsManager {
     /** 辅助任务模型（话题摘要/消息建议/记忆提取/开场白/人设/英文提示词），空字符串表示跟随主模型 */
     static getAuxModel()    { return this._read().auxModel ?? DEFAULTS.auxModel; }
 
+    /** 辅助任务模型所属厂商（空字符串 = 跟随主模型所在厂商） */
+    static getAuxProvider() { return this._read().auxProvider ?? DEFAULTS.auxProvider; }
+
     /** 辅助任务实际生效的模型：配置了辅助模型则用之，否则跟随主模型 */
     static getAuxEffectiveModel() { return this.getAuxModel() || this.getModelName(); }
+
+    /**
+     * 辅助任务请求配置：若辅助模型来自其他已保存厂商（auxProvider 非空），
+     * 则使用该厂商的连接参数（host/apiKey）；否则使用主模型所在厂商的全局配置。
+     * @returns {{modelHost: string, apiKey: string, modelName: string}}
+     */
+    static getAuxRequestConfig() {
+        const auxModel = this.getAuxModel();
+        const modelName = auxModel || this.getModelName();
+        // 仅当配置了独立辅助模型、且其厂商存在已保存的连接信息时，使用该厂商配置
+        if (auxModel && this.getAuxProvider()) {
+            const st = this.loadProviderState(this.getAuxProvider());
+            if (st) {
+                return {
+                    modelHost: st.modelHost || this.getModelHost(),
+                    apiKey: st.apiKey !== undefined && st.apiKey !== '' ? st.apiKey : this.getApiKey(),
+                    modelName,
+                };
+            }
+        }
+        return {
+            modelHost: this.getModelHost(),
+            apiKey: this.getApiKey(),
+            modelName,
+        };
+    }
+
+    /**
+     * 在已保存的厂商状态中查找包含指定模型的厂商 id。
+     * @param {string} modelName
+     * @returns {string|null}
+     */
+    static findProviderOfModel(modelName) {
+        if (!modelName) return null;
+        const states = this.#_readProviderStates();
+        for (const [pid, st] of Object.entries(states)) {
+            if (st && st.models && st.models.includes(modelName)) return pid;
+        }
+        return null;
+    }
 
     static getUsername()    { return this._read().username ?? DEFAULTS.username; }
     static getBio()         { return this._read().bio ?? DEFAULTS.bio; }
