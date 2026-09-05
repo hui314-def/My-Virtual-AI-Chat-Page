@@ -26,7 +26,7 @@ export class ChatIO {
     }
 
     /**
-     * 按需加载 style.css 用于导出 HTML。
+     * 按需加载核心 CSS 用于导出 HTML。
      * - 首次调用发起 fetch；后续调用直接复用同一个 Promise。
      * - 加载失败时返回空字符串，导出器回退到 <link> 引用。
      * @returns {Promise<string>}
@@ -39,14 +39,21 @@ export class ChatIO {
         this._cssState = 'loading';
         this._cssPromise = (async () => {
             try {
-                const res = await fetch('style.css');
-                if (!res.ok) throw new Error(`HTTP ${res.status}`);
-                const css = await res.text();
-                this.cachedCSS = css;
+                const coreFiles = ['css/base.css', 'css/layout.css', 'css/chat.css', 'css/components.css'];
+                let combinedCss = '';
+                for (const file of coreFiles) {
+                    const res = await fetch(file);
+                    if (!res.ok) continue;
+                    combinedCss += await res.text() + '\n';
+                }
+                
+                if (!combinedCss.trim()) throw new Error('No CSS content loaded');
+
+                this.cachedCSS = combinedCss;
                 this._cssState = 'done';
-                return css;
+                return combinedCss;
             } catch (err) {
-                console.warn('[ChatIO] 延迟加载 style.css 失败，导出将回退到 <link>：', err);
+                console.warn('[ChatIO] 延迟加载核心 CSS 失败，导出将回退到 <link>：', err);
                 this._cssState = 'failed';
                 return '';
             } finally {
@@ -93,11 +100,10 @@ export class ChatIO {
      * 导出会话为 HTML 文件
      * @param {Object} chat
      */
-    exportAsHTML(chat) {
-        // 触发延迟加载：首次导出时后台请求 style.css；
-        // 本次若 CSS 还没就绪，仍回退到 <link>，下次导出即可用内嵌样式。
-        this.loadCSSForExport();
-        this.#exportHTMLSync(chat, this.cachedCSS);
+    async exportAsHTML(chat) {
+        // 等待 CSS 就绪后再导出(加载失败会返回 ''，由内部兜底样式接管)
+        const css = await this.loadCSSForExport();
+        this.#exportHTMLSync(chat, css);
     }
 
     /**
@@ -142,9 +148,23 @@ export class ChatIO {
             return html;
         }).join('');
 
+        // 优先内嵌完整样式；加载失败时提供最小兜底样式，保证导出文档可读
         const cssBlock = cssText
             ? `<style>${cssText}</style>`
-            : '<link rel="stylesheet" href="style.css">';
+            : `<style>
+                body { background: #030305; color: #f2f4ff; margin: 0; padding: 20px; }
+                .export-container { max-width: 800px; margin: 0 auto; }
+                h1 { color: #5f7eff; }
+                .message { display: flex; gap: 12px; margin: 16px 0; max-width: 85%; }
+                .message.user { flex-direction: row-reverse; margin-left: auto; }
+                .avatar-msg { width: 50px; height: 50px; border-radius: 50%; background: rgba(30,32,55,.7); display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+                .bubble { background: rgba(8,10,20,.5); padding: 12px 18px; border-radius: 24px; border: 1px solid rgba(110,140,240,.35); max-width: 100%; word-break: break-word; }
+                .message.user .bubble { background: rgba(20,24,48,.6); border-color: rgba(140,160,255,.55); }
+                .bubble p { color: #f2f4ff; line-height: 1.5; margin: 0 0 6px; }
+                .msg-time { font-size: .7rem; color: #b0b4df; text-align: right; opacity: .8; margin-top: 6px; }
+                .topic-divider { color: #8a8ab3; text-align: center; margin: 20px 0; font-size: .75rem; }
+                .message-images img { max-width: 200px; border-radius: 8px; margin: 4px; }
+            </style>`;
 
         const html = `<!DOCTYPE html>
 <html lang="zh-CN">
@@ -156,6 +176,8 @@ export class ChatIO {
     ${cssBlock}
     <style>
         body { ${bodyBgStyle} margin: 0; padding: 0; height: auto !important; overflow: visible !important; }
+        /* 覆盖 base.css 的运行时规则：导出为静态文档，无需 JS 添加 .visible 即可显示 */
+        .chat-app { opacity: 1 !important; }
         .chat-app, .main-chat { height: auto !important; overflow: visible !important; }
         .main-chat { background: transparent; }
         .chat-messages { height: auto !important; max-height: none !important; overflow: visible !important; }
@@ -253,6 +275,32 @@ export class ChatIO {
         a.click();
         URL.revokeObjectURL(url);
         this.#showToast('✅ 话题已导出');
+    }
+
+    /**
+     * 导出单个话题为 HTML 文件
+     * @param {number} topicIndex
+     * @param {Object} currentChat
+     */
+    async exportTopicAsHTML(topicIndex, currentChat) {
+        const topic = (currentChat.topics || [])[topicIndex];
+        if (!topic) return;
+
+        // 构建一个只包含该话题的临时会话对象，以便复用 HTML 导出逻辑
+        const tempChat = {
+            ...currentChat,
+            id: `topic_${currentChat.id}_${topicIndex}`, // 防止文件名冲突
+            title: `${currentChat.title} - ${topic.name || '话题'}`,
+            topics: [{
+                ...topic,
+                name: topic.name || '话题'
+            }],
+            settings: currentChat.settings
+        };
+
+        // 等待 CSS 就绪后再导出
+        const css = await this.loadCSSForExport();
+        this.#exportHTMLSync(tempChat, css);
     }
 
     #showToast(msg) {

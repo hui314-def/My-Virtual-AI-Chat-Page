@@ -216,6 +216,13 @@
 .history-item:hover .history-menu-trigger {
     opacity: 1;
 }
+
+/* 移动端环境下（手机）始终显示三个点，避免无法悬停 */
+@media (max-width: 768px) {
+    .history-menu-trigger {
+        opacity: 1 !important;
+    }
+}
 .history-menu-trigger:hover {
     background: rgba(80, 100, 200, 0.8);
 }

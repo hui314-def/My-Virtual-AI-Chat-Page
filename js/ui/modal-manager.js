@@ -897,6 +897,12 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 ? '<i class="fas fa-plus-circle"></i> 新建对话'
                 : '<i class="fas fa-sliders-h"></i> 对话设置';
         }
+        // 每次打开弹窗都复位「保存设置」按钮（上次保存/失败可能留下禁用或“保存中”状态）
+        const saveSettingsBtn = document.getElementById('save-settings-btn');
+        if (saveSettingsBtn) {
+            saveSettingsBtn.disabled = false;
+            saveSettingsBtn.textContent = '保存设置';
+        }
         modal.style.display = 'flex';
         ctx.bindAutoResize(rolePersona);
         ctx.bindAutoResize(roleGreeting);
@@ -968,10 +974,16 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
     async saveSettings() {
         const ctx = this.ctx;
         const isNewChat = !!this._newChatMode;
-        if (isNewChat) {
-            // 新建模式：点击「保存设置」= 真正创建对话（其余字段由下方逻辑继续写入）
-            await ctx.createNewChatWithSettings(this._collectNewChatSettings());
-        } else {
+        // 「保存设置」按钮：保存期间置为「保存中…」并禁用，防止重复点击导致重复创建/重复保存
+        const saveBtn = document.getElementById('save-settings-btn');
+        const setBtnSaving = (saving) => {
+            if (!saveBtn) return;
+            saveBtn.disabled = saving;
+            saveBtn.textContent = saving ? '⏳ 保存中...' : '保存设置';
+        };
+
+        // 已有对话模式：若正在生成回复，先询问是否中断（取消则直接关闭弹窗，不保存）
+        if (!isNewChat) {
             const modelService = ctx.getModelService();
             if (modelService.isStreaming()) {
                 if (confirm('当前对话正在生成回复，保存设置会中断该回复。是否继续？')) {
@@ -985,8 +997,23 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 }
             }
         }
-        const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
-        if (!currentChat) return;
+
+        let newChatCreated = false;
+        setBtnSaving(true);   // 进入保存状态：禁用按钮并显示「保存中…」，给用户即时反馈
+        try {
+            if (isNewChat) {
+                // 新建模式：点击「保存设置」= 真正创建对话（内部已切换当前对话并完成渲染）
+                await ctx.createNewChatWithSettings(this._collectNewChatSettings());
+                newChatCreated = true;   // 标记：新对话已创建成功
+            }
+
+            const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
+            if (!currentChat) {
+                // 异常兜底：新对话已创建则照常关闭弹窗，否则恢复按钮后退出
+                if (newChatCreated) this.closeSettingsModal();
+                else setBtnSaving(false);
+                return;
+            }
         const oldGreeting = currentChat.settings?.greeting || Constants.DEFAULT_SETTINGS.greeting;
         // 记录写入前的旧值（浅拷贝，用于判断是否需要重建聊天框）
         const oldSettings = { ...(currentChat.settings || {}) };
@@ -1123,7 +1150,17 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             // 仅当 UI 显示相关设置（角色头像 / 角色名称 / 背景）变化时才重建聊天框
             ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
         }
-        this.closeSettingsModal();
+        this.closeSettingsModal();   // 保存全部完成 → 立即关闭弹窗
+        } catch (err) {
+            console.error('[ModalManager] 保存设置失败:', err);
+            this.customAlert('保存失败：' + (err.message || '未知错误'), 'error');
+            if (newChatCreated) {
+                // 新对话已创建成功（仅后续补充字段写入失败）：关闭弹窗，避免用户重复点击创建重复对话
+                this.closeSettingsModal();
+            } else {
+                setBtnSaving(false);   // 弹窗未关闭：恢复按钮，允许用户修正后重试
+            }
+        }
     }
 
     /** 判断对话设置中「UI 显示相关」字段是否发生变化（角色头像 / 角色名称 / 背景） */
@@ -1733,7 +1770,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                         <div class="topic-preview editable-preview" data-topic-index="${idx}" data-original="${escapeHtml(topic.summary || preview)}">${escapeHtml(topic.summary || preview)}</div>
                         <div class="topic-actions">
                             <button class="topic-gen-intro-btn" data-topic-index="${idx}"><i class="fas fa-magic"></i> 生成简介</button>
-                            <button class="topic-export-btn" data-topic-index="${idx}"><i class="fas fa-download"></i> 导出</button>
+                            <button class="topic-export-btn" data-topic-index="${idx}"><i class="fas fa-file-code"></i> 导出 HTML</button>
                             <button class="topic-delete-btn" data-topic-index="${idx}"><i class="fas fa-trash-alt"></i> 删除</button>
                         </div>
                     </div>
@@ -1806,9 +1843,15 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
 
             // 导出
             container.querySelectorAll('.topic-export-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
+                btn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
                     const idx = parseInt(btn.getAttribute('data-topic-index'));
-                    ctx.chatIO.exportTopic(idx, currentChat);
+                    try {
+                        await ctx.chatIO.exportTopicAsHTML(idx, currentChat);
+                    } catch (err) {
+                        console.error('[TopicsModal] 导出 HTML 失败：', err);
+                        ctx.customAlert?.('导出失败：' + (err?.message || err), 'error');
+                    }
                 });
             });
 

@@ -61,14 +61,14 @@ export class HistoryList {
             historyItem.innerHTML = `
                 <div class="history-avatar">
                     ${avatarHtml}
-                </div>
+                </div >
                 <div class="history-info">
                     <div class="title">
                         ${escapeHtml(roleName)}
                         ${starHtml}
-                    </div>
-                    <div class="date">${formatDate(chat.date)}</div>
-                </div>
+                    </div >
+                    <div class="date">${formatDate(chat.date)}</div >
+                </div >
             `;
             const menuTrigger = document.createElement('div');
             menuTrigger.className = 'history-menu-trigger';
@@ -79,7 +79,7 @@ export class HistoryList {
             this.attachMenuEvents(historyItem, chat);
         });
         if (this.chats.length === 0) {
-            this.historyList.innerHTML = '<div style="padding:20px; text-align:center; opacity:0.5;">暂无对话，点击“新对话”开始</div>';
+            this.historyList.innerHTML = '<div style="padding:20px; text-align:center; opacity:0.5;">暂无对话，点击“新对话”开始</div >';
         }
         this.attachHistoryClickEvents();
     }
@@ -143,16 +143,13 @@ export class HistoryList {
             menu.innerHTML = `
                 <div class="history-menu-item" data-action="export-json">
                     <i class="fas fa-download"></i> 导出 JSON
-                </div>
-                <div class="history-menu-item" data-action="export-html">
-                    <i class="fas fa-file-code"></i> 导出 HTML
-                </div>
+                </div >
                 <div class="history-menu-item" data-action="pin">
                     <i class="fas ${pinIcon}"></i> ${pinText}
-                </div>
+                </div >
                 <div class="history-menu-item delete-item" data-action="delete">
                     <i class="fas fa-trash-alt"></i> 删除会话
-                </div>
+                </div >
             `;
             // 设置菜单位置（默认在触发按钮下方右对齐）
             menu.style.position = 'absolute';
@@ -177,7 +174,6 @@ export class HistoryList {
                     e.stopPropagation();
                     const action = item.getAttribute('data-action');
                     if (action === 'export-json') this.chatIO.exportAsJSON(chat);
-                    else if (action === 'export-html') this.chatIO.exportAsHTML(chat);
                     else if (action === 'pin') this.chatManager.togglePinChat(chat);
                     else if (action === 'delete') this.chatManager.deleteChat(chat.id);
                     closeMenu();

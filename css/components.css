@@ -131,7 +131,8 @@
 .topic-actions {
     display: flex;
     gap: 12px;
-    width: 250px;
+    width: fit-content;
+    min-width: 280px;
 }
 .topic-export-btn, .topic-delete-btn {
     background: rgba(20, 24, 45, 0.7);
