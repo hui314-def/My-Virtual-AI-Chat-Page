@@ -192,7 +192,65 @@ class Constants {
 
     /** 默认聊天大背景 SVG（⚡ AI CORE ⚡ 主题图腾，用于 main-chat 全屏背景） */
     static get DEFAULT_CHAT_BG_SVG() {
-        return "data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 1200 1600'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' stop-color='%232a2e5a'/%3E%3Cstop offset='100%25' stop-color='%2312152c'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='100%25' height='100%25' fill='url(%23grad)'/%3E%3Ccircle cx='600' cy='600' r='280' fill='%23333b6e' opacity='0.3'/%3E%3Cpath d='M520,460 L680,460 L720,540 L680,620 L520,620 L480,540 Z' fill='%235f7eff' opacity='0.45'/%3E%3Ccircle cx='600' cy='540' r='38' fill='%23aac0ff' opacity='0.6'/%3E%3Ccircle cx='550' cy='520' r='8' fill='white'/%3E%3Ccircle cx='650' cy='520' r='8' fill='white'/%3E%3Cpath d='M570 580 Q600 620 630 580' stroke='%23f0f3ff' stroke-width='5' fill='none' stroke-linecap='round' opacity='0.7'/%3E%3Ctext x='600' y='800' font-size='42' font-family='monospace' fill='%23ffffff80' text-anchor='middle'%3E⚡ AI CORE ⚡%3C/text%3E%3C/svg%3E";
+        return `<svg width="1200" height="1600" viewBox="0 0 1200 1600" xmlns="http://www.w3.org/2000/svg">
+    <!-- 定义渐变与滤镜 -->
+    <defs>
+        <!-- 背景主渐变：从深靛蓝到暗黑 -->
+        <radialGradient id="bg_gradient" cx="50%" cy="40%" r="60%">
+            <stop offset="0%" stop-color="#1e293b" />
+            <stop offset="100%" stop-color="#08080c" />
+        </radialGradient>
+        
+        <!-- 核心灵魂光辉渐变 -->
+        <radialGradient id="core_glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#aac0ff" stop-opacity="0.4" />
+            <stop offset="100%" stop-color="#5f7eff" stop-opacity="0" />
+        </radialGradient>
+
+        <!-- 几何线条发光滤镜 -->
+        <filter id="line_glow" x="-20%" y="-20%" width="140%" height="140%">
+            <feGaussianBlur stdDeviation="3" result="blur" />
+            <feComposite in="SourceGraphic" in2="blur" operator="over" />
+        </filter>
+    </defs>
+
+    <!-- 1. 底色层 -->
+    <rect width="100%" height="100%" fill="url(#bg_gradient)" />
+
+    <!-- 2. 背景粒子层 (模拟星尘/数据碎片) -->
+    <g opacity="0.5">
+        <circle cx="150" cy="300" r="1.5" fill="#fff" />
+        <circle cx="950" cy="450" r="1" fill="#7e9eff" />
+        <circle cx="200" cy="1200" r="1.2" fill="#fff" />
+        <circle cx="1000" cy="1350" r="1" fill="#7e9eff" />
+        <circle cx="600" cy="150" r="0.8" fill="#fff" />
+        <circle cx="400" cy="800" r="1.3" fill="#a5b9ff" opacity="0.6" />
+        <!-- 更多点缀 -->
+        <circle cx="750" cy="200" r="1" fill="#fff" opacity="0.3" />
+        <circle cx="1100" cy="700" r="1" fill="#fff" opacity="0.3" />
+    </g>
+
+    <!-- 3. 中心灵核层 (抽象几何图腾) -->
+    <g transform="translate(600, 800)" filter="url(#line_glow)">
+        <!-- 外圈微弱光晕 -->
+        <circle cx="0" cy="0" r="280" fill="url(#core_glow)" opacity="0.5" />
+        
+        <!-- 核心几何线条 - 圆环 A (实线) -->
+        <circle cx="0" cy="0" r="180" stroke="#5f7eff" stroke-width="0.5" fill="none" opacity="0.4" />
+        
+        <!-- 核心几何线条 - 圆环 B (虚线/数据流感) -->
+        <circle cx="0" cy="0" r="220" stroke="#a5b9ff" stroke-width="1" fill="none" opacity="0.2" stroke-dasharray="4 8" />
+        
+        <!-- 内层核心几何体 (六边形/星芒感) -->
+        <polygon points="0,-60 52,-30 52,30 0,60 -52,30 -52,-30" stroke="#7e9eff" stroke-width="1.5" fill="none" opacity="0.6" />
+        <circle cx="0" cy="0" r="15" fill="#aac0ff" opacity="0.8" />
+    </g>
+
+    <!-- 4. 环境晕染层 (营造灵境的深度感) -->
+    <rect width="100%" height="100%" fill="none" opacity="0.3">
+        <animate attributeName="opacity" values="0.2;0.4;0.2" dur="10s" repeatCount="indefinite" />
+    </rect>
+</svg>`;
     }
 
     /**
@@ -200,7 +258,8 @@ class Constants {
      * @returns {string}
      */
     static getDefaultChatBackgroundImage() {
-        return `linear-gradient(0deg, var(--bg-image-shade-a, rgba(0, 0, 0, 0.65)), var(--bg-image-shade-b, rgba(0, 0, 0, 0.55))), url("${Constants.DEFAULT_CHAT_BG_SVG}")`;
+        const svgDataUri = `data:image/svg+xml,${encodeURIComponent(Constants.DEFAULT_CHAT_BG_SVG)}`;
+        return `linear-gradient(0deg, var(--bg-image-shade-a, rgba(0, 0, 0, 0.65)), var(--bg-image-shade-b, rgba(0, 0, 0, 0.55))), url("${svgDataUri}")`;
     }
 
     /**

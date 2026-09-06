@@ -842,7 +842,15 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
     // 显示正在输入指示器
     const typingDiv = document.createElement('div');
     typingDiv.className = 'message ai';
-    typingDiv.innerHTML = `<div class="avatar-msg"><i class="fas fa-robot"></i></div><div class="bubble typing-bubble"><div class="typing-indicator"><i class="fas fa-ellipsis-h"></i> ${roleName} 正在思考...</div></div>`;
+    let avatarHtml = '';
+    // 兼容不同来源的头像字段名（avatarUrl / avatar）
+    const aiAvatarUrl = settings.avatarUrl || settings.avatar || null;
+    if (aiAvatarUrl) {
+        avatarHtml = `<img src="${resolveAssetUrl(aiAvatarUrl)}" style="width:50px; height:50px; border-radius:50%; object-fit:cover;">`;
+    } else {
+        avatarHtml = '<i class="fas fa-robot"></i>';
+    }
+    typingDiv.innerHTML = `<div class="avatar-msg">${avatarHtml}</div><div class="bubble typing-bubble"><div class="typing-indicator"><i class="fas fa-ellipsis-h"></i> ${roleName} 正在思考...</div></div>`;
     chatMessages.appendChild(typingDiv);
     if (SettingsManager.getAutoScrollAfterSend()) uiScroll.forceScrollToBottom();
     // 思考计时器句柄：必须在 try 外声明（finally 清理时需要访问）
@@ -1189,7 +1197,8 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
                 // 第一次收到数据时，移除指示器并创建消息气泡
                 if (typingDiv.parentNode) typingDiv.remove();
                 const modelNameForDisplay = SettingsManager.getModelName();
-                messageDiv = createMessageBubble('ai', '', getCurrentTime(), currentChat.settings?.avatarUrl, modelNameForDisplay, knowledgeSources);
+                const msgAvatarUrl = currentChat.settings?.avatarUrl || currentChat.settings?.avatar || null;
+                messageDiv = createMessageBubble('ai', '', getCurrentTime(), msgAvatarUrl, modelNameForDisplay, knowledgeSources);
                 bubble = messageDiv.querySelector('.bubble');
                 // 移除空占位 <p>，改用流式正文容器（保留 msg-time 与 kb-sources）
                 const placeholderP = bubble.querySelector('p');

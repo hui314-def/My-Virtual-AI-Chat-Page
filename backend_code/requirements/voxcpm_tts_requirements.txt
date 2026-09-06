@@ -1,8 +1,8 @@
-# VoxCPM2 TTS 服务依赖（backend_code/tts/voxcpm_tts_server.py）
-# 建议 Python ≥ 3.10，PyTorch ≥ 2.5，CUDA ≥ 12.0；模型权重需单独下载（见 README）
+torch==2.11.0
 voxcpm
-torch>=2.5
-numpy
-fastapi
-uvicorn
-python-dotenv
+soundfile==0.13.1
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+requests==2.31.0
+python-dotenv==1.0.1

@@ -36,7 +36,7 @@
 将本项目文件下载到本地，确保目录结构包含以下主要文件（部分示例）：
 
 ```plaintext
-├── 提示词模板/
+├── 角色卡预设/
 ├── backend_code/
 |   ├── chat_store/
 |   ├── requirements/
@@ -75,13 +75,24 @@ git clone https://github.com/hui314-def/My-Virtual-AI-Chat-Page
 cd My-Virtual-AI-Chat-Page
 ```
 
-使用任意 HTTP 服务器启动前端（推荐 Python 内置）：
+#### 快速开始（仅前端）
+
+使用任意 HTTP 服务器启动前端（推荐 Python 内置）
 
 ```bash
 python -m http.server 8000
 ```
 
 访问 `http://localhost:8000` 即可开始使用（支持手机和电脑）。
+
+#### 一键启动脚本（建议）
+
+项目根目录下提供了两个批处理文件，用于简化项目依赖的部署过程：
+
+- `install_dependencies.bat`：安装所有后端依赖项。
+- `start.bat`：启动所有前后端服务。
+
+直接点击运行即可
 
 ### 2. 模型服务（Ollama 或 OpenAI 兼容）
 
@@ -107,9 +118,9 @@ export OLLAMA_ORIGINS=*
 
 ### 3. 语音合成服务（建议）
 
-若需要语音朗读功能，可选择启动 `tts_api.py`、`moss_tts_api.py` 或 `voxcpm_tts_server.py`，三者接口完全兼容（`/voices` `/tts` `/tts/stream` `/clone_voice`），前端无需任何改动。**注意：三者共用 5000 端口，三选一启动**。
+若需要语音朗读功能，可选择启动 `tts_api.py`、`moss_tts_api.py` 或 `voxcpm_tts_server.py`，三者接口完全兼容（`/voices` `/tts` `/tts/stream` `/clone_voice`），前端无需任何改动。
 
-#### 千问语音合成服务
+#### 千问语音合成服务（本地模型，离线可用）
 
 安装以下依赖项
 
@@ -131,9 +142,9 @@ pip install -r backend_code/requirements/moss_tts_requirements.txt
 python backend_code/tts/moss_tts_api.py
 ```
 
-默认监听端口 5000，需要设置 API Key 鉴权（通过 `.env` 设置 `MOSS_API_KEY`）。支持**音色设计**（文本描述生成音色，无需参考音频）：前端「音色设计」表单填写描述即可生成试听，MOSS 返回可复用音色时会自动存入音色列表。
+默认监听端口 5555，必须设置 API Key 鉴权（通过 `.env` 设置 `MOSS_API_KEY`）。支持**音色设计**（文本描述生成音色，无需参考音频）：前端「音色设计」表单填写描述即可生成试听，MOSS 返回可复用音色时会自动存入音色列表。
 
-⚠️ 注意事项：mossland每天有100免费积分额度，当天积分次日清零。所以，第二天使用前需要登录mossland平台签到获取
+⚠️ 注意事项：mossland每天有免费积分额度，当天积分次日清零。所以，第二天使用前需要登录mossland平台签到获取
 
 #### VoxCPM2 本地语音合成服务（本地模型，离线可用）
 
@@ -144,7 +155,7 @@ pip install -r backend_code/requirements/voxcpm_tts_requirements.txt
 python backend_code/tts/voxcpm_tts_server.py
 ```
 
-默认监听端口 5000，**接口与 MOSS 版完全兼容**（`/voices` `/tts` `/tts/stream` `/clone_voice` `/design_voice`），前端无需任何改动。音色克隆将参考音频（3~10 秒清晰人声）提取为音色特征，存入 `backend_code/tts/音色库/*.pt`，之后合成无需原音频（一次编码，永久复用）。支持 SSE 流式合成（边生成边播）。支持**音色设计**：前端「音色设计」表单仅填自然语言描述（如"年轻女性，温柔甜美"）即可凭空生成全新音色（无需参考音频），存入 `音色库/*.vdesc.json`，之后合成时自动应用该描述。可通过环境变量配置模型路径与设备：
+默认监听端口 5500，**接口与 MOSS 版完全兼容**（`/voices` `/tts` `/tts/stream` `/clone_voice` `/design_voice`），前端无需任何改动。音色克隆将参考音频（3~10 秒清晰人声）提取为音色特征，存入 `backend_code/tts/音色库/*.pt`，之后合成无需原音频（一次编码，永久复用）。支持 SSE 流式合成（边生成边播）。支持**音色设计**：前端「音色设计」表单仅填自然语言描述（如"年轻女性，温柔甜美"）即可凭空生成全新音色（无需参考音频），存入 `音色库/*.vdesc.json`，之后合成时自动应用该描述。可通过环境变量配置模型路径与设备：
 
 ⚠️ 注意事项：VoxCPM2 模型较大，流式输出有显卡性能要求，若出现卡顿可尝试降低采样率或使用非流式输出。
 
@@ -157,7 +168,7 @@ python backend_code/tts/voxcpm_tts_server.py
 
 ### 4. 图片生成服务（可选）
 
-若需要 AI 生图功能，需安装 [ComfyUI](https://github.com/Comfy-Org/ComfyUI)，同时**开启ComfyUI的开发者模式**，并将工作流文件（`image_gen_workflow.json`）放置于项目目录下（示例工作流，可按需修改和替换），自行准备模型文件。随后启动图片生成 API：
+若需要 AI 生图功能，需安装并运行 [ComfyUI](https://github.com/Comfy-Org/ComfyUI)，同时**开启ComfyUI的开发者模式**，并将工作流文件（`image_gen_workflow.json`）放置于项目目录下（内置示例工作流，可按需修改和替换），自行准备模型文件。随后启动图片生成 API：
 
 ```bash
 pip install -r backend_code/requirements/image_gen_requirements.txt
@@ -166,7 +177,7 @@ python backend_code/image_gen/image_gen_api.py
 
 默认监听端口 5050，并支持 API Key 鉴权（通过 `.env` 设置 `IMG_API_KEY`）。
 
-⚠️ 注意事项：生成后的图片放在消息框内但不会加入到语言模型的上下文对话列表中，如有需要可以双击消息框打开操作栏选择引用该图片（需要视觉模型支持）
+⚠️ 注意事项：生成后的图片放在消息框内但**不会**加入到语言模型的上下文对话列表中，如有需要可以双击消息框打开操作栏选择引用该图片（需要视觉模型支持）
 
 ### 5. 知识库搭建服务（可选）
 
@@ -179,7 +190,7 @@ python backend_code/knowledge_base/knowledge_api.py
 
 默认监听端口 5051
 
-启动后，知识库列表中会显示一张只读的「🧠 角色记忆库」卡片（由长期记忆系统自动维护，不可删除/改名，记忆条数实时显示）。该服务同时为长期记忆提供 **L2 语义召回**（`/memories/*` 接口）；**未启动时记忆系统自动降级为关键词模式，功能不受影响**。
+启动后，知识库列表中会显示一张只读的「🧠 角色记忆库」卡片（由长期记忆系统自动维护，不可删除/改名）。该服务同时为长期记忆提供 **L2 语义召回**（`/memories/*` 接口）；**未启动时记忆系统自动降级为关键词模式，功能不受影响**。
 
 ### 6. 聊天存储服务（云同步，MySQL）（建议）
 
@@ -203,7 +214,7 @@ JWT_SECRET=随意一段随机字符串
 CHAT_STORE_PORT=8001
 
 # ===== 图片/视频/音频资源目录（文件系统存储，建议放 D 盘等大容量磁盘）=====
-ASSET_DIR=D:\code3\AI聊天网站\backend_code\chat_store\assets
+ASSET_DIR=backend_code\chat_store\assets
 ```
 
 启动后打开网页，点击**左上角头像**即可注册/登录。登录后：
@@ -248,15 +259,6 @@ ASSET_DIR=backend_code\chat_store\assets
 
 如果未设置 `*_API_KEY`，则对应服务无需鉴权（仅限开发环境）。
 
-### 8. 一键启动脚本（建议）
-
-项目根目录下提供了两个批处理文件，用于简化项目依赖的部署过程：
-
-- `install_dependencies.bat`：安装所有后端依赖项。
-- `start.bat`：启动所有前后端服务。
-
-直接点击运行即可
-
 ## 🚀 WebUI使用技巧
 
 - 开启新话题：点击输入框下方的“话题管理”按钮，或使用快捷键 `Ctrl+/`，可自动开启新的话题片段。
@@ -278,12 +280,13 @@ ASSET_DIR=backend_code\chat_store\assets
 
 - 无额外依赖，仅需现代浏览器（支持 ES Module）。
 
-### 后端服务（按需选择）
+### 后端服务技术栈清单
 
 - Python 3.12
 - FastAPI（后端接口服务必备）
 - Qwen3-TTS（语音合成，flash_attention_2模式需 GPU 支持）
 - ComfyUI（图片生成，独立安装）
+- requests（请求库，后端请求第三方服务必备）
 - chromadb（向量数据库，知识库搭建必备）
 - MySQL（聊天存储服务，云同步必备）
 
