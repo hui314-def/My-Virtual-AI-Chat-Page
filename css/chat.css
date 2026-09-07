@@ -758,6 +758,18 @@
     margin-top: 6px;
     white-space: pre-wrap;
 }
+/* 流式输出空正文警示（reasoning 模型 + maxTokens 过小被思考占满时） */
+.stream-warning {
+    display: inline;
+    margin-top: 8px;
+    padding: 4px 10px;
+    border-radius: 6px;
+    font-size: 0.8rem;
+    line-height: 1.6;
+    color: #ffd9a0;
+    background: rgba(255, 160, 40, 0.12);
+    border: 1px solid rgba(255, 170, 60, 0.3);
+}
 
 /* ---------- 内心OS ---------- */
 .soul-details {

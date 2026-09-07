@@ -346,7 +346,7 @@ export class ModelService {
             try {
                 const data = JSON.parse(line);
                 const content = data.message?.content || '';
-                const thinking = data.message?.thinking || '';
+                const thinking = data.message?.thinking || data.message?.reasoning_content || data.message?.reasoning || '';
 
                 // 思考深度关闭时，完全丢弃 thinking 内容，仅返回回复
                 if (this.#currentThinkLevel === 0) {
@@ -361,13 +361,27 @@ export class ModelService {
             } catch { return null; }
         } else {
             // OpenAI 兼容格式：data: {"choices":[{"delta":{"content":"..."}}]}
+            // 推理模型（DeepSeek R1/reasoner、Kimi K2、GLM thinking 等）的思考内容
+            // 在 delta.reasoning_content（个别网关用 delta.reasoning），这里一并兼容
             if (!line.startsWith('data: ')) return null;
             const jsonStr = line.slice(6);
             if (jsonStr === '[DONE]') return null;
             try {
                 const data = JSON.parse(jsonStr);
-                const text = data.choices?.[0]?.delta?.content;
-                return text ? [{ type: 'content', text }] : null;
+                const delta = data.choices?.[0]?.delta || {};
+                const content = delta.content;
+                const thinking = delta.reasoning_content || delta.reasoning || '';
+
+                // 思考深度关闭时，完全丢弃 thinking 内容，仅返回回复
+                if (this.#currentThinkLevel === 0) {
+                    if (thinking) return null;  // 跳过思考阶段的 chunk
+                    return content ? [{ type: 'content', text: content }] : null;
+                }
+
+                const blocks = [];
+                if (thinking) blocks.push({ type: 'thinking', text: thinking });
+                if (content) blocks.push({ type: 'content', text: content });
+                return blocks.length > 0 ? blocks : null;
             } catch { return null; }
         }
     }
@@ -418,7 +432,7 @@ export class ModelService {
             }
             const thinkLevel = options.thinkLevel ?? 0;
             const content = data.message?.content || '';
-            const thinking = data.message?.thinking || '';
+            const thinking = data.message?.thinking || data.message?.reasoning_content || data.message?.reasoning || '';
             // 思考深度关闭时丢弃 thinking，否则包裹 <think> 标签
             if (thinking && thinkLevel > 0) {
                 return `<think>${thinking}</think>${content}`;
@@ -433,7 +447,20 @@ export class ModelService {
             if (data.usage) {
                 ModelService.#reportUsage(data.usage.prompt_tokens || 0, data.usage.completion_tokens || 0);
             }
-            return data.choices?.[0]?.message?.content || '';
+            const thinkLevel = options.thinkLevel ?? 0;
+            const message = data.choices?.[0]?.message || {};
+            const content = message.content || '';
+            const thinking = message.reasoning_content || message.reasoning || '';
+            // 思考深度开启时包裹 <think>，与 Ollama 分支行为一致
+            if (thinking && thinkLevel > 0) {
+                return `<think>${thinking}</think>${content}`;
+            }
+            // 防御：模型只输出了思考内容、content 为空（常见于 maxTokens 过小被思考占满截断），
+            // 直接抛出可读错误，而不是让调用方拿到空串导致 JSON 解析失败 / 静默生成空结果
+            if (!content && thinking) {
+                throw new Error('模型仅输出了思考内容（content 为空），可能是 maxTokens 过小导致思考占满了生成预算。请增大 maxTokens，或调低思考深度 / 改用非推理模型');
+            }
+            return content;
         }
     }
 }

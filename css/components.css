@@ -489,6 +489,28 @@
 }
 .main-chat.has-video-bg::before { display: none; }
 
+/* ========== 默认背景动态特效层（内联 SVG） ========== */
+.chat-bg-anim {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+}
+.chat-bg-anim svg {
+    display: block;
+    width: 100%; height: 100%;
+}
+/* 视频背景时隐藏（视频层自带动态） */
+.main-chat.has-video-bg .chat-bg-anim { display: none !important; }
+/* 明亮主题隐藏（深色特效层与浅色背景不协调） */
+body.light-theme .chat-bg-anim { display: none !important; }
+/* 用户系统开启「减弱动态效果」时关闭 */
+@media (prefers-reduced-motion: reduce) {
+    .chat-bg-anim { display: none !important; }
+}
+
 /* ========== 背景音乐浮动播放器 ========== */
 .bg-music-player-bar {
     position: fixed;

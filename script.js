@@ -1285,6 +1285,25 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         }
         // 等待打字机排空剩余显示内容，再重渲染括号斜体（否则会清掉未显示的文字）
         await typewriterReady;
+        // ===== 空回复防御：reasoning 模型 + maxTokens 过小时，模型可能只输出思考
+        // ===== 内容、甚至什么都不输出就结束流 → 明确提示用户，而不是静默无正文 =====
+        const finalPlainText = stripHiddenTags(fullReply).trim();
+        if (!displayAborted && !finalPlainText) {
+            const warnText = thinkDetails
+                ? '⚠️ 模型本次只输出了思考过程，未生成正文。很可能是「最大生成 Token」设置过小，思考占满了预算被截断。请在聊天设置中增大「最大生成 Token」，或调低思考深度 / 改用非推理模型。'
+                : '⚠️ 模型未返回任何内容。可能是「最大生成 Token」过小或模型不支持当前请求参数，建议增大 maxTokens 后重试。';
+            modalManager.showBriefToast(warnText);
+            if (contentP) {
+                // 消息气泡已存在（至少收到了思考内容）：在正文位置追加警示（仅 UI 提示，不入历史）
+                const warnEl = document.createElement('span');
+                warnEl.className = 'stream-warning';
+                warnEl.textContent = '\n' + warnText;
+                contentP.appendChild(warnEl);
+            } else {
+                // 一个 chunk 都没收到：追加一条可见的警示消息（不保存到历史）
+                appendMessageToDOM('ai', warnText, getCurrentTime(), false);
+            }
+        }
         // 生成完成后，将正文重新渲染为括号斜体样式（流式阶段保持纯文本逐字输出）
         if (bubble && contentP && replyRaw) {
             const parts = parseParenthesesContent(replyRaw);
@@ -1316,9 +1335,9 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         }
         if (SettingsManager.getAutoScrollAfterSend()) uiScroll.forceScrollToBottom();
         uiAppearance.updateStatusIndicator('online');
-        // 保存消息到存储
+        // 保存消息到存储（正文为空则不保存：避免空白消息与上下文污染）
         const targetChat = chats.find(c => c.id == currentChatId);
-        if (targetChat) {
+        if (targetChat && fullReply.trim() !== '') {
             const activeTopic = topicManager.getActiveTopic(targetChat);
             if (activeTopic) {
                 const modelName = SettingsManager.getModelName();

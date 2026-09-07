@@ -9,6 +9,7 @@ class BackgroundManager {
     static #videoLayer = null;
     static #overlayLayer = null;
     static #currentChatId = null;   // 当前正在显示的视频所属 chatId
+    static #animLayer = null;       // 默认背景的动态特效层（内联 SVG，含 SMIL 动画）
 
     /**
      * 应用背景
@@ -29,6 +30,7 @@ class BackgroundManager {
 
         // 1. 静态图片
         if (bgType === 'image' && imageUrl) {
+            this.#removeAnimLayer();
             this.#removeVideoLayer();
             mainChat.style.backgroundImage = `linear-gradient(0deg, var(--bg-image-shade-a, rgba(0, 0, 0, 0.65)), var(--bg-image-shade-b, rgba(0, 0, 0, 0.55))), url(${imageUrl})`;
             mainChat.style.backgroundSize = 'cover';
@@ -55,6 +57,7 @@ class BackgroundManager {
             }
 
             if (src) {
+                this.#removeAnimLayer();
                 this.#createVideoLayer(src);
                 this.#currentChatId = chatId;
                 return;
@@ -67,6 +70,7 @@ class BackgroundManager {
         mainChat.style.backgroundImage = Constants.getDefaultChatBackgroundImage();
         mainChat.style.backgroundSize = 'cover';
         mainChat.style.backgroundPosition = 'center';
+        this.#createAnimLayer();   // 动态特效层：呼吸光晕 / 旋转扫描环 / 轨道卫星 / 光尘
     }
 
     static #createVideoLayer(src) {
@@ -99,6 +103,7 @@ class BackgroundManager {
             mainChat.style.backgroundImage = Constants.getDefaultChatBackgroundImage();
             mainChat.style.backgroundSize = 'cover';
             mainChat.style.backgroundPosition = 'center';
+            this.#createAnimLayer();
         };
 
         const overlay = document.createElement('div');
@@ -134,8 +139,28 @@ class BackgroundManager {
         }
     }
 
+    /** 注入默认背景的动态特效层（内联 SVG，SMIL 动画仅在 DOM 中播放） */
+    static #createAnimLayer() {
+        const mainChat = document.querySelector('.main-chat');
+        if (!mainChat || this.#animLayer) return;
+        const div = document.createElement('div');
+        div.className = 'chat-bg-anim';
+        div.innerHTML = Constants.DEFAULT_CHAT_BG_FX_SVG;
+        mainChat.insertBefore(div, mainChat.firstChild);
+        this.#animLayer = div;
+    }
+
+    /** 移除默认背景的动态特效层（切到自定义图片/视频背景时调用） */
+    static #removeAnimLayer() {
+        if (this.#animLayer) {
+            this.#animLayer.remove();
+            this.#animLayer = null;
+        }
+    }
+
     static destroy() {
         this.#removeVideoLayer();
+        this.#removeAnimLayer();
     }
 }
 

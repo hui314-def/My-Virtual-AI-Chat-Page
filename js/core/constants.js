@@ -253,6 +253,102 @@ class Constants {
 </svg>`;
     }
 
+    /** 默认聊天背景的动态特效层 SVG（作为内联 DOM 图层注入；CSS 背景图中的 SMIL 动画不会播放） */
+    static get DEFAULT_CHAT_BG_FX_SVG() {
+        return `<svg width="1200" height="1600" viewBox="0 0 1200 1600" preserveAspectRatio="xMidYMid slice" xmlns="http://www.w3.org/2000/svg">
+    <!-- 动态特效层：叠加在静态灵核背景之上（仅内联 DOM SVG 可播放 SMIL 动画） -->
+    <defs>
+        <radialGradient id="fx_core_glow" cx="50%" cy="50%" r="50%">
+            <stop offset="0%" stop-color="#aac0ff" stop-opacity="0.45"/>
+            <stop offset="100%" stop-color="#5f7eff" stop-opacity="0"/>
+        </radialGradient>
+    </defs>
+
+    <!-- 1. 灵核呼吸光晕 -->
+    <circle cx="600" cy="800" r="280" fill="url(#fx_core_glow)">
+        <animate attributeName="opacity" values="0.45;0.95;0.45" dur="7s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- 2. 心跳脉冲环（双重、错相扩散） -->
+    <circle cx="600" cy="800" r="14" fill="none" stroke="#aac0ff" stroke-width="1.4" opacity="0">
+        <animate attributeName="r" values="14;105" dur="5s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.6;0" dur="5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="600" cy="800" r="14" fill="none" stroke="#8fa9ff" stroke-width="1" opacity="0">
+        <animate attributeName="r" values="14;150" dur="5s" begin="-2.5s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0.4;0" dur="5s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- 3. 旋转扫描环：外圈虚线数据流（顺时针）+ 内圈光点涓流（逆时针） -->
+    <g transform="translate(600,800)">
+        <g>
+            <animateTransform attributeName="transform" type="rotate" from="0" to="360" dur="42s" repeatCount="indefinite"/>
+            <circle r="236" fill="none" stroke="#a5b9ff" stroke-width="1.2" stroke-dasharray="26 60 8 70" opacity="0.4"/>
+            <circle cx="236" cy="0" r="3" fill="#dbe7ff">
+                <animate attributeName="opacity" values="0.9;0.2;0.9" dur="2.6s" repeatCount="indefinite"/>
+            </circle>
+        </g>
+        <g>
+            <animateTransform attributeName="transform" type="rotate" from="360" to="0" dur="90s" repeatCount="indefinite"/>
+            <circle r="182" fill="none" stroke="#5f7eff" stroke-width="1" stroke-dasharray="1 20" opacity="0.5"/>
+        </g>
+    </g>
+
+    <!-- 4. 绕核轨道卫星（不同半径/速度/相位） -->
+    <g transform="translate(600,800)">
+        <circle r="2.8" fill="#cfe0ff">
+            <animateMotion dur="20s" repeatCount="indefinite" path="M 232 0 A 232 232 0 1 1 -232 0 A 232 232 0 1 1 232 0"/>
+        </circle>
+        <circle r="2" fill="#7e9eff">
+            <animateMotion dur="30s" begin="-10s" repeatCount="indefinite" path="M 205 0 A 205 205 0 1 1 -205 0 A 205 205 0 1 1 205 0"/>
+        </circle>
+        <circle r="1.6" fill="#ffd9a0">
+            <animateMotion dur="44s" begin="-22s" repeatCount="indefinite" path="M 262 0 A 262 262 0 1 1 -262 0 A 262 262 0 1 1 262 0"/>
+        </circle>
+    </g>
+
+    <!-- 5. 上升的光尘（漂浮的记忆碎片） -->
+    <circle cx="180" cy="1200" r="1.6" fill="#a5b9ff">
+        <animate attributeName="cy" values="1260;850" dur="16s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.75;0" dur="16s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="340" cy="1200" r="1.2" fill="#cfe0ff">
+        <animate attributeName="cy" values="1310;900" dur="22s" begin="-6s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.6;0" dur="22s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="560" cy="1200" r="1.3" fill="#ffffff">
+        <animate attributeName="cy" values="1330;950" dur="21s" begin="-15s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.5;0" dur="21s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="720" cy="1200" r="1.7" fill="#9db8ff">
+        <animate attributeName="cy" values="1250;840" dur="17s" begin="-8s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.8;0" dur="17s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="880" cy="1200" r="1.5" fill="#7e9eff">
+        <animate attributeName="cy" values="1240;820" dur="19s" begin="-11s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.7;0" dur="19s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="1040" cy="1200" r="1.1" fill="#a5b9ff">
+        <animate attributeName="cy" values="1290;880" dur="25s" begin="-3s" repeatCount="indefinite"/>
+        <animate attributeName="opacity" values="0;0.55;0" dur="25s" repeatCount="indefinite"/>
+    </circle>
+
+    <!-- 6. 远景星光闪烁 -->
+    <circle cx="150" cy="420" r="1.4" fill="#ffffff">
+        <animate attributeName="opacity" values="0.1;0.9;0.1" dur="5s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="980" cy="300" r="1" fill="#7e9eff">
+        <animate attributeName="opacity" values="0.15;0.8;0.15" dur="6.5s" begin="-2s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="1080" cy="1150" r="1.2" fill="#a5b9ff">
+        <animate attributeName="opacity" values="0.1;0.7;0.1" dur="7.5s" begin="-4s" repeatCount="indefinite"/>
+    </circle>
+    <circle cx="240" cy="1400" r="1.3" fill="#cfe0ff">
+        <animate attributeName="opacity" values="0.12;0.85;0.12" dur="5.8s" begin="-1.5s" repeatCount="indefinite"/>
+    </circle>
+</svg>`;
+    }
+
     /**
      * 构建 main-chat 默认背景的 backgroundImage CSS 值（仅图片部分，不含 position/size/repeat）。
      * @returns {string}
