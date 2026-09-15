@@ -208,6 +208,19 @@ def wait_for_audio(prompt_id, timeout=180, poll_interval=1.0):
     raise TimeoutError(f"Timed out waiting for audio for prompt {prompt_id}")
 
 # ---------- 路由 ----------
+@app.get("/health")
+async def health():
+    """健康检查：确认本服务在线，并顺带探测依赖的 ComfyUI 是否可达"""
+    comfyui_ok = False
+    try:
+        resp = requests.get(f"http://{COMFYUI_SERVER}/system_stats", timeout=2)
+        comfyui_ok = resp.ok
+    except Exception:
+        comfyui_ok = False
+    return {"status": "ok", "comfyui": comfyui_ok}
+
+
+# ---------- 路由 ----------
 @app.post("/generate_image")
 async def generate_image(data: GenerateImageRequest, _=Depends(verify_api_key)):
     """根据提示词生成图片，返回 base64 编码的图片列表"""

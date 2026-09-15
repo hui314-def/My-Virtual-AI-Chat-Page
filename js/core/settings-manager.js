@@ -50,6 +50,11 @@ const DEFAULTS = Object.freeze({
     ttsApiKey: '',
     imgApiUrl: Constants.DEFAULT_IMG_API_URL,
     imgApiKey: '',
+    bgmApiUrl: Constants.DEFAULT_BGM_API_URL,
+    bgmApiKey: '',
+    // 语音识别（SenseVoice 本地服务；地址为空则仅用浏览器内置识别）
+    asrApiUrl: Constants.DEFAULT_ASR_API_URL,
+    voiceInputMode: 'auto',   // 'auto'=本地优先,失败回退浏览器 | 'browser' | 'local'
 
     // 快捷键（由 saveGlobalSettings 整体序列化）
     shortcuts: {},
@@ -338,6 +343,41 @@ export class SettingsManager {
     static getTtsApiKey()   { return this._read().ttsApiKey ?? DEFAULTS.ttsApiKey; }
     static getImgApiUrl()   { return this._read().imgApiUrl ?? DEFAULTS.imgApiUrl; }
     static getImgApiKey()   { return this._read().imgApiKey ?? DEFAULTS.imgApiKey; }
+    static getBgmApiUrl()    { return this._read().bgmApiUrl ?? DEFAULTS.bgmApiUrl; }
+    static getBgmApiKey()    { return this._read().bgmApiKey ?? DEFAULTS.bgmApiKey; }
+
+    /**
+     * 背景音乐生成实际生效的服务地址：优先 BGM 专用地址（若已单独配置），
+     * 否则回退到图片生成服务地址（/generate_audio 与其同服务）。
+     * @returns {string} 去尾部斜杠的完整地址
+     */
+    static getBgmEffectiveApiUrl() {
+        const raw = this._read();
+        const b = (raw.bgmApiUrl !== undefined && raw.bgmApiUrl !== '') ? raw.bgmApiUrl : '';
+        const img = (raw.imgApiUrl !== undefined && raw.imgApiUrl !== '') ? raw.imgApiUrl : DEFAULTS.imgApiUrl;
+        return (b || img || DEFAULTS.imgApiUrl).replace(/\/+$/, '');
+    }
+
+    /** 背景音乐生成实际生效的 API Key：优先 BGM 专用 Key，未配置则回退图片生成 Key */
+    static getBgmEffectiveApiKey() {
+        const raw = this._read();
+        const b = (raw.bgmApiKey !== undefined && raw.bgmApiKey !== '') ? raw.bgmApiKey : '';
+        const img = (raw.imgApiKey !== undefined && raw.imgApiKey !== '') ? raw.imgApiKey : '';
+        return b || img || '';
+    }
+
+    /** BGM 地址输入框显示值：已单独配置则显示配置，否则跟随图片生成服务当前值（避免误存默认端口） */
+    static getBgmApiUrlForDisplay() {
+        const raw = this._read();
+        if (raw.bgmApiUrl !== undefined && raw.bgmApiUrl !== '') return raw.bgmApiUrl;
+        const img = (raw.imgApiUrl !== undefined && raw.imgApiUrl !== '') ? raw.imgApiUrl : DEFAULTS.imgApiUrl;
+        return img || DEFAULTS.imgApiUrl;
+    }
+
+    /** SenseVoice 本地语音识别服务地址（如 http://localhost:5002），空 = 仅浏览器内置识别 */
+    static getAsrApiUrl()   { return this._read().asrApiUrl ?? DEFAULTS.asrApiUrl; }
+    /** 语音输入方式：'auto' 本地优先失败回退浏览器 | 'browser' 浏览器内置 | 'local' 仅本地 SenseVoice */
+    static getVoiceInputMode() { return this._read().voiceInputMode ?? DEFAULTS.voiceInputMode; }
 
     static getShortcuts()   { return this._read().shortcuts ?? DEFAULTS.shortcuts; }
     static getAutoScrollAfterSend() {return this._read().autoScrollAfterSend ?? DEFAULTS.autoScrollAfterSend;}
@@ -357,7 +397,7 @@ export class SettingsManager {
         const all = this.get();
         const out = {};
         for (const [k, v] of Object.entries(all)) {
-            if (k === 'apiKey' || k === 'ttsApiKey' || k === 'imgApiKey') continue;
+            if (k === 'apiKey' || k === 'ttsApiKey' || k === 'imgApiKey' || k === 'bgmApiKey') continue;
             out[k] = v;
         }
         const providers = this.#_readProviderStates();
@@ -376,7 +416,7 @@ export class SettingsManager {
         const { providers, ...global } = syncable;
         const current = this._read();
         const merged = { ...global };
-        for (const key of ['apiKey', 'ttsApiKey', 'imgApiKey']) {
+        for (const key of ['apiKey', 'ttsApiKey', 'imgApiKey', 'bgmApiKey']) {
             if (current[key]) merged[key] = current[key];
         }
         _suppressSync = true;

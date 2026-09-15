@@ -277,6 +277,63 @@
                         <input type="password" id="img-api-key" placeholder="图片生成服务 API Key">
                         <small>如果图片生成服务需要鉴权，请填写对应的 API Key</small>
                     </div>
+                    <div class="form-group">
+                        <label>连接测试</label>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <button type="button" id="test-img-connection-btn" class="action-btn" style="background: rgba(45,55,85,0.6);">
+                                <i class="fas fa-plug"></i> 测试连接
+                            </button>
+                            <span id="img-connection-status" style="font-size: 0.8rem;"></span>
+                        </div>
+                        <small>检查图片生成服务是否在线（新版服务还会显示 ComfyUI 状态）</small>
+                    </div>
+                    <!-- 语音识别设置（SenseVoice 本地识别） -->
+                    <h4 style="margin-top: 20px; border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px;">语音识别 (ASR)</h4>
+                    <div class="form-group">
+                        <label>语音输入方式</label>
+                        <select id="global-voice-input-mode" style="width:100%;">
+                            <option value="auto">自动（本地 SenseVoice 优先，失败回退浏览器）</option>
+                            <option value="local">仅本地 SenseVoice</option>
+                            <option value="browser">仅浏览器内置识别</option>
+                        </select>
+                        <small>浏览器内置识别在国内网络下可能不可用（如 360 安全浏览器），本地 SenseVoice 不受影响</small>
+                    </div>
+                    <div class="form-group">
+                        <label>SenseVoice 服务地址</label>
+                        <input type="text" id="asr-api-url" placeholder="http://localhost:5002">
+                        <small>运行 backend_code/asr/asr_server.py 后填写，默认端口 5002；留空则只用浏览器识别</small>
+                    </div>
+                    <div class="form-group">
+                        <label>连接测试</label>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <button type="button" id="test-asr-connection-btn" class="action-btn" style="background: rgba(45,55,85,0.6);">
+                                <i class="fas fa-plug"></i> 测试连接
+                            </button>
+                            <span id="asr-connection-status" style="font-size: 0.8rem;"></span>
+                        </div>
+                        <small>检查 SenseVoice 服务是否在线、模型是否就绪</small>
+                    </div>
+                    <!-- 背景音乐 (BGM) 生成服务 -->
+                    <h4 style="margin-top: 20px; border-top: 1px solid rgba(100,120,200,0.3); padding-top: 16px;">背景音乐 (BGM) 生成</h4>
+                    <div class="form-group">
+                        <label>BGM 服务地址</label>
+                        <input type="text" id="bgm-api-url" placeholder="http://localhost:5050">
+                        <small>音频生成服务地址；留空或与图片生成一致时使用图片生成服务（/generate_audio 同服务，默认端口 5050）</small>
+                    </div>
+                    <div class="form-group">
+                        <label>BGM API Key (可选)</label>
+                        <input type="password" id="bgm-api-key" placeholder="BGM 服务 API Key">
+                    </div>
+                    <div class="form-group">
+                        <label>连接测试</label>
+                        <div style="display: flex; align-items: center; gap: 12px;">
+                            <button type="button" id="test-bgm-connection-btn" class="action-btn" style="background: rgba(45,55,85,0.6);">
+                                <i class="fas fa-plug"></i> 测试连接
+                            </button>
+                            <span id="bgm-connection-status" style="font-size: 0.8rem;"></span>
+                        </div>
+                        <small>检查背景音乐生成服务是否在线</small>
+                    </div>
                 </div>
                 <!-- 知识库 -->
                 <div class="settings-tab-pane" id="tab-knowledge">

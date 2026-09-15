@@ -40,6 +40,27 @@ CREATE TABLE IF NOT EXISTS user_settings (
   CONSTRAINT fk_settings_user FOREIGN KEY (user_id)
     REFERENCES users(id) ON DELETE CASCADE
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+
+-- 长期记忆（跨设备同步）
+-- data 里存放完整记忆记录（含 DMAE 的 activation / state / 沉默计数等）；
+-- updated_at 用于「最新写入胜出」的冲突消解：请求时间戳不比库里新则跳过，
+-- 因此重复上传是幂等的（离线补传 / 断线重放都安全）。
+-- deleted=1 为删除墓碑：客户端据此删除本地副本，避免「离线删除后又被拉回」。
+-- 记忆按 chat_id 划分角色域（'global' 为全局记忆），删除角色时按 chat_id 级联。
+CREATE TABLE IF NOT EXISTS memories (
+  id         VARCHAR(64)     NOT NULL PRIMARY KEY,
+  user_id    BIGINT UNSIGNED NOT NULL,
+  chat_id    VARCHAR(64)     NOT NULL DEFAULT '',
+  data       JSON            NOT NULL,
+  deleted    TINYINT(1)      NOT NULL DEFAULT 0,
+  created_at DATETIME        NOT NULL DEFAULT CURRENT_TIMESTAMP,
+  updated_at DATETIME(3)     NOT NULL DEFAULT CURRENT_TIMESTAMP(3)
+             ON UPDATE CURRENT_TIMESTAMP(3),
+  KEY idx_user_chat (user_id, chat_id),
+  KEY idx_user_updated (user_id, updated_at),
+  CONSTRAINT fk_memories_user FOREIGN KEY (user_id)
+    REFERENCES users(id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
 """
 
 
@@ -58,7 +79,7 @@ def get_conn():
 
 
 def init_schema():
-    """创建数据库与三张表（幂等，可重复执行）。"""
+    """创建数据库与四张表（幂等，可重复执行）。"""
     # 1) 先连到服务器（不选库），确保数据库存在
     conn = pymysql.connect(
         host=DB_HOST, port=DB_PORT, user=DB_USER, password=DB_PASSWORD,

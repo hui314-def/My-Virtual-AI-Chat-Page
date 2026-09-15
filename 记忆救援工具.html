@@ -1,0 +1,529 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>记忆救援工具 · 长期记忆 IndexedDB 诊断与迁移</title>
+<style>
+    :root {
+        --bg: #0e1526;
+        --bg-card: #16203a;
+        --bg-soft: #1c2743;
+        --border: #2a3a5e;
+        --text: #e6edf7;
+        --text-dim: #8fa4c4;
+        --accent: #4d9fff;
+        --ok: #4ddb9a;
+        --warn: #ffc857;
+        --danger: #ff6b81;
+    }
+    * { box-sizing: border-box; }
+    body {
+        margin: 0;
+        padding: 28px 20px 60px;
+        background: var(--bg);
+        color: var(--text);
+        font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+        font-size: 14px;
+        line-height: 1.6;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; }
+    h1 { font-size: 1.4rem; margin: 0 0 6px; }
+    h2 { font-size: 1.02rem; margin: 26px 0 10px; color: var(--accent); }
+    .sub { color: var(--text-dim); font-size: 0.84rem; margin-bottom: 22px; }
+    .card {
+        background: var(--bg-card);
+        border: 1px solid var(--border);
+        border-radius: 14px;
+        padding: 16px 18px;
+        margin-bottom: 14px;
+    }
+    .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+    button {
+        background: var(--accent);
+        color: #fff;
+        border: none;
+        border-radius: 10px;
+        padding: 9px 16px;
+        font-size: 0.86rem;
+        cursor: pointer;
+        transition: opacity .15s;
+    }
+    button:hover { opacity: .86; }
+    button:disabled { opacity: .4; cursor: not-allowed; }
+    button.ghost { background: var(--bg-soft); color: var(--text); border: 1px solid var(--border); }
+    button.danger { background: var(--danger); }
+    select, input[type=text] {
+        background: var(--bg-soft);
+        color: var(--text);
+        border: 1px solid var(--border);
+        border-radius: 9px;
+        padding: 8px 10px;
+        font-size: 0.86rem;
+        min-width: 210px;
+    }
+    label { color: var(--text-dim); font-size: 0.84rem; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+    th { color: var(--text-dim); font-weight: 500; font-size: 0.78rem; }
+    td.num { font-variant-numeric: tabular-nums; }
+    .zero { color: var(--text-dim); }
+    .has { color: var(--ok); font-weight: 600; }
+    .tag {
+        display: inline-block;
+        font-size: 0.7rem;
+        padding: 1px 8px;
+        border-radius: 8px;
+        margin-left: 6px;
+    }
+    .tag.account { background: rgba(77,159,255,.16); color: #8ec9ff; }
+    .tag.guest { background: rgba(143,164,196,.16); color: var(--text-dim); }
+    .tag.other { background: rgba(255,200,87,.14); color: var(--warn); }
+    .log {
+        background: #0a1120;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 12px;
+        font-family: Consolas, "Cascadia Mono", monospace;
+        font-size: 0.8rem;
+        white-space: pre-wrap;
+        max-height: 340px;
+        overflow: auto;
+        margin-top: 12px;
+    }
+    .hint { color: var(--text-dim); font-size: 0.8rem; }
+    .warnbox {
+        background: rgba(255,107,129,.1);
+        border: 1px solid rgba(255,107,129,.35);
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-size: 0.84rem;
+        margin-bottom: 14px;
+    }
+    .okbox {
+        background: rgba(77,219,154,.1);
+        border: 1px solid rgba(77,219,154,.35);
+        border-radius: 12px;
+        padding: 12px 14px;
+        font-size: 0.84rem;
+        margin-bottom: 14px;
+    }
+    .preview {
+        max-height: 200px;
+        overflow: auto;
+        background: #0a1120;
+        border: 1px solid var(--border);
+        border-radius: 10px;
+        padding: 10px 12px;
+        font-size: 0.8rem;
+        margin-top: 8px;
+    }
+    .preview div + div { margin-top: 5px; border-top: 1px dashed var(--border); padding-top: 5px; }
+    code { background: var(--bg-soft); padding: 1px 6px; border-radius: 6px; font-size: 0.82rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+    <h1>🧠 记忆救援工具</h1>
+    <div class="sub">
+        诊断和迁移 AI 聊天网站的长期记忆数据(IndexedDB)。本页面只读写当前浏览器本地数据,不联网、不删除任何内容。
+    </div>
+
+    <div class="warnbox">
+        ⚠️ <b>必须用和聊天网站相同的访问地址打开本工具</b>。IndexedDB 按「协议 + 域名 + 端口」隔离:
+        <br>网站是 <code>http://localhost:8000</code> → 本工具请放同目录下、用 <code>http://localhost:8000/记忆救援工具.html</code> 打开。
+        <br>用 <code>file://</code> 直接打开或换成 <code>127.0.0.1</code> 都读不到数据。
+    </div>
+
+    <div class="card">
+        <h2 style="margin-top:0">① 扫描浏览器里所有记忆库</h2>
+        <div class="row">
+            <button id="btn-scan">🔍 开始扫描</button>
+            <span class="hint" id="scan-hint">列出所有 IndexedDB 库及各库的记忆条数</span>
+        </div>
+        <div id="scan-result" style="margin-top:14px;"></div>
+    </div>
+
+    <div class="card">
+        <h2 style="margin-top:0">② 迁移记忆(救援)</h2>
+        <div class="row">
+            <label>来源库</label>
+            <select id="src-select"><option value="">— 先扫描 —</option></select>
+            <label>目标库</label>
+            <select id="dst-select"><option value="">— 先扫描 —</option></select>
+        </div>
+        <div class="row" style="margin-top:10px;">
+            <button id="btn-preview" class="ghost">👁 预览来源库内容</button>
+            <button id="btn-migrate" class="danger">📦 复制到目标库(只增不删)</button>
+        </div>
+        <div class="hint" style="margin-top:8px;">
+            迁移规则:按 <code>id</code> 去重 —— 目标库已存在的记录跳过,不覆盖、不删除、不改动来源库。
+            记忆与三类日志(提取/命中/注入)都会一起搬。
+        </div>
+        <div id="migrate-result"></div>
+    </div>
+
+    <div class="card">
+        <h2 style="margin-top:0">③ 只读备份(可选)</h2>
+        <div class="row">
+            <button id="btn-backup" class="ghost">💾 导出为 JSON 文件</button>
+            <label>来源库</label>
+            <select id="backup-select"><option value="">— 先扫描 —</option></select>
+        </div>
+        <div class="hint" style="margin-top:8px;">把某个库的记忆 + 日志导出成 JSON 存本地,万一以后要人工恢复用得上。</div>
+    </div>
+
+    <div class="card">
+        <h2 style="margin-top:0">④ 日志</h2>
+        <div class="log" id="log">等待操作…</div>
+    </div>
+</div>
+
+<script>
+const MEM_STORES = ['memories', 'memories_archive', 'memory_events'];
+const ALL_STORES = ['chats', 'snapshots', ...MEM_STORES];
+const DB_VERSION = 3;
+
+const logEl = document.getElementById('log');
+const scanResultEl = document.getElementById('scan-result');
+const migrateResultEl = document.getElementById('migrate-result');
+
+function log(msg) {
+    const t = new Date().toLocaleTimeString('zh-CN');
+    logEl.textContent += `\n[${t}] ${msg}`;
+    logEl.scrollTop = logEl.scrollHeight;
+}
+
+function esc(s) {
+    return String(s == null ? '' : s)
+        .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+/** 打开库(只读,不升级版本)。若库版本低于 3 或不存在记忆 store,则 stores 为空。 */
+function openDb(name) {
+    return new Promise((resolve, reject) => {
+        let req;
+        try { req = indexedDB.open(name); } catch (e) { reject(e); return; }
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => reject(new Error('数据库被其它标签页占用(请关闭聊天网站标签页后重试)'));
+    });
+}
+
+function readAll(db, storeName) {
+    return new Promise((resolve) => {
+        if (!db.objectStoreNames.contains(storeName)) { resolve([]); return; }
+        try {
+            const tx = db.transaction(storeName, 'readonly');
+            const req = tx.objectStore(storeName).getAll();
+            req.onsuccess = () => resolve(req.result || []);
+            req.onerror = () => resolve([]);
+        } catch { resolve([]); }
+    });
+}
+
+function putAll(db, storeName, records) {
+    return new Promise((resolve) => {
+        if (records.length === 0) { resolve({ ok: 0, fail: [] }); return; }
+        let ok = 0;
+        const fail = [];
+        const tx = db.transaction(storeName, 'readwrite');
+        const store = tx.objectStore(storeName);
+        for (const rec of records) {
+            try {
+                const r = store.put(rec);
+                r.onsuccess = () => { ok++; };
+                r.onerror = (e) => { e.preventDefault(); fail.push(rec.id); };
+            } catch (e) {
+                fail.push(rec.id);
+            }
+        }
+        tx.oncomplete = () => resolve({ ok, fail });
+        tx.onerror = () => resolve({ ok, fail });
+        tx.onabort = () => resolve({ ok, fail });
+    });
+}
+
+/** 列出所有 IndexedDB 库名;indexedDB.databases() 不被支持时回退为已知命名规则。 */
+async function listDbNames() {
+    if (indexedDB.databases) {
+        const dbs = await indexedDB.databases();
+        const names = dbs.map(d => d.name).filter(Boolean);
+        if (names.length > 0) return { names, source: 'indexedDB.databases()' };
+    }
+    const fallback = new Set(['ChatAppDB']);
+    // 探测常见账号命名空间:从 localStorage 里能拿到的用户名
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && k.startsWith('auth_') && !k.startsWith('auth_avatar_')) {
+            const v = localStorage.getItem(k);
+            if (v && !v.includes('{') && v.length < 40) fallback.add('ChatAppDB_' + v);
+        }
+    }
+    const probe = ['ChatAppDB'];
+    for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k === 'chat_app_username' || k === 'auth_username') {
+            const v = localStorage.getItem(k);
+            if (v) probe.push('ChatAppDB_' + v);
+        }
+    }
+    probe.forEach(n => fallback.add(n));
+    return { names: [...fallback], source: '回退探测(浏览器不支持 databases())' };
+}
+
+let scanCache = null;
+
+async function scan() {
+    logEl.textContent = '';
+    migrateResultEl.innerHTML = '';
+    scanResultEl.innerHTML = '<div class="hint">扫描中…</div>';
+    log('开始扫描 IndexedDB…');
+    try {
+        const { names, source } = await listDbNames();
+        log(`发现 ${names.length} 个库(来源:${source})`);
+        const rows = [];
+        for (const name of names) {
+            let db, info = { name, version: null, stores: {}, error: null };
+            try {
+                db = await openDb(name);
+                info.version = db.version;
+                for (const st of ALL_STORES) {
+                    info.stores[st] = db.objectStoreNames.contains(st)
+                        ? (await readAll(db, st)).length
+                        : null;
+                }
+            } catch (e) {
+                info.error = e.message || String(e);
+            } finally {
+                try { if (db) db.close(); } catch { }
+            }
+            rows.push(info);
+            log(`  ${name} → ${info.error ? '读取失败:' + info.error : JSON.stringify(info.stores)}`);
+        }
+        scanCache = rows;
+        renderScan(rows);
+    } catch (e) {
+        log('❌ 扫描失败:' + (e.message || e));
+        scanResultEl.innerHTML = `<div class="warnbox">扫描失败:${esc(e.message || e)}</div>`;
+    }
+}
+
+function renderScan(rows) {
+    const memTotal = rows.reduce((s, r) => s + (r.stores.memories || 0) + (r.stores.memories_archive || 0), 0);
+    const logTotal = rows.reduce((s, r) => s + (r.stores.memory_events || 0), 0);
+
+    let html = '';
+    if (memTotal === 0 && logTotal === 0) {
+        html += `<div class="warnbox">⚠️ 所有库里都没有找到记忆数据。说明记忆要么从未成功写入(提取一直失败),
+要么浏览器站点数据已经被清理过 —— 这两种情况都无法恢复,只能重新提取。</div>`;
+    } else {
+        html += `<div class="okbox">✅ 找到 ${memTotal} 条记忆、${logTotal} 条日志。请对照下表判断:
+<b>网站当前显示的库</b>是空的、但<b>另一个库</b>有数据 → 用下面第 ② 步迁移过去。</div>`;
+    }
+
+    html += `<table><thead><tr>
+        <th>库名</th><th>版本</th><th>chats</th><th>memories</th><th>归档</th><th>日志</th><th>说明</th>
+    </tr></thead><tbody>`;
+
+    for (const r of rows) {
+        let tag = '<span class="tag other">?</span>';
+        let desc = '未知库';
+        if (r.name === 'ChatAppDB') {
+            tag = '<span class="tag guest">访客</span>';
+            desc = '未登录时使用的库';
+        } else if (r.name.startsWith('ChatAppDB_')) {
+            tag = '<span class="tag account">账号</span>';
+            desc = '账号 ' + esc(r.name.slice('ChatAppDB_'.length)) + ' 使用的库';
+        } else {
+            desc = '非本应用的库,忽略';
+        }
+        const cell = (v) => v === null
+            ? '<span class="zero">—</span>'
+            : `<span class="${v > 0 ? 'has' : 'zero'}">${v}</span>`;
+
+        html += `<tr>
+            <td>${esc(r.name)}${tag}</td>
+            <td class="num">${r.error ? '?' : r.version}</td>
+            <td class="num">${cell(r.stores.chats)}</td>
+            <td class="num">${cell(r.stores.memories)}</td>
+            <td class="num">${cell(r.stores.memories_archive)}</td>
+            <td class="num">${cell(r.stores.memory_events)}</td>
+            <td>${r.error ? '<span style="color:var(--danger)">' + esc(r.error) + '</span>' : desc}</td>
+        </tr>`;
+    }
+    html += '</tbody></table>';
+    scanResultEl.innerHTML = html;
+    fillSelects(rows);
+}
+
+function fillSelects(rows) {
+    const usable = rows.filter(r => !r.error && (r.stores.memories !== null || r.stores.memory_events !== null));
+    const opts = usable.map(r => {
+        const n = (r.stores.memories || 0) + (r.stores.memories_archive || 0);
+        const e = r.stores.memory_events || 0;
+        return `<option value="${esc(r.name)}">${esc(r.name)}（记忆 ${n} · 日志 ${e}）</option>`;
+    }).join('');
+    for (const id of ['src-select', 'dst-select', 'backup-select']) {
+        const el = document.getElementById(id);
+        el.innerHTML = opts || '<option value="">— 没有可用库 —</option>';
+    }
+    // 智能默认:来源选「有数据的」,目标选「访客库」(未登录)或第一个非来源库
+    const withData = usable.filter(r => (r.stores.memories || 0) + (r.stores.memories_archive || 0) > 0);
+    if (withData.length > 0) document.getElementById('src-select').value = withData[0].name;
+    const guest = usable.find(r => r.name === 'ChatAppDB');
+    if (guest) document.getElementById('dst-select').value = guest.name;
+    else if (usable.length > 1) document.getElementById('dst-select').value = usable.find(r => r.name !== document.getElementById('src-select').value)?.name || '';
+}
+
+document.getElementById('btn-scan').addEventListener('click', scan);
+
+document.getElementById('btn-preview').addEventListener('click', async () => {
+    const src = document.getElementById('src-select').value;
+    if (!src) { alert('请先扫描并选择来源库'); return; }
+    migrateResultEl.innerHTML = '<div class="hint">读取中…</div>';
+    let db;
+    try {
+        db = await openDb(src);
+        const mems = await readAll(db, 'memories');
+        const arch = await readAll(db, 'memories_archive');
+        const events = await readAll(db, 'memory_events');
+        const chats = await readAll(db, 'chats');
+
+        const chatName = (chatId) => {
+            if (chatId === 'global' || chatId == null) return '🌐 全局';
+            const c = chats.find(x => String(x.id) === String(chatId));
+            return c ? (c.settings?.roleName || c.title || '角色') : `(已删除的角色 ${chatId})`;
+        };
+
+        let html = `<div style="margin-top:12px;color:var(--text-dim);font-size:0.82rem;">
+            ${esc(src)}:热层 ${mems.length} 条 / 归档 ${arch.length} 条 / 日志 ${events.length} 条
+        </div>`;
+
+        const list = (arr, title, extra) => {
+            if (arr.length === 0) return '';
+            let s = `<div style="margin-top:10px;"><b>${title}</b>(${arr.length})</div><div class="preview">`;
+            s += arr.slice(0, 50).map(m =>
+                `<div><span class="hint">${esc(chatName(m.chatId))} · A=${m.activation ?? '-'} · ${esc(m.category || '')}</span>
+                 <br>${esc(m.content || JSON.stringify(m).slice(0, 120))}${extra ? '<br><span class="hint">' + esc(extra(m)) + '</span>' : ''}</div>`
+            ).join('');
+            s += '</div>';
+            if (arr.length > 50) s += `<div class="hint" style="margin-top:5px;">…仅显示前 50 条</div>`;
+            return s;
+        };
+
+        html += list(mems, '热层记忆(memories)');
+        html += list(arch, '归档记忆(memories_archive)');
+        if (events.length > 0) {
+            html += `<div style="margin-top:10px;"><b>日志(memory_events)</b>(${events.length})</div><div class="preview">`;
+            const kinds = {};
+            events.forEach(e => { kinds[e.kind] = (kinds[e.kind] || 0) + 1; });
+            html += `<div><span class="hint">${esc(JSON.stringify(kinds))}</span></div>`;
+            html += events.slice(0, 30).map(e =>
+                `<div><span class="hint">${esc(new Date(e.time).toLocaleString('zh-CN'))} · ${esc(e.kind)}</span>
+                 <br>${esc(JSON.stringify(e.detail || {}).slice(0, 160))}</div>`
+            ).join('');
+            html += '</div>';
+        }
+        migrateResultEl.innerHTML = html;
+        log(`预览 ${src}:热层 ${mems.length} / 归档 ${arch.length} / 日志 ${events.length}`);
+    } catch (e) {
+        migrateResultEl.innerHTML = `<div class="warnbox">预览失败:${esc(e.message || e)}</div>`;
+        log('❌ 预览失败:' + (e.message || e));
+    } finally {
+        try { if (db) db.close(); } catch { }
+    }
+});
+
+document.getElementById('btn-migrate').addEventListener('click', async () => {
+    const src = document.getElementById('src-select').value;
+    const dst = document.getElementById('dst-select').value;
+    if (!src || !dst) { alert('请先扫描并选择来源库和目标库'); return; }
+    if (src === dst) { alert('来源库和目标库不能相同'); return; }
+
+    log(`开始迁移 ${src} → ${dst}`);
+    let dbSrc, dbDst;
+    try {
+        dbSrc = await openDb(src);
+        // 目标库需要版本 3 才有记忆 store:用升级版本打开(和网站一致的 schema)
+        dbDst = await openDbForWrite(dst);
+
+        let summary = [];
+        for (const store of MEM_STORES) {
+            if (!dbSrc.objectStoreNames.contains(store)) { summary.push(`${store}: 来源库无此 store,跳过`); continue; }
+            if (!dbDst.objectStoreNames.contains(store)) { summary.push(`${store}: 目标库无此 store,跳过`); continue; }
+            const records = await readAll(dbSrc, store);
+            if (records.length === 0) { summary.push(`${store}: 来源为空,跳过`); continue; }
+            const existing = await readAll(dbDst, store);
+            const existIds = new Set(existing.map(r => String(r.id)));
+            const toCopy = records.filter(r => !existIds.has(String(r.id)));
+            const { ok, fail } = await putAll(dbDst, store, toCopy);
+            summary.push(`${store}: 来源 ${records.length} / 已存在跳过 ${records.length - toCopy.length} / 新增 ${ok}${fail.length ? ' / 失败 ' + fail.length : ''}`);
+            log(`  ${store} → 新增 ${ok},跳过 ${records.length - toCopy.length}${fail.length ? ',失败 ' + fail.length : ''}`);
+        }
+
+        migrateResultEl.innerHTML = '<div class="okbox">✅ 迁移完成:<br>' + summary.map(esc).join('<br>') +
+            '<br><br><b>现在请回到聊天网站刷新页面(Ctrl+F5)</b>,登录到对应账号后打开「个性化设置 → 记忆」查看。</div>';
+        log('✅ 迁移完成');
+        await scan();
+    } catch (e) {
+        migrateResultEl.innerHTML = `<div class="warnbox">迁移失败:${esc(e.message || e)}<br>
+            如果提示「被占用」,请关闭聊天网站的标签页后重试。</div>`;
+        log('❌ 迁移失败:' + (e.message || e));
+    } finally {
+        try { if (dbSrc) dbSrc.close(); } catch { }
+        try { if (dbDst) dbDst.close(); } catch { }
+    }
+});
+
+/** 以可写方式打开目标库:版本 < 3 时升级并补齐记忆 store(与 js/storage/repository.js 一致)。 */
+function openDbForWrite(name) {
+    return new Promise((resolve, reject) => {
+        const req = indexedDB.open(name, DB_VERSION);
+        req.onupgradeneeded = () => {
+            const db = req.result;
+            if (!db.objectStoreNames.contains('chats')) db.createObjectStore('chats', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('snapshots')) db.createObjectStore('snapshots', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('memories')) db.createObjectStore('memories', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('memories_archive')) db.createObjectStore('memories_archive', { keyPath: 'id' });
+            if (!db.objectStoreNames.contains('memory_events')) {
+                const s = db.createObjectStore('memory_events', { keyPath: 'id' });
+                s.createIndex('kind', 'kind', { unique: false });
+                s.createIndex('time', 'time', { unique: false });
+            }
+        };
+        req.onsuccess = () => resolve(req.result);
+        req.onerror = () => reject(req.error);
+        req.onblocked = () => reject(new Error('目标库被其它标签页占用(请关闭聊天网站标签页后重试)'));
+    });
+}
+
+document.getElementById('btn-backup').addEventListener('click', async () => {
+    const name = document.getElementById('backup-select').value;
+    if (!name) { alert('请先扫描并选择库'); return; }
+    let db;
+    try {
+        db = await openDb(name);
+        const data = { exportedAt: new Date().toISOString(), dbName: name, version: db.version, stores: {} };
+        for (const st of ALL_STORES) {
+            data.stores[st] = db.objectStoreNames.contains(st) ? await readAll(db, st) : [];
+        }
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `memory-backup-${name}-${Date.now()}.json`;
+        a.click();
+        setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+        log(`💾 已导出 ${name}(记忆 ${data.stores.memories.length} / 归档 ${data.stores.memories_archive.length} / 日志 ${data.stores.memory_events.length})`);
+    } catch (e) {
+        log('❌ 导出失败:' + (e.message || e));
+    } finally {
+        try { if (db) db.close(); } catch { }
+    }
+});
+
+// 打开即自动扫描一次
+scan();
+</script>
+</body>
+</html>

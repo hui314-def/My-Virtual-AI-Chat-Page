@@ -14,9 +14,16 @@ class Constants {
             TOKEN_USAGE_STATS: 'token_usage_stats',
             SYNC_API_URL: 'sync_api_url',
             GUEST_CLAIMED: 'guest_data_claimed',
+            GUEST_MEMORY_CLAIMED: 'guest_memory_claimed',
             PROMPT_INJECTIONS: 'prompt_injections',
+            // 记忆云同步（按命名空间追加后缀，见 SyncedMemoryRepository）
+            MEMORY_SYNC_PENDING: 'memory_sync_pending',       // 待上传/待删除队列（离线兜底）
+            MEMORY_SYNC_NS_OWNER: 'memory_sync_ns',           // 当前本地记忆数据归属的命名空间
         };
     }
+
+    // ==================== IndexedDB 库名 ====================
+    static get GUEST_DB_NAME() { return 'ChatAppDB'; }        // 未登录（游客）命名空间的库名；登录后为 ChatAppDB_<用户名>
 
     // ==================== 知识库相似度阈值 ====================
     static get SIMILARITY_THRESHOLD() { return 0.4; }
@@ -166,8 +173,10 @@ class Constants {
     static get DEFAULT_MODEL_HOST() { return 'http://localhost:11434'; }
     static get DEFAULT_TTS_API_URL() { return 'http://localhost:5000'; }
     static get DEFAULT_IMG_API_URL() { return 'http://127.0.0.1:5050'; }
+    static get DEFAULT_BGM_API_URL() { return 'http://127.0.0.1:5050'; }
     static get DEFAULT_MODEL_NAME() { return 'gemma2'; }
     static get DEFAULT_KNOWLEDGE_API_URL() { return 'http://localhost:5051'; }
+    static get DEFAULT_ASR_API_URL() { return 'http://localhost:5002'; }  // SenseVoice 本地语音识别服务
 
     // ==================== 语音识别语言 ====================
     static get SPEECH_RECOGNITION_LANG() { return 'zh-CN'; }

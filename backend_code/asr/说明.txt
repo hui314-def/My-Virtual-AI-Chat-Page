@@ -1,0 +1,25 @@
+SenseVoice 语音识别（ASR）后端服务
+====================================
+
+作用：把前端录制的语音转成文字（本地模型，无需联网到国外语音服务，
+      360 安全浏览器等国内网络环境下也能正常使用）。
+
+运行方式（复用 voxcpm2 conda 环境，该环境已装 funasr/modelscope/torch）：
+    D:\Miniconda3\envs\voxcpm2\python.exe asr_server.py
+
+    - 监听端口：5002（可用环境变量 ASR_PORT 修改）
+    - 首次运行会自动从 ModelScope 下载约 1GB 的 SenseVoiceSmall 模型
+      （国内网络可下载；缓存在 MODELSCOPE_CACHE 目录，本机默认 D:\modelscope），
+      之后启动秒级加载
+
+接口：
+    GET  /health   健康检查，返回 { status, ready, device }
+    POST /asr      multipart 上传音频字段 file（建议 16kHz 单声道 WAV），
+                   返回 { text, raw }
+
+前端配合：
+    全局设置 → 模型设置 → 语音识别 (ASR)：
+    - 语音输入方式选「自动」或「本地 SenseVoice」
+    - 服务地址填 http://localhost:5002
+    浏览器会先录音（静音自动停止），再把 WAV 上传到本服务转文字。
+    若服务未启动，「自动」模式会回退到浏览器内置识别。

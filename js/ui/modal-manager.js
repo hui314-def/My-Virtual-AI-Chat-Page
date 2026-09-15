@@ -816,8 +816,36 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 stopAiPreview();   // 重新生成前停止旧试听
                 if (bgMusicAiPlayBtn) bgMusicAiPlayBtn.style.display = 'none';
                 bgMusicAiGenerateBtn.disabled = true;
-                if (bgMusicAiStatus) bgMusicAiStatus.textContent = '⏳ 正在生成英文提示词...';
                 try {
+                    // 0. 先确认背景音乐生成服务可用，再调用模型生成提示词与音频
+                    const bgmApiUrl = SettingsManager.getBgmEffectiveApiUrl();
+                    if (bgMusicAiStatus) bgMusicAiStatus.textContent = '🔌 正在检测 BGM 生成服务...';
+                    let reachable = false, comfyOk = null;
+                    const hCtrl = new AbortController();
+                    const hTimer = setTimeout(() => hCtrl.abort(), 5000);
+                    try {
+                        const hResp = await fetch(`${bgmApiUrl}/health`, { signal: hCtrl.signal });
+                        reachable = true;   // 任何 HTTP 响应都视为后端在线（旧版无 /health 会返回 404 也算可达）
+                        try {
+                            const hData = await hResp.json();
+                            if (hData && typeof hData.comfyui === 'boolean') comfyOk = hData.comfyui;
+                        } catch { /* 旧版服务返回非 JSON，忽略 */ }
+                    } catch (err) {
+                        reachable = false;
+                    } finally {
+                        clearTimeout(hTimer);
+                    }
+                    if (!reachable) {
+                        if (bgMusicAiStatus) bgMusicAiStatus.textContent = '';
+                        this.customAlert(`无法连接背景音乐生成服务：${bgmApiUrl}\n请先运行 backend_code/image_gen/image_gen_api.py，并确认 全局设置 → 模型设置 中的服务地址正确。`, 'error');
+                        return;   // 按钮恢复交给外层 finally
+                    }
+                    if (comfyOk === false) {
+                        if (bgMusicAiStatus) bgMusicAiStatus.textContent = '';
+                        this.customAlert('背景音乐生成服务已连接，但 ComfyUI 未在线。\n音频生成需要 ComfyUI 与 Stable Audio 工作流，请先启动 ComfyUI 再重试。', 'warning');
+                        return;
+                    }
+                    if (bgMusicAiStatus) bgMusicAiStatus.textContent = '⏳ 正在生成英文提示词...';
                     // 1. 模型生成细致具体的英文提示词（辅助任务使用「辅助任务模型」，未设置则跟随主模型）
                     const modelService = ctx.getModelService();
                     modelService.updateConfig(SettingsManager.getAuxRequestConfig());
@@ -835,11 +863,10 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                     if (bgMusicAiStatus) bgMusicAiStatus.textContent = '🎵 正在生成音乐（约 40 秒）...';
 
                     // 2. 请求后端 ComfyUI 生成音乐（返回 MP3 二进制）
-                    const imgApiUrl = SettingsManager.getImgApiUrl();
-                    const imgApiKey = SettingsManager.getImgApiKey();
+                    const bgmApiKey = SettingsManager.getBgmEffectiveApiKey();
                     const headers = { 'Content-Type': 'application/json' };
-                    if (imgApiKey) headers['X-API-Key'] = imgApiKey;
-                    const resp = await fetch(`${imgApiUrl}/generate_audio`, {
+                    if (bgmApiKey) headers['X-API-Key'] = bgmApiKey;
+                    const resp = await fetch(`${bgmApiUrl}/generate_audio`, {
                         method: 'POST', headers,
                         body: JSON.stringify({ positive_prompt: englishPrompt.trim(), negative_prompt: '', duration: 40 })
                     });
@@ -1414,6 +1441,18 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         const ttsApiKeyInput = document.getElementById('tts-api-key');
         if (ttsApiKeyInput) ttsApiKeyInput.value = SettingsManager.getTtsApiKey();
 
+        // 语音识别（SenseVoice 本地识别）
+        const asrApiUrlInput = document.getElementById('asr-api-url');
+        if (asrApiUrlInput) asrApiUrlInput.value = SettingsManager.getAsrApiUrl();
+        const voiceInputModeSelect = document.getElementById('global-voice-input-mode');
+        if (voiceInputModeSelect) voiceInputModeSelect.value = SettingsManager.getVoiceInputMode();
+
+        // 背景音乐（BGM）生成服务
+        const bgmApiUrlInput = document.getElementById('bgm-api-url');
+        if (bgmApiUrlInput) bgmApiUrlInput.value = SettingsManager.getBgmApiUrlForDisplay();
+        const bgmApiKeyInput = document.getElementById('bgm-api-key');
+        if (bgmApiKeyInput) bgmApiKeyInput.value = SettingsManager.getBgmApiKey();
+
         const ctxLimit = SettingsManager.getContextLimit();
         const temp = SettingsManager.getTemperature();
         const topP = SettingsManager.getTopP();
@@ -1553,7 +1592,8 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         'global-temperature', 'global-top-p', 'global-think-level', 'global-max-tokens',
         'global-theme', 'global-font-size', 'tts-api-url', 'tts-api-key',
         'img-api-url', 'img-api-key', 'global-typing-speed', 'global-auto-scroll',
-        'model-provider', 'global-aux-model',
+        'model-provider', 'global-aux-model', 'asr-api-url', 'global-voice-input-mode',
+        'bgm-api-url', 'bgm-api-key',
     ];
 
     /** 捕获当前设置快照（表单控件值 + 头像 + 快捷键 + 提示词注入） */
@@ -1702,6 +1742,10 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             imgApiUrl: document.getElementById('img-api-url').value,
             ttsApiKey: document.getElementById('tts-api-key').value,
             imgApiKey: document.getElementById('img-api-key').value,
+            asrApiUrl: document.getElementById('asr-api-url')?.value || '',
+            voiceInputMode: document.getElementById('global-voice-input-mode')?.value || 'auto',
+            bgmApiUrl: document.getElementById('bgm-api-url')?.value || '',
+            bgmApiKey: document.getElementById('bgm-api-key')?.value || '',
             typingSpeed: parseFloat(document.getElementById('global-typing-speed').value),
             autoScrollAfterSend: document.getElementById('global-auto-scroll').checked,
             modelProvider: document.getElementById('model-provider').value,

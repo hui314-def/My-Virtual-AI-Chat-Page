@@ -19,12 +19,14 @@ export class MemoryPanel {
      * @param {() => number|string|null} deps.getCurrentChatId
      * @param {() => Array} deps.getChats 用于解析 chatId → 角色名
      * @param {Function} deps.getContainerEl 惰性获取渲染容器(#memory-panel-container,位于全局设置弹窗,模板运行时注入)
+     * @param {() => {loggedIn:boolean,pending:number,text?:string}} [deps.getSyncStatus] 云同步状态
      */
-    constructor({ getMemoryRepo, getCurrentChatId, getChats, getContainerEl }) {
+    constructor({ getMemoryRepo, getCurrentChatId, getChats, getContainerEl, getSyncStatus }) {
         this.getMemoryRepo = getMemoryRepo;
         this.getCurrentChatId = getCurrentChatId;
         this.getChats = getChats || (() => []);
         this.getContainerEl = getContainerEl;
+        this.getSyncStatus = getSyncStatus;
         this._logTab = 'extract';   // 'extract' | 'hit' | 'inject'
         this._listTab = 'active';   // 'active' | 'archived'
         this._filter = 'chat';      // 'chat'(当前角色) | 'global' | 'all'
@@ -92,6 +94,8 @@ export class MemoryPanel {
                     ${this.#statCard('归档', archived.length, 'var(--text-dim)')}
                 </div>
 
+                ${this.#renderSyncBar()}
+
                 <!-- 手动添加 -->
                 <div style="text-align:right;">
                     <button id="memory-add-btn" style="background:rgba(79,124,255,0.2);color:#9fb6ff;border:1px solid rgba(79,124,255,0.4);border-radius:10px;padding:5px 14px;font-size:0.75rem;cursor:pointer;">➕ 手动添加记忆</button>
@@ -132,6 +136,27 @@ export class MemoryPanel {
         const toggle = this.containerEl.querySelector('#memory-enabled-toggle');
         toggle?.addEventListener('change', (e) => {
             SettingsManager.update({ memoryEnabled: !!e.target.checked });
+            this.refresh();
+        });
+
+        // 立即同步：拉云端 + 重放本地队列
+        this.containerEl.querySelector('#memory-sync-now')?.addEventListener('click', async (e) => {
+            const btn = e.currentTarget;
+            btn.textContent = '同步中…';
+            btn.disabled = true;
+            try {
+                const repo = this.getMemoryRepo();
+                if (repo.syncNow) {
+                    const r = await repo.syncNow();
+                    const pulled = r && r.pulled && !r.pulled.skipped
+                        ? `拉取 ${r.pulled.total} 条(新增 ${r.pulled.added} / 更新 ${r.pulled.updated} / 删除 ${r.pulled.removed})`
+                        : '拉取跳过';
+                    const pushed = r && r.pushed ? `上传 ${r.pushed.accepted} 条` : '上传跳过';
+                    if (this.onSyncResult) this.onSyncResult(`${pulled}；${pushed}`);
+                }
+            } catch (err) {
+                if (this.onSyncResult) this.onSyncResult('同步失败：' + (err.message || err));
+            }
             this.refresh();
         });
 
@@ -190,7 +215,7 @@ export class MemoryPanel {
                 await repo.saveMemory(memory);
             } else if (action === 'delete' && memory) {
                 if (!confirm(`确定删除记忆「${memory.content}」吗？`)) return;
-                await repo.deleteMemory(id);
+                await repo.deleteMemoryById(id);
             } else if (action === 'pin' && memory) {
                 memory.pinned = !memory.pinned;
                 memory.resident = memory.pinned;   // 固定 = 常驻(不衰减、必注入)
@@ -202,7 +227,7 @@ export class MemoryPanel {
                 await repo.deleteArchived(id);
             } else if (action === 'delete-archived' && archived) {
                 if (!confirm(`确定永久删除归档记忆「${archived.content}」吗？`)) return;
-                await repo.deleteArchived(id);
+                await repo.deleteMemoryById(id);
             }
         } catch (err) {
             console.warn('[MemoryPanel] 操作失败：', err);
@@ -371,6 +396,24 @@ export class MemoryPanel {
         if (logs.length === 0) return '<div style="color:var(--text-dim);font-size:0.78rem;padding:8px 0;">暂无记录。</div>';
         const renderer = { extract: this.#extractLogItem, hit: this.#hitLogItem, inject: this.#injectLogItem }[this._logTab];
         return logs.map(l => renderer.call(this, l)).join('');
+    }
+
+    /** 云同步状态条：标出记忆是否已备份到云端（未登录时提醒）。 */
+    #renderSyncBar() {
+        const status = this.getSyncStatus ? this.getSyncStatus() : { loggedIn: false, pending: 0 };
+        if (!status.loggedIn) {
+            return `<div style="background:rgba(255,200,87,0.1);border:1px solid rgba(255,200,87,0.3);border-radius:10px;padding:8px 12px;font-size:0.74rem;color:#ffc857;">
+                ⚠ 未登录：记忆目前只存在本机浏览器，清除浏览器数据会永久丢失。登录账号后自动同步到云端。
+            </div>`;
+        }
+        const pending = status.pending || 0;
+        return `<div style="background:var(--bg-card-soft);border-radius:10px;padding:8px 12px;font-size:0.74rem;color:var(--text-dim);display:flex;align-items:center;gap:8px;">
+            <span>${pending > 0 ? '🔄' : '☁️'}</span>
+            <span>${escapeHtml(status.text || '已启用云端同步')}</span>
+            <span style="margin-left:auto;display:flex;gap:8px;">
+                <button id="memory-sync-now" style="background:rgba(79,124,255,0.2);color:#9fb6ff;border:1px solid rgba(79,124,255,0.4);border-radius:8px;padding:3px 10px;font-size:0.72rem;cursor:pointer;">立即同步</button>
+            </span>
+        </div>`;
     }
 
     #statCard(label, value, color = 'var(--text-dim)') {

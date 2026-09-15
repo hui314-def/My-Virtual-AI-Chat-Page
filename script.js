@@ -36,6 +36,7 @@ import { UploadBindings } from './js/ui/upload-bindings.js';
 import { MessageSuggest } from './js/chat/message-suggest.js';
 import { CharacterCard } from './js/chat/character-card.js';
 import { MemoryRepository } from './js/memory/memory-repository.js';
+import { SyncedMemoryRepository } from './js/memory/synced-memory-repository.js';
 import { MemoryExtractor } from './js/memory/memory-extractor.js';
 import { MemoryPanel } from './js/memory/memory-panel.js';
 import { MemoryLifecycle } from './js/memory/memory-lifecycle.js';
@@ -56,13 +57,20 @@ const DB_VERSION = Constants.DB_VERSION;
 const STORE_NAME = Constants.STORE_NAME;
 const DEFAULT_SHORTCUTS = Constants.DEFAULT_SHORTCUTS
 const localChatRepo = new ChatRepository(() => getChatRepoDbName());
-const guestChatRepo = new ChatRepository(() => 'ChatAppDB');  // 固定访客库，登录「认领」时读取
-const memoryRepo = new MemoryRepository({ getDb: () => localChatRepo.getDb() });
+const guestChatRepo = new ChatRepository(() => Constants.GUEST_DB_NAME);  // 固定访客库，登录「认领」时读取
+const localMemoryRepo = new MemoryRepository({ getDb: () => localChatRepo.getDb() });
 const backendClient = new BackendClient({
     getBaseUrl: () => getSyncApiUrl(),
     onUnauthorized: () => authManager.handleUnauthorized(),
 });
 setAssetBackendClient(backendClient);
+// 记忆仓库：本地 IndexedDB 为准 + 登录后写穿云端（离线变更入队，联网重放；删除走墓碑）
+const memoryRepo = new SyncedMemoryRepository({
+    localRepo: localMemoryRepo,
+    backendClient,
+    getIsLoggedIn: () => authManager.isLoggedIn(),
+    getNamespace: () => authManager.getNamespace(),
+});
 const chatRepo = new SyncedChatRepository({
     localRepo: localChatRepo,
     backendClient,
@@ -315,7 +323,23 @@ const memoryPanel = new MemoryPanel({
     getCurrentChatId: () => currentChatId,
     getChats: () => chats,
     getContainerEl: () => document.getElementById('memory-panel-container'),
+    // 云同步状态：未登录时记忆只在本机；登录后写穿云端
+    getSyncStatus: () => {
+        const loggedIn = authManager.isLoggedIn();
+        if (!loggedIn) return { loggedIn: false, pending: 0 };
+        const pending = memoryRepo.hasPending() ? 1 : 0;
+        return {
+            loggedIn: true,
+            pending,
+            text: pending > 0
+                ? `已登录 ${authManager.username}：有未上传的本地变更，联网后自动同步`
+                : `已登录 ${authManager.username}：记忆已同步到云端（MySQL），换设备登录同一账号即可看到`,
+        };
+    },
 });
+memoryPanel.onSyncResult = (msg) => {
+    if (modalManager && modalManager.showBriefToast) modalManager.showBriefToast('🧠 ' + msg);
+};
 
 // 提示词注入系统：管理注入到主模型 system prompt 的提示词（内置 + 自定义，开关控制）
 const promptInjectManager = new PromptInjectManager();
@@ -417,7 +441,7 @@ function getSyncApiUrl() {
 // 本地 IndexedDB 库名（按账号命名空间分库）
 function getChatRepoDbName() {
     const ns = authManager.getNamespace();
-    return ns ? `ChatAppDB_${ns}` : 'ChatAppDB';
+    return ns ? `ChatAppDB_${ns}` : Constants.GUEST_DB_NAME;
 }
 
 // 切换本地缓存命名空间（IndexedDB 库 + 设置键）
@@ -425,6 +449,33 @@ function applyNamespace() {
     const ns = authManager.getNamespace();
     localChatRepo.switchNamespace();
     SettingsManager.setNamespace(ns);
+}
+
+/**
+ * 命名空间变更时清理本地记忆，避免「上一个账号」的记忆与当前账号混在一起。
+ * 记忆在登录后是云端同步的，换账号后从云端重新拉取即可；
+ * 未上云的本地变更保存在 localStorage 队列里（按命名空间隔离），换回原账号会重放，不会丢。
+ *
+ * 注意：只在「从一个账号切到另一个账号」时清空。
+ * 访客记忆从不上云，所以退出登录回访客、或从未登录过，都不清（数据只在本地，清掉就真没了）。
+ */
+async function resetMemoryOnNamespaceChange() {
+    const ns = authManager.getNamespace();
+    const key = Constants.STORAGE_KEYS.MEMORY_SYNC_NS_OWNER;
+    let owner = null;
+    try { owner = localStorage.getItem(key); } catch { /* ignore */ }
+    if (owner === ns) return false;
+
+    if (owner) {   // 旧归属是一个账号（非访客）才清理；访客数据不上云，必须保留
+        try {
+            await localMemoryRepo.clearMemoryStores();
+            console.log(`[Memory] 命名空间「${owner}」→「${ns || '访客'}」，已清空本地记忆缓存（云端与未上传队列均保留）`);
+        } catch (err) {
+            console.warn('[Memory] 清空本地记忆失败：', err);
+        }
+    }
+    try { localStorage.setItem(key, ns); } catch { /* ignore */ }
+    return true;
 }
 
 // 首次登录「认领」：仅认领一次（全局标记）。首次登录把访客本地数据迁移到该账号，
@@ -446,6 +497,25 @@ async function claimGuestData() {
         }
         localStorage.setItem(Constants.STORAGE_KEYS.GUEST_CLAIMED, '1');
     } catch (e) { /* 离线：不标记，下次登录再试 */ }
+}
+
+// 登录后把访客库的长期记忆（热层 / 归档 / 三类日志）迁移进账号库。
+// 记忆此前只存本地 IndexedDB，且按账号命名空间分库；若不迁移，首次登录后
+// 记忆面板会「凭空清空」（数据仍留在访客库 ChatAppDB，登出才看得到）。
+// 只增不删：按 id 去重，来源库保持不变。
+async function migrateGuestMemories() {
+    if (!authManager.isLoggedIn()) return;
+    try {
+        if (localStorage.getItem(Constants.STORAGE_KEYS.GUEST_MEMORY_CLAIMED) === '1') return;
+        const res = await memoryRepo.copyStoresFrom(Constants.GUEST_DB_NAME);
+        if (res.error) { console.warn('[Memory] 访客记忆迁移跳过：', res.error); return; }
+        const copied = Object.values(res.copied || {}).reduce((s, n) => s + (n || 0), 0);
+        if (copied > 0) {
+            console.log('[Memory] 已认领访客记忆：', res.copied, '跳过重复', res.skipped);
+            modalManager.showBriefToast(`🧠 已迁移 ${copied} 条游客长期记忆到当前账号`);
+        }
+        localStorage.setItem(Constants.STORAGE_KEYS.GUEST_MEMORY_CLAIMED, '1');
+    } catch (e) { /* 迁移失败不阻塞登录流程，下次再试 */ }
 }
 // 左侧边栏拖动调整宽度
 function initResizer() {
@@ -1574,7 +1644,14 @@ async function refreshAfterAuth() {
     if (authManager.isLoggedIn()) {
         await claimGuestData();  // 首次登录认领（须在切换命名空间前读访客数据）
     }
-    applyNamespace();  // 切换本地缓存命名空间（换抽屉）
+    applyNamespace();  // 切换本地缓存命名空间（换抽屉）：localChatRepo 连接已关闭
+    await resetMemoryOnNamespaceChange();  // 换账号先清空本地记忆，避免跨账号串数据
+    await migrateGuestMemories();  // 认领游客长期记忆（须在清空之后、读记忆之前）
+    memoryRepo.resetThrottle();
+    // 登录后立刻做一次记忆云同步（拉云端 + 重放离线队列）；未登录时内部直接返回
+    memoryRepo.syncNow()
+        .then(r => { if (r && !r.skipped) console.log('[Memory] 云同步完成:', r.pushed, r.pulled); })
+        .catch(err => console.warn('[Memory] 云同步失败（保留本地，稍后重试）:', err));
     await syncSettingsFromServer();
     authManager.render();  // 此时已是账号命名空间 + 账号设置，重新渲染账号头像
     await reloadChatsIntoState();
@@ -1881,6 +1958,139 @@ function bindSettingsPanel() {
             }
         };
         testBtn.addEventListener('click', testBtn._testHandler);
+    }
+
+    // 测试连接按钮：语音识别 (SenseVoice) — 直接从输入框读取地址
+    const asrTestBtn = document.getElementById('test-asr-connection-btn');
+    if (asrTestBtn) {
+        asrTestBtn.removeEventListener('click', asrTestBtn._asrTestHandler);
+        asrTestBtn._asrTestHandler = async function () {
+            const statusEl = document.getElementById('asr-connection-status');
+            if (!statusEl) return;
+            const url = (document.getElementById('asr-api-url')?.value || '').trim().replace(/\/+$/, '');
+            if (!url) {
+                statusEl.innerHTML = '<span style="color: #ff7a5c;">❌ 请先填写 SenseVoice 服务地址</span>';
+                return;
+            }
+            statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 5000);
+            let resp;
+            try {
+                resp = await fetch(`${url}/health`, { signal: ctrl.signal });
+            } catch (err) {
+                clearTimeout(timer);
+                statusEl.innerHTML = `<span style="color: #ff7a5c;">❌ 无法连接 SenseVoice 服务：${err.name === 'AbortError' ? '连接超时' : err.message}（请确认已运行 backend_code/asr/asr_server.py）</span>`;
+                return;
+            }
+            clearTimeout(timer);
+            try {
+                const data = await resp.json();
+                const dev = data.device ? `（${data.device}）` : '';
+                if (data.ready) {
+                    statusEl.innerHTML = `<span style="color: #2effb0;">✅ SenseVoice 服务正常${dev}，模型已就绪</span>`;
+                } else {
+                    statusEl.innerHTML = `<span style="color: #ffd75e;">⚠️ 服务在线${dev}，模型加载中，请稍候再试</span>`;
+                }
+            } catch (err) {
+                statusEl.innerHTML = `<span style="color: #ff7a5c;">❌ 服务响应异常（HTTP ${resp.status}），请检查服务地址是否正确</span>`;
+            }
+        };
+        asrTestBtn.addEventListener('click', asrTestBtn._asrTestHandler);
+    }
+
+    // 测试连接按钮：图片生成 — 直接从输入框读取地址
+    const imgTestBtn = document.getElementById('test-img-connection-btn');
+    if (imgTestBtn) {
+        imgTestBtn.removeEventListener('click', imgTestBtn._imgTestHandler);
+        imgTestBtn._imgTestHandler = async function () {
+            const statusEl = document.getElementById('img-connection-status');
+            if (!statusEl) return;
+            const url = (document.getElementById('img-api-url')?.value || '').trim().replace(/\/+$/, '');
+            if (!url) {
+                statusEl.innerHTML = '<span style="color: #ff7a5c;">❌ 请先填写图片生成 API 地址</span>';
+                return;
+            }
+            statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 5000);
+            let resp;
+            try {
+                resp = await fetch(`${url}/health`, { signal: ctrl.signal });
+            } catch (err) {
+                clearTimeout(timer);
+                statusEl.innerHTML = `<span style="color: #ff7a5c;">❌ 无法连接图片生成服务：${err.name === 'AbortError' ? '连接超时' : err.message}（请确认服务已启动）</span>`;
+                return;
+            }
+            clearTimeout(timer);
+            // 任何 HTTP 响应都说明服务可达；仅网络层失败判定为无法连接
+            let ok = true, warn = false, msg = '';
+            try {
+                const data = await resp.json();
+                if (data && typeof data.comfyui === 'boolean') {
+                    if (data.comfyui) {
+                        msg = '✅ 图片生成服务正常，ComfyUI 在线';
+                    } else {
+                        warn = true;
+                        msg = '⚠️ 图片生成服务在线，但 ComfyUI 未连接（请先启动 ComfyUI）';
+                    }
+                } else {
+                    msg = '✅ 图片生成服务可达';
+                }
+            } catch (err) {
+                msg = `✅ 图片生成服务可达（HTTP ${resp.status}；旧版服务无 /health 详情）`;
+            }
+            const color = !ok ? '#ff7a5c' : (warn ? '#ffd75e' : '#2effb0');
+            statusEl.innerHTML = `<span style="color: ${color};">${msg}</span>`;
+        };
+        imgTestBtn.addEventListener('click', imgTestBtn._imgTestHandler);
+    }
+
+    // 测试连接按钮：背景音乐 (BGM) 生成 — 直接从输入框读取地址
+    const bgmTestBtn = document.getElementById('test-bgm-connection-btn');
+    if (bgmTestBtn) {
+        bgmTestBtn.removeEventListener('click', bgmTestBtn._bgmTestHandler);
+        bgmTestBtn._bgmTestHandler = async function () {
+            const statusEl = document.getElementById('bgm-connection-status');
+            if (!statusEl) return;
+            const url = (document.getElementById('bgm-api-url')?.value || '').trim().replace(/\/+$/, '');
+            if (!url) {
+                statusEl.innerHTML = '<span style="color: #ff7a5c;">❌ 请先填写 BGM 服务地址</span>';
+                return;
+            }
+            statusEl.innerHTML = '<span style="color: #b7c4ff;"><i class="fas fa-spinner fa-pulse"></i> 检测中…</span>';
+            const ctrl = new AbortController();
+            const timer = setTimeout(() => ctrl.abort(), 5000);
+            let resp;
+            try {
+                resp = await fetch(`${url}/health`, { signal: ctrl.signal });
+            } catch (err) {
+                clearTimeout(timer);
+                statusEl.innerHTML = `<span style="color: #ff7a5c;">❌ 无法连接 BGM 生成服务：${err.name === 'AbortError' ? '连接超时' : err.message}（请确认音频生成服务已启动）</span>`;
+                return;
+            }
+            clearTimeout(timer);
+            // 任何 HTTP 响应都说明服务可达；仅网络层失败判定为无法连接
+            let warn = false, msg = '';
+            try {
+                const data = await resp.json();
+                if (data && typeof data.comfyui === 'boolean') {
+                    if (data.comfyui) {
+                        msg = '✅ BGM 生成服务正常，ComfyUI 在线';
+                    } else {
+                        warn = true;
+                        msg = '⚠️ BGM 生成服务在线，但 ComfyUI 未连接（音频生成需 ComfyUI + Stable Audio 工作流）';
+                    }
+                } else {
+                    msg = '✅ BGM 生成服务可达';
+                }
+            } catch (err) {
+                msg = `✅ BGM 生成服务可达（HTTP ${resp.status}；旧版服务无 /health 详情）`;
+            }
+            const color = warn ? '#ffd75e' : '#2effb0';
+            statusEl.innerHTML = `<span style="color: ${color};">${msg}</span>`;
+        };
+        bgmTestBtn.addEventListener('click', bgmTestBtn._bgmTestHandler);
     }
 
     // 新增：保存预设按钮（手动将当前填写的 Host/Key 以及当前的 Provider 模型列表落库）

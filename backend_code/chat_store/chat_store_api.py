@@ -1,6 +1,7 @@
-"""聊天存储服务：健康检查 + 注册/登录/JWT + 聊天记录与设置数据 API。"""
+"""聊天存储服务：健康检查 + 注册/登录/JWT + 聊天记录、长期记忆与设置数据 API。"""
 import json
 import os
+import time
 import uvicorn
 from fastapi import FastAPI, Request, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
@@ -454,6 +455,201 @@ async def put_settings(request: Request, user_id: int = Depends(get_current_user
     finally:
         conn.close()
     return {'updatedAt': _iso(row['updated_at']) if row else None}
+
+
+# ============ 长期记忆（跨设备同步） ============
+# 冲突消解：以记忆记录自带的 updatedAt(ms) 为权威时间戳，遵循「最新写入胜出」。
+# 服务端时间戳不比请求新时直接跳过 → 重复上传幂等（离线补传 / 断线重放安全）。
+# 删除走**墓碑**(deleted=1)，客户端据此清理本地副本，避免离线删除后被重新拉回。
+MEMORY_MAX_BATCH = 500          # 单次批量上传上限
+MEMORY_TOMBSTONE_KEEP_DAYS = 90  # 墓碑保留期，超期清理（长期未上线的设备可能复活旧记忆，可接受）
+
+def _memory_updated_at(record):
+    """取记录内嵌的客户端时间戳（毫秒）；缺失时返回 0（会被已有记录击败）。"""
+    try:
+        v = record.get('updatedAt')
+        return int(v) if v is not None else 0
+    except (TypeError, ValueError):
+        return 0
+
+
+def _memory_row(row):
+    """DB 行 → 客户端记忆记录（内嵌 _serverUpdatedAt）。"""
+    record = _parse_json(row['data'])
+    if not isinstance(record, dict):
+        record = {}
+    record['_serverUpdatedAt'] = _iso(row['updated_at'])
+    return record
+
+
+@app.get('/api/memories')
+def list_memories(user_id: int = Depends(get_current_user_id)):
+    """返回该用户的全部记忆记录，`deleted: true` 的为删除墓碑。"""
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT id, chat_id, data, deleted, updated_at FROM memories WHERE user_id=%s',
+                (user_id,),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+
+    memories = []
+    tombstones = []
+    for r in rows:
+        if r['deleted']:
+            tombstones.append({
+                'id': r['id'],
+                'updatedAt': _memory_updated_at(_parse_json(r['data']) or {}),
+                'deletedAt': _iso(r['updated_at']),
+            })
+        else:
+            memories.append(_memory_row(r))
+    return {'memories': memories, 'tombstones': tombstones}
+
+
+@app.put('/api/memories')
+async def upsert_memories(request: Request, user_id: int = Depends(get_current_user_id)):
+    """批量 upsert（写穿目标）。请求体 `{memories: [...]}`，返回各条结果的统计。"""
+    body = await request.json()
+    if not isinstance(body, dict) or not isinstance(body.get('memories'), list):
+        raise HTTPException(status_code=400, detail='请求体需为 {memories: [...]}')
+    records = body['memories']
+    if len(records) > MEMORY_MAX_BATCH:
+        raise HTTPException(status_code=400, detail=f'单次最多上传 {MEMORY_MAX_BATCH} 条')
+
+    accepted, skipped, ids = 0, 0, []
+    for rec in records:
+        if not isinstance(rec, dict) or not rec.get('id'):
+            continue
+        ids.append(str(rec['id']))
+
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            # 先取已有记录的 updatedAt，做「最新胜出」比较（避免被旧数据覆盖）
+            existing = {}
+            if ids:
+                placeholders = ','.join(['%s'] * len(ids))
+                cur.execute(
+                    f'SELECT id, data, deleted FROM memories WHERE user_id=%s AND id IN ({placeholders})',
+                    (user_id, *ids),
+                )
+                for r in cur.fetchall():
+                    existing[r['id']] = (_memory_updated_at(_parse_json(r['data']) or {}), bool(r['deleted']))
+
+            for rec in records:
+                if not isinstance(rec, dict) or not rec.get('id'):
+                    continue
+                mid = str(rec['id'])
+                incoming = _memory_updated_at(rec)
+                prev = existing.get(mid)
+                if prev is not None:
+                    prev_ts, prev_deleted = prev
+                    # 库里的墓碑比请求新 → 保持删除态，不接受这条复活写入
+                    if prev_deleted and prev_ts >= incoming:
+                        skipped += 1
+                        continue
+                    if prev_ts > incoming:
+                        skipped += 1
+                        continue
+                chat_id = rec.get('chatId')
+                chat_id = '' if chat_id is None else str(chat_id)
+                cur.execute(
+                    'REPLACE INTO memories (id, user_id, chat_id, data, deleted) VALUES (%s, %s, %s, %s, 0)',
+                    (mid, user_id, chat_id, json.dumps(rec, ensure_ascii=False)),
+                )
+                accepted += 1
+    finally:
+        conn.close()
+    return {'accepted': accepted, 'skipped': skipped}
+
+
+def _mark_memories_deleted(user_id, memory_ids):
+    """把若干记忆标记为删除墓碑（幂等）。返回处理条数。"""
+    now_ms = int(time.time() * 1000)
+    count = 0
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            for mid in memory_ids:
+                mid = str(mid)
+                cur.execute(
+                    'SELECT data, deleted FROM memories WHERE user_id=%s AND id=%s',
+                    (user_id, mid),
+                )
+                row = cur.fetchone()
+                if row:
+                    data = _parse_json(row['data']) or {}
+                    data['updatedAt'] = now_ms      # 墓碑时间戳须最新，才能击败其它设备的旧副本
+                    cur.execute(
+                        'UPDATE memories SET deleted=1, data=%s WHERE user_id=%s AND id=%s',
+                        (json.dumps(data, ensure_ascii=False), user_id, mid),
+                    )
+                else:
+                    # 服务端从未见过这条记忆（纯本地新建就被删）→ 也留墓碑，
+                    # 否则离线设备上线后仍会上传并「复活」它
+                    data = {'id': mid, 'updatedAt': now_ms, 'deleted': True}
+                    cur.execute(
+                        'REPLACE INTO memories (id, user_id, chat_id, data, deleted) VALUES (%s, %s, %s, %s, 1)',
+                        (mid, user_id, '', json.dumps(data, ensure_ascii=False)),
+                    )
+                count += 1
+    finally:
+        conn.close()
+    return {'deleted': count}
+
+
+@app.delete('/api/memories')
+def delete_memories_bulk(ids: str = '', user_id: int = Depends(get_current_user_id)):
+    """批量删除：`?ids=a,b,c`（写墓碑）。"""
+    id_list = [x.strip() for x in (ids or '').split(',') if x.strip()]
+    if not id_list:
+        raise HTTPException(status_code=400, detail='请通过 ?ids= 指定要删除的记忆 id')
+    return _mark_memories_deleted(user_id, id_list)
+
+
+@app.delete('/api/memories/{memory_id}')
+def delete_memory(memory_id: str, user_id: int = Depends(get_current_user_id)):
+    """删除单条记忆（写墓碑；不存在也返回成功，保证幂等）。"""
+    return _mark_memories_deleted(user_id, [memory_id])
+
+
+@app.delete('/api/memories/by-chat/{chat_id}')
+def delete_memories_by_chat(chat_id: str, user_id: int = Depends(get_current_user_id)):
+    """按角色域删除该对话的全部记忆（删除对话时级联）。写墓碑而非物理删除。"""
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'SELECT id, data FROM memories WHERE user_id=%s AND chat_id=%s AND deleted=0',
+                (user_id, str(chat_id)),
+            )
+            rows = cur.fetchall()
+    finally:
+        conn.close()
+    if not rows:
+        return {'deleted': 0}
+    return _mark_memories_deleted(user_id, [r['id'] for r in rows])
+
+
+@app.delete('/api/memories-cleanup')
+def cleanup_memory_tombstones(user_id: int = Depends(get_current_user_id)):
+    """清理超过保留期的墓碑（可选维护接口）。"""
+    conn = db.get_conn()
+    try:
+        with conn.cursor() as cur:
+            cur.execute(
+                'DELETE FROM memories WHERE user_id=%s AND deleted=1 '
+                'AND updated_at < DATE_SUB(NOW(3), INTERVAL %s DAY)',
+                (user_id, MEMORY_TOMBSTONE_KEEP_DAYS),
+            )
+            removed = cur.rowcount
+    finally:
+        conn.close()
+    return {'removed': removed}
 
 
 if __name__ == '__main__':

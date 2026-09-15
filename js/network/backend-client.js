@@ -15,13 +15,21 @@ export class BackendClient {
     getToken() { return this.token; }
 
     /** 统一请求：自动带 Bearer token，解析 JSON，统一抛错。 */
-    async #request(method, path, body) {
+    async #request(method, path, body, query) {
         const headers = { 'Content-Type': 'application/json' };
         if (this.token) headers['Authorization'] = `Bearer ${this.token}`;
 
+        let url = this.getBaseUrl() + path;
+        if (query) {
+            const qs = new URLSearchParams(
+                Object.entries(query).filter(([, v]) => v !== undefined && v !== null)
+            ).toString();
+            if (qs) url += (path.includes('?') ? '&' : '?') + qs;
+        }
+
         let resp;
         try {
-            resp = await fetch(this.getBaseUrl() + path, {
+            resp = await fetch(url, {
                 method,
                 headers,
                 body: body === undefined ? undefined : JSON.stringify(body),
@@ -120,6 +128,26 @@ export class BackendClient {
     }
     putSettings(settings) {
         return this.#request('PUT', '/api/settings', { settings });
+    }
+
+    // ===== 长期记忆（跨设备同步） =====
+    getMemories() {
+        return this.#request('GET', '/api/memories');
+    }
+    putMemory(memory) {
+        return this.#request('PUT', '/api/memories', { memories: [memory] });
+    }
+    putMemories(memories) {
+        return this.#request('PUT', '/api/memories', { memories });
+    }
+    deleteMemory(memoryId) {
+        return this.#request('DELETE', `/api/memories/${encodeURIComponent(memoryId)}`);
+    }
+    deleteMemoriesBulk(ids) {
+        return this.#request('DELETE', '/api/memories', undefined, { ids: (ids || []).join(',') });
+    }
+    deleteMemoriesByChat(chatId) {
+        return this.#request('DELETE', `/api/memories/by-chat/${encodeURIComponent(chatId)}`);
     }
 }
 
