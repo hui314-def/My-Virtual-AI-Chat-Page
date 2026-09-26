@@ -3,16 +3,19 @@ import { escapeHtml, getCurrentTime, formatDate, renderMessageWithThink, renderT
 import { SettingsManager } from '../core/settings-manager.js';
 import Constants from '../core/constants.js';
 import { resolveAssetUrl } from '../network/asset-sync.js';
+import { isGroupChat, resolveMembers, MEMBER_HUES } from '../group/group-core.js';
 
 export class ChatIO {
     /**
      * @param {Object} deps
      * @param {Function} deps.saveAllChats - 保存所有对话的函数（例如 chatRepo.saveAllChats）
      * @param {string} deps.cachedCSS - 可选，预缓存的 CSS 文本（用于导出 HTML）
+     * @param {() => Array} [deps.getChats] - 惰性获取全部会话（群聊导出时用于解析成员头像）
      */
-    constructor({ saveAllChats, cachedCSS = '' } = {}) {
+    constructor({ saveAllChats, cachedCSS = '', getChats = () => [] } = {}) {
         this.saveAllChats = saveAllChats;
         this.cachedCSS = cachedCSS;
+        this.getChats = getChats;
         // CSS 加载状态机：'idle' | 'loading' | 'done' | 'failed'
         // 用于支持并发：多次导出时复用同一个 Promise
         this._cssState = cachedCSS ? 'done' : 'idle';
@@ -113,14 +116,25 @@ export class ChatIO {
      */
     #exportHTMLSync(chat, cssText) {
         const settings = chat.settings || Constants.DEFAULT_SETTINGS;
+        const isGroup = isGroupChat(chat);
+        // 群聊用「群聊名称」；私聊沿用「角色名 · 对话记录」
         const roleName = escapeHtml(settings.roleName || Constants.DEFAULT_ROLE_NAME);
-        const title = `${roleName} · 对话记录`;
+        const title = isGroup
+            ? escapeHtml(chat.title || '群聊') + ' · 对话记录'
+            : `${roleName} · 对话记录`;
         const dateStr = chat.date.toLocaleString(Constants.SPEECH_RECOGNITION_LANG);
         const userAvatar = SettingsManager.getAvatar();
         const bgImageUrl = resolveAssetUrl(chat.settings?.bgImageUrl || chat.settings?.bgUrl); // 兼容旧数据
         const bodyBgStyle = bgImageUrl
             ? `background: linear-gradient(0deg, rgba(0, 0, 0, 0.65), rgba(0, 0, 0, 0.55)), url(${bgImageUrl}) center/cover no-repeat fixed;`
             : `background: #030305;`;
+
+        // 群聊：解析成员（用于发言人名字与各自的头像）
+        const members = isGroup ? resolveMembers(chat, this.getChats()) : [];
+        const hueOf = (memberId) => {
+            const i = members.findIndex(m => m.memberId === memberId);
+            return MEMBER_HUES[(i < 0 ? 0 : i) % MEMBER_HUES.length];
+        };
 
         const messagesHtml = (chat.topics || []).map((topic, idx) => {
             let html = '';
@@ -131,16 +145,36 @@ export class ChatIO {
                 const isAi = msg.type === 'ai';
                 const bubbleContent = isAi ? renderMessageWithThink(msg.text, true, msg.thinkSeconds ?? null) : renderTextWithActions(msg.text);
                 const timeHtml = `<div class="msg-time">${escapeHtml(msg.time || '')}${isAi && msg.modelName ? `<span>🤖 ${escapeHtml(msg.modelName)}</span>` : ''}</div>`;
+
+                // 群聊：按成员取头像；私聊：沿用该会话设置的头像
+                let memberAvatar = null;
+                if (isGroup && isAi && msg.memberId) {
+                    memberAvatar = members.find(m => m.memberId === msg.memberId)?.avatarUrl || null;
+                }
+                const aiAvatarUrl = isGroup ? memberAvatar : settings.avatarUrl;
+
                 const avatarHtml = isAi
-                    ? (settings.avatarUrl ? `<img src="${resolveAssetUrl(settings.avatarUrl)}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>')
+                    ? (aiAvatarUrl ? `<img src="${resolveAssetUrl(aiAvatarUrl)}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">` : '<i class="fas fa-robot"></i>')
                     : (userAvatar && userAvatar.startsWith('data:image')
                         ? `<img src="${userAvatar}" style="width:50px;height:50px;border-radius:50%;object-fit:cover;">`
                         : '<i class="fas fa-user-astronaut"></i>');
+
+                // 群聊：气泡顶部显示发言人（导出为静态文档 → 颜色内联，不依赖 CSS 变量）
+                let senderHtml = '';
+                let memberAttr = '';
+                let bubbleStyle = '';
+                if (isGroup && isAi && msg.memberId) {
+                    const hue = hueOf(msg.memberId);
+                    senderHtml = `<div class="msg-sender" style="color:hsl(${hue},80%,78%);">${escapeHtml(msg.memberName || '成员')}</div>`;
+                    memberAttr = ` data-member="${escapeHtml(msg.memberId)}"`;
+                    bubbleStyle = ` style="border-color:hsla(${hue},70%,62%,0.45);border-left:3px solid hsla(${hue},80%,64%,0.85);"`;
+                }
+
                 return `
-                <div class="message ${msg.type}">
+                <div class="message ${msg.type}"${memberAttr}>
                     <div class="avatar-msg">${avatarHtml}</div>
-                    <div class="bubble">
-                        ${bubbleContent}
+                    <div class="bubble"${bubbleStyle}>
+                        ${senderHtml}${bubbleContent}
                         ${timeHtml}
                     </div>
                 </div>`;
@@ -184,6 +218,8 @@ export class ChatIO {
         .export-container { max-width: 800px; margin: 0 auto; padding: 20px; background: transparent !important; min-height: 100vh; }
         h1 { color: #5f7eff; margin-bottom: 10px; }
         .export-date { color: #8e8eb3; margin-bottom: 30px; }
+        /* 群聊：发言人名字（群聊导出的气泡颜色已内联，这里只补基础排版） */
+        .msg-sender { font-size: 0.76rem; font-weight: 600; margin-bottom: 5px; line-height: 1.2; }
     </style>
 </head>
 <body>

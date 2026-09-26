@@ -19,6 +19,10 @@ class Constants {
             // 记忆云同步（按命名空间追加后缀，见 SyncedMemoryRepository）
             MEMORY_SYNC_PENDING: 'memory_sync_pending',       // 待上传/待删除队列（离线兜底）
             MEMORY_SYNC_NS_OWNER: 'memory_sync_ns',           // 当前本地记忆数据归属的命名空间
+            // 内隐状态系统（AI 人格深度）
+            IMPLICIT_STATE_PANEL_POS: 'implicit_state_panel_pos',            // 悬浮卡片位置（桌面）
+            IMPLICIT_STATE_PANEL_POS_M: 'implicit_state_panel_pos_mobile',   // 悬浮卡片位置（移动端）
+            IMPLICIT_STATE_FIELD_TEMPLATE: 'implicit_state_field_template',  // 全局字段模板（新对话初始定义）
         };
     }
 
@@ -138,7 +142,10 @@ class Constants {
             maxTokens: 500,         // 最大生成 token 数
             userProfileName: '',    // 对话级用户昵称（留空 = 跟随全局「对话设定」）
             userProfileBio: '',     // 对话级用户简介（留空 = 跟随全局「对话设定」）
-            memoryEnabled: true     // 对话级记忆开关：true/false/null(=跟随全局)
+            memoryEnabled: true,    // 对话级记忆开关：true/false/null(=跟随全局)
+            // 内隐状态（AI 人格深度）：对话级开关，默认关闭；开启入口在「对话设置」弹窗
+            implicitStateEnabled: false,     // 本对话是否启用内隐状态
+            implicitStatePanelVisible: true  // 是否显示「内隐状态」悬浮卡片
         };
     }
 
@@ -168,6 +175,28 @@ class Constants {
     static get MEMORY_REPEAT_WINDOW() { return 6; }            // 重复命中统计窗口轮数
     static get MEMORY_L2_THRESHOLD() { return 0.55; }          // L2 向量召回相似度阈值
     static get MEMORY_L2_TOP_K() { return 5; }                 // L2 向量召回 Top-K
+
+    // ==================== 内隐状态系统参数（AI 人格深度）====================
+    // 状态数据版本：结构变化时 +1（topic.implicitState.version）
+    static get IMPLICIT_STATE_VERSION() { return 1; }
+    // 结算时提供给模型的最近消息条数（保留 <soul>、剥离 <think>）
+    static get IMPLICIT_STATE_CONTEXT_LEN() { return 20; }
+    // 手动「立即更新」时的消息条数
+    static get IMPLICIT_STATE_MANUAL_CONTEXT_LEN() { return 6; }
+    // 提取请求参数（辅助任务模型）
+    static get IMPLICIT_STATE_TEMPERATURE() { return 0.2; }
+    static get IMPLICIT_STATE_MAX_TOKENS() { return 600; }
+    static get IMPLICIT_STATE_TIMEOUT_MS() { return 20000; }        // 超时视为失败：保留旧状态
+    // 回复落库后延迟结算，让出打字机/存储的主线程
+    static get IMPLICIT_STATE_TRIGGER_DELAY_MS() { return 300; }
+    // 云同步防抖：话题级 diff 是「整话题上传」，合并同一话题的连续 patch
+    static get IMPLICIT_STATE_SAVE_DEBOUNCE_MS() { return 2000; }
+    // 每个话题的快照环形上限
+    static get IMPLICIT_STATE_HISTORY_MAX() { return 50; }
+    // 文本字段默认截断长度（单字段）
+    static get IMPLICIT_STATE_TEXT_MAXLEN() { return 80; }
+    // 注入块字符上限（约 120~200 tokens）
+    static get IMPLICIT_STATE_BLOCK_MAX_CHARS() { return 400; }
 
     // ==================== 模型参数默认值 ====================
     static get DEFAULT_MODEL_HOST() { return 'http://localhost:11434'; }

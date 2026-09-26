@@ -164,8 +164,24 @@ export class MessageSuggest {
         const chats = this.getChats();
         const chat = chats.find(c => c.id == this.getCurrentChatId());
         const settings = (chat && chat.settings) || Constants.DEFAULT_SETTINGS;
-        const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
-        const rolePersona = settings.persona || '';
+
+        // 群聊：语境换成「群成员名单」，历史记录里标注发言人（D12）。
+        // 无论私聊还是群聊，建议始终以**用户视角**生成——不指定某个成员的人设。
+        const isGroup = !!(chat && chat.kind === 'group');
+        const groupMemberLines = isGroup
+            ? (chat.members || []).map((m, i) => {
+                const src = chats.find(c => c.id == m.sourceChatId);
+                const persona = String(src?.settings?.persona || '').replace(/\s+/g, ' ').slice(0, 90);
+                return `- ${m.displayName || `成员${i + 1}`}${persona ? `：${persona}` : ''}`;
+            })
+            : [];
+        const groupNames = (chat?.members || []).map(m => m.displayName).filter(Boolean);
+
+        const roleName = isGroup
+            ? (groupNames.join('、') || '群成员')
+            : (settings.roleName || Constants.DEFAULT_ROLE_NAME);
+        const rolePersona = isGroup ? '' : (settings.persona || '');
+
         const settingsManager = this.getSettingsManager();
         // 用户画像：优先当前对话设置，留空则回退全局「对话设定」。
         // 与 simulateAIResponse 一致：默认用户名在系统提示中显示为「用户」
@@ -188,22 +204,34 @@ export class MessageSuggest {
             .map(m => {
                 // AI 消息剥离隐藏内容：语境里不需要模型的 <think> / <soul> 内心独白
                 const text = m.type === 'user' ? (m.text || '') : stripHiddenTags(m.text || '');
-                return `${m.type === 'user' ? userName : roleName}：${text}`;
+                // 群聊：以「发言人：内容」标注，便于理解多角色语境
+                const speaker = m.type === 'user' ? userName : (m.memberName || roleName);
+                return `${speaker}：${text}`;
             })
             .join('\n');
 
-        return `【对话中的角色简介】
+        const castBlock = isGroup
+            ? `【群聊中的角色】
+${groupMemberLines.join('\n') || '（暂无成员信息）'}`
+            : `【对话中的角色简介】
 姓名：${roleName}
-${rolePersona ? '简介：' + rolePersona : ''}
+${rolePersona ? '简介：' + rolePersona : ''}`;
+
+        const taskTarget = isGroup ? '群里的这些角色' : '角色';
+        const mentionHint = isGroup
+            ? '\n注意：这是一个群聊，你可以在消息里用「@角色名」直接点名希望某位角色发言。'
+            : '';
+
+        return `${castBlock}
 
 【最近的对话记录】
 ${contextLines || '（暂无对话记录）'}
 
 【任务】
-你现在的身份是「${userName}」（正在与角色对话的用户）的对话灵感助手。
+你现在的身份是「${userName}」（正在与${taskTarget}对话的用户）的对话灵感助手。
 请阅读上面的对话记录，基于当前对话语境（剧情走向、角色的性格与说话方式），
-站在「${userName}」的视角，生成 3 条【用户接下来可以发送给角色】的候选消息，
-帮助用户自然地把对话继续下去。
+站在「${userName}」的视角，生成 3 条【用户接下来可以发送】的候选消息，
+帮助用户自然地把对话继续下去。${mentionHint}
 
 请只输出一个 JSON 对象，格式严格如下：
 {"suggestions":[{"kind":"种类名","content":"消息内容"}]}

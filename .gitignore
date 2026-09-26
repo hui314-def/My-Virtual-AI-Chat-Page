@@ -4,6 +4,7 @@ __pycache__/
 
 # Ignore Chroma database folder
 chroma_db/
+chroma_db_backup_1789558912
 
 # Ignore model files
 local_model/
@@ -11,6 +12,12 @@ local_model/
 # Ignore audio cache folders
 audio_cache/
 *音频缓存*
+
+# QQ 接入桥接服务的运行数据（含推送来的配置镜像与模型 API Key、以及合成语音缓存）
+backend_code/qq_bot/data/
+backend_code/qq_bot/__pycache__/
+# 自检脚本的临时配置（每次运行重建，不应入库）
+backend_code/qq_bot/_selfcheck_tmp/
 
 # Ignore settings folders
 .vscode/
@@ -29,3 +36,4 @@ plans/
 conda_start.bat
 backend_code/tts/voice_map.json
 assets/
+tests/

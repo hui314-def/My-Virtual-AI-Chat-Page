@@ -64,12 +64,13 @@ REM ---------- 安装菜单（支持多选） ----------
 echo  ------------------------------------------------------------
 echo   请选择要安装的服务（可多选，例如输入 234 或 2 3 4）：
 echo.
-echo    [1] 全部安装（图片生成 + 知识库 + 两种语音合成）
+echo    [1] 全部安装（图片生成 + 知识库 + 两种语音合成 + 聊天存储 + QQ接入）
 echo    [2] 图片生成服务  （image_gen，需配合 ComfyUI）
 echo    [3] 知识库服务    （knowledge_base，含向量数据库）
 echo    [4] 千问语音合成服务  （qwen_tts，本地模型体积较大，建议 Python 3.12）
 echo    [5] moss语音合成服务  （调用云端moss_tts）
 echo    [6] 聊天存储服务  （端口 8001，需要安装MySQL）
+echo    [7] QQ接入服务    （端口 5052，需要 QQ 协议端如 NapCat）
 echo    [0] 退出
 echo  ------------------------------------------------------------
 set "choice="
@@ -87,41 +88,48 @@ if not errorlevel 1 set "INSTALL_ALL=1"
 
 set "HAS_ANY="
 if defined INSTALL_ALL (
-    call :do_install "图片生成" "backend_code\requestments\image_gen_requirements.txt"
-    call :do_install "知识库"   "backend_code\requestments\knowledge_base_requirements.txt"
-    call :do_install "千问语音合成" "backend_code\requestments\qwen_tts_requirements.txt"
-    call :do_install "moss语音合成" "backend_code\requestments\moss_tts_requirements.txt"
-    call :do_install "聊天存储服务" "backend_code\requestments\chat_store_requirements.txt"
+    call :do_install "图片生成" "backend_code\requirements\image_gen_requirements.txt"
+    call :do_install "知识库"   "backend_code\requirements\knowledge_base_requirements.txt"
+    call :do_install "千问语音合成" "backend_code\requirements\qwen_tts_requirements.txt"
+    call :do_install "moss语音合成" "backend_code\requirements\moss_tts_requirements.txt"
+    call :do_install "聊天存储服务" "backend_code\requirements\chat_store_requirements.txt"
+    call :do_install "QQ接入服务" "backend_code\requirements\qq_bot_requirements.txt"
     goto finish
 )
 
 echo %choice% | findstr "2" >nul
 if not errorlevel 1 (
-    call :do_install "图片生成" "backend_code\requestments\image_gen_requirements.txt"
+    call :do_install "图片生成" "backend_code\requirements\image_gen_requirements.txt"
     set "HAS_ANY=1"
 )
 
 echo %choice% | findstr "3" >nul
 if not errorlevel 1 (
-    call :do_install "知识库" "backend_code\requestments\knowledge_base_requirements.txt"
+    call :do_install "知识库" "backend_code\requirements\knowledge_base_requirements.txt"
     set "HAS_ANY=1"
 )
 
 echo %choice% | findstr "4" >nul
 if not errorlevel 1 (
-    call :do_install "千问语音合成" "backend_code\requestments\qwen_tts_requirements.txt"
+    call :do_install "千问语音合成" "backend_code\requirements\qwen_tts_requirements.txt"
     set "HAS_ANY=1"
 )
 
 echo %choice% | findstr "5" >nul
 if not errorlevel 1 (
-    call :do_install "moss语音合成" "backend_code\requestments\moss_tts_requirements.txt"
+    call :do_install "moss语音合成" "backend_code\requirements\moss_tts_requirements.txt"
     set "HAS_ANY=1"
 )
 
 echo %choice% | findstr "6" >nul
 if not errorlevel 1 (
-    call :do_install "聊天存储服务" "backend_code\requestments\chat_store_requirements.txt"
+    call :do_install "聊天存储服务" "backend_code\requirements\chat_store_requirements.txt"
+    set "HAS_ANY=1"
+)
+
+echo %choice% | findstr "7" >nul
+if not errorlevel 1 (
+    call :do_install "QQ接入服务" "backend_code\requirements\qq_bot_requirements.txt"
     set "HAS_ANY=1"
 )
 

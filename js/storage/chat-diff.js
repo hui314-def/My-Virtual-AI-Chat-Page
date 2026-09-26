@@ -2,7 +2,9 @@
 // 纯函数、无 DOM/IndexedDB 依赖，便于单元测试。
 
 // 参与「元数据字段级」对比的会话字段
-const META_KEYS = ['title', 'date', 'pinned', 'currentTopicIndex', 'settings'];
+// implicitStateDefs：内隐状态（AI 人格深度）的字段定义（角色级）
+// 注意：状态的「值」挂在话题上（topic.implicitState），由下面的话题级 diff 自动带上，不在此列
+const META_KEYS = ['title', 'date', 'pinned', 'currentTopicIndex', 'settings', 'implicitStateDefs'];
 
 /**
  * 防御性补齐身份标识：话题补 id、消息补 uid（仅当缺失时，幂等）。

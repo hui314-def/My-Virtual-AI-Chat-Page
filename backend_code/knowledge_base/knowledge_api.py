@@ -30,12 +30,22 @@ app.add_middleware(
 )
 
 # ========== 配置 ==========
-PERSIST_DIR = "./chroma_db"
+# 向量库路径：**锚定本脚本所在目录**，不用相对路径。
+# 原来写 "./chroma_db" 会随启动目录变化（从仓库根启动 → <仓库>/chroma_db，从本目录启动 →
+# 本目录/chroma_db），于是出现两个内容不同的向量库，换个启动方式就像「知识库/记忆不见了」。
+# 如需自定义，用 .env 的 CHROMA_DIR 指定（相对路径以本文件所在目录为基准）。
+_CHROMA_DIR_ENV = (os.environ.get("CHROMA_DIR") or "").strip()
+if _CHROMA_DIR_ENV:
+    PERSIST_DIR = _CHROMA_DIR_ENV if os.path.isabs(_CHROMA_DIR_ENV) \
+        else os.path.join(os.path.dirname(os.path.abspath(__file__)), _CHROMA_DIR_ENV)
+else:
+    PERSIST_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "chroma_db")
 CHUNK_SIZE = 500
 OVERLAP = 100
 TOP_K = 3
 
 # ========== 初始化 Chroma 客户端 ==========
+print(f"向量库目录: {PERSIST_DIR}")
 client = chromadb.PersistentClient(path=PERSIST_DIR, settings=Settings(anonymized_telemetry=False))
 
 # 禁用 FTS（全文搜索索引），避免 trigram 分词器导致数据库膨胀
@@ -51,11 +61,90 @@ meta_collection = client.get_or_create_collection("kb_meta", schema=_schema_no_f
 # 记忆向量集合（长期记忆系统的 L2 语义召回，可选增强）
 mem_collection = client.get_or_create_collection("memories", schema=_schema_no_fts)
 
-# 嵌入模型（主进程保留一份，用于检索接口的实时查询 embedding，单条很快不阻塞）
-MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_model", "all-MiniLM-L6-v2")
-print("正在加载嵌入模型 all-MiniLM-L6-v2 ...")
+# ========== 嵌入模型配置 ==========
+# 默认 BAAI/bge-small-zh-v1.5（中文模型，512 维）。中文内容用它效果远好于英文模型：
+# 实测同一批中文记忆，英文 MiniLM 的 L2 命中率仅 56% 且无关内容分数会越过阈值造成误注入，
+# 换成 bge-small-zh-v1.5 后命中率 100%、无关内容稳定落在阈值之下。
+# 三种指定方式（优先级从高到低）：
+#   1. .env 里设 KB_EMBED_MODEL_DIR=<完整目录路径>（绝对路径，最省事）
+#   2. .env 里设 KB_EMBED_MODEL=BAAI/bge-base-zh-v1.5（换成别的模型）
+#   3. 都不设则用 local_model/BAAI--bge-small-zh-v1.5
+_LOCAL_MODEL_ROOT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "local_model")
+_MODEL_DIR_ENV = (os.environ.get("KB_EMBED_MODEL_DIR") or "").strip()
+_MODEL_NAME_ENV = (os.environ.get("KB_EMBED_MODEL") or "").strip()
+DEFAULT_MODEL_NAME = "BAAI--bge-small-zh-v1.5"
+
+if _MODEL_DIR_ENV:
+    MODEL_PATH = _MODEL_DIR_ENV
+elif _MODEL_NAME_ENV:
+    # 支持 "BAAI/bge-small-zh-v1.5" 这类仓库名 → local_model/BAAI--bge-small-zh-v1.5
+    MODEL_PATH = os.path.join(_LOCAL_MODEL_ROOT, _MODEL_NAME_ENV.replace("/", "--"))
+else:
+    MODEL_PATH = os.path.join(_LOCAL_MODEL_ROOT, DEFAULT_MODEL_NAME)
+
+EMBED_MODEL_NAME = os.path.basename(MODEL_PATH.rstrip("/\\")) or DEFAULT_MODEL_NAME
+
+# 部分模型需要「查询前缀」才能发挥检索效果（尤其 BGE 中文系列，官方要求只在 query 加、文档不加）。
+# 模型目录里带 sentence_bert_config.json 的，也可自行加 {"prompts": {"query": "..."}}，此处配置优先。
+_BGE_ZH_QUERY_PREFIX = "为这个句子生成表示以用于检索相关文章："
+_QUERY_PREFIX = (os.environ.get("KB_EMBED_QUERY_PREFIX") or "").strip()
+
+
+def _detect_query_prefix(model_name: str) -> str:
+    """按模型名推断查询前缀（仅作用于 query，不影响写入的文档向量）。"""
+    if _QUERY_PREFIX:
+        return _QUERY_PREFIX
+    n = model_name.lower()
+    if "bge-m3" in n or "m3" == n.rsplit("-", 1)[-1]:
+        return ""                      # bge-m3 多语言，官方无需指令前缀
+    if "bge" in n and ("zh" in n or "chinese" in n):
+        return _BGE_ZH_QUERY_PREFIX    # bge-*-zh-v1.5 官方指令
+    if "bge" in n:
+        return "Represent this sentence for searching relevant passages: "  # 英文 bge
+    return ""                          # text2vec / m3e / MiniLM 等无需前缀
+
+
+QUERY_PREFIX = _detect_query_prefix(EMBED_MODEL_NAME)
+
+if not os.path.isdir(MODEL_PATH):
+    raise RuntimeError(
+        f"嵌入模型目录不存在：{MODEL_PATH}\n"
+        f"  默认模型为 BAAI/bge-small-zh-v1.5，请先下载（见 README「嵌入模型选择」）：\n"
+        f"    set HF_ENDPOINT=https://hf-mirror.com\n"
+        f"    huggingface-cli download BAAI/bge-small-zh-v1.5 "
+        f"--local-dir backend_code/knowledge_base/local_model/BAAI--bge-small-zh-v1.5\n"
+        f"  也可用 .env 的 KB_EMBED_MODEL_DIR 指向已有的模型目录。"
+    )
+
+print(f"正在加载嵌入模型 {EMBED_MODEL_NAME} ...")
+print(f"  模型路径: {MODEL_PATH}")
+print(f"  查询前缀: {QUERY_PREFIX or '（无）'}")
 embedder = SentenceTransformer(MODEL_PATH)
-print("嵌入模型加载完成。")
+
+
+def _embed_dim(model) -> int:
+    """取嵌入维度。sentence-transformers 5.6+ 把方法改名为 get_embedding_dimension。"""
+    getter = getattr(model, 'get_embedding_dimension', None) or getattr(model, 'get_sentence_embedding_dimension')
+    return int(getter())
+
+
+_EMBED_DIM = _embed_dim(embedder)
+print(f"嵌入模型加载完成（{_EMBED_DIM} 维）。")
+
+
+def embed_texts(texts: list) -> list:
+    """文档侧编码（不加查询前缀）—— 写入知识库 / 记忆向量时使用。"""
+    if not texts:
+        return []
+    return embedder.encode(texts, batch_size=32 if len(texts) > 1 else 1).tolist()
+
+
+def embed_query(text: str) -> list:
+    """查询侧编码（按模型要求加前缀）—— 检索时使用。"""
+    if QUERY_PREFIX:
+        return embedder.encode([QUERY_PREFIX + text]).tolist()
+    return embedder.encode([text]).tolist()
+
 
 # ========== 独立进程池：文档 embedding 在子进程中运行，绕过 GIL ==========
 _embedding_pool = None
@@ -66,7 +155,7 @@ def _init_embedding_worker():
     _worker_embedder = embedder  # embedder 在子进程导入模块时已加载，直接复用引用
 
 def _encode_batch(batch_chunks: list) -> list:
-    """在子进程中执行 embedding，返回 list[list[float]]"""
+    """在子进程中执行 embedding，返回 list[list[float]]（文档侧，不加查询前缀）"""
     global _worker_embedder
     return _worker_embedder.encode(batch_chunks).tolist()
 
@@ -560,7 +649,7 @@ async def search_knowledge(kb_id: str, request: Request):
 
     kb_coll = get_kb_collection(kb_id)
     try:
-        query_embedding = embedder.encode([query]).tolist()
+        query_embedding = embed_query(query)
         results = kb_coll.query(
             query_embeddings=query_embedding,
             n_results=top_k,
@@ -593,7 +682,7 @@ async def upsert_memory(request: Request):
     if not mid or not content:
         raise HTTPException(status_code=400, detail="缺少 id 或 content")
     try:
-        embedding = embedder.encode([content]).tolist()
+        embedding = embed_texts([content])
         mem_collection.upsert(
             ids=[mid],
             documents=[content],
@@ -615,7 +704,7 @@ async def search_memories(request: Request):
     if not query:
         raise HTTPException(status_code=400, detail="缺少 query")
     try:
-        embedding = embedder.encode([query]).tolist()
+        embedding = embed_query(query)
         where = {"chatId": str(chat_id)} if chat_id not in (None, '') else None
         results = mem_collection.query(
             query_embeddings=embedding,
@@ -649,6 +738,179 @@ def delete_memories_by_chat(chat_id: str):
         return {"status": "deleted"}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ========== 嵌入模型信息 / 维度检查 / 重建向量 ==========
+# 换嵌入模型后维度通常变化（384 → 512 / 768 / 1024），旧向量与查询向量维度不匹配会直接报错。
+# 启动时主动检查并给出明确指引，避免用户在检索时看到难懂的 Chroma 异常。
+
+def repair_broken_collections() -> list:
+    """自动修复启动时读不出来的集合。
+
+    背景（chromadb 1.5 的已知怪癖）：空集合的 HNSW 段目录是 0 字节的，进程重启后再打开会抛
+    `Error creating hnsw segment reader: Nothing found on disk`，检索直接失败。
+    这类集合内容为零 → 删除重建不会有任何数据损失；有数据的集合若读不出来则只告警不动它，
+    避免误删用户数据（可改用 reembed_all.py 重建）。
+
+    返回被修复的集合名列表。
+    """
+    fixed = []
+    try:
+        colls = list(client.list_collections())
+    except Exception as e:
+        print(f"  ⚠ 枚举集合失败，跳过自检: {e}")
+        return fixed
+
+    for coll in colls:
+        try:
+            coll.get(limit=1, include=['documents'])
+            continue
+        except Exception:
+            pass
+        # 读不出来 → 判断是否为空集合
+        try:
+            n = coll.count()
+        except Exception:
+            n = None
+        if n == 0:
+            try:
+                client.delete_collection(coll.name)
+                print(f"  已修复空集合（段目录损坏）: {coll.name}")
+                fixed.append(coll.name)
+            except Exception as e:
+                print(f"  ⚠ 修复空集合 {coll.name} 失败: {e}")
+        else:
+            print(f"  ⚠ 集合 {coll.name} 有 {n} 条数据却读不出来，"
+                  f"请用 reembed_all.py 重建（本服务不会自动删除有数据的集合）")
+    return fixed
+
+
+def kb_ids_and_names() -> list:
+    """返回 [(kb_id, name), ...]。
+    注意：kb_meta 里知识库 id 是**记录 id 本身**，metadata 里只有 name/description/created_at。
+    """
+    out = []
+    try:
+        all_meta = meta_collection.get()
+        for idx, kid in enumerate(all_meta.get('ids') or []):
+            metas = all_meta.get('metadatas') or []
+            meta = metas[idx] if idx < len(metas) and metas[idx] else {}
+            out.append((kid, meta.get('name', '未命名')))
+    except Exception as e:
+        print(f"  ⚠ 枚举知识库失败：{e}")
+    return out
+
+
+def check_embedding_dimension() -> dict:
+    """检查各集合的向量维度是否与当前模型一致。返回 {集合名: 'ok'|'empty'|'mismatch:旧维度'|'error:...'}"""
+    targets = {'memories': mem_collection}
+    for kid, _name in kb_ids_and_names():
+        try:
+            targets[f"kb:{kid[:8]}"] = get_kb_collection(kid)
+            targets[f"kb:{kid[:8]}_docs"] = get_doc_meta_collection(kid)
+        except Exception as e:
+            targets[f"kb:{kid[:8]}"] = f'error:{e}'
+
+    report = {}
+    for name, coll in targets.items():
+        if isinstance(coll, str):
+            report[name] = coll
+            continue
+        try:
+            if coll.count() == 0:
+                report[name] = 'empty'
+                continue
+            got = coll.get(limit=1, include=['embeddings'])
+            embs = got.get('embeddings')
+            old_dim = len(embs[0]) if embs is not None and len(embs) else None
+            if old_dim is None:
+                report[name] = 'empty'
+            elif old_dim == _EMBED_DIM:
+                report[name] = 'ok'
+            else:
+                report[name] = f'mismatch:{old_dim}'
+        except Exception as e:
+            report[name] = f'error:{e}'
+    return report
+
+
+def _report_dimension():
+    report = check_embedding_dimension()
+    bad = {k: v for k, v in report.items() if str(v).startswith(('mismatch', 'error'))}
+    if not bad:
+        print(f"  向量维度检查: 正常（当前 {_EMBED_DIM} 维）")
+        return
+    print("  " + "=" * 68)
+    print("  ⚠ 向量维度与当前嵌入模型不一致，检索会失败！")
+    for k, v in bad.items():
+        print(f"      {k}: {v}")
+    print(f"  当前模型 {EMBED_MODEL_NAME} 输出 {_EMBED_DIM} 维，旧向量是其它维度。")
+    print("  修复方式（二选一）：")
+    print("    A. 重建向量（推荐：保留文档与记忆原文，只重算向量）")
+    print("       python backend_code/knowledge_base/reembed_all.py")
+    print("    B. 只清空向量，之后重新上传文档 / 让记忆重新写入")
+    print("       curl -X POST http://localhost:5051/admin/reset-collections")
+    print("  " + "=" * 68)
+
+
+@app.get('/admin/embedding-info')
+def embedding_info():
+    """当前嵌入模型信息 + 各集合维度检查结果（排查换模型问题用）。"""
+    return {
+        "model": EMBED_MODEL_NAME,
+        "modelPath": MODEL_PATH,
+        "dimension": _EMBED_DIM,
+        "queryPrefix": QUERY_PREFIX,
+        "collections": check_embedding_dimension(),
+    }
+
+
+@app.post('/admin/reset-collections')
+def reset_collections():
+    """清空全部向量（知识库 + 记忆），用于换嵌入模型后的重建。
+
+    ⚠️ 会删除向量数据，但**不动** chroma_db 以外的任何东西；
+    知识库卡片与文档元数据会一并清掉，需重新上传文档；
+    记忆向量会在记忆下次写入或前端「立即同步」后重建（记忆原文在 IndexedDB/MySQL，不受影响）。
+    """
+    # 先收集要删的集合名（kb_meta 删除后就查不到知识库列表了）
+    names = ['kb_meta', 'memories']
+    removed = {}
+    for kid, _name in kb_ids_and_names():
+        names += [f"kb_{kid}", f"kb_{kid}_docs"]
+
+    for name in names:
+        try:
+            coll = client.get_collection(name)
+            removed[name] = coll.count()
+        except Exception:
+            removed[name] = '不存在'
+        try:
+            client.delete_collection(name)
+        except Exception as e:
+            print(f"  ⚠ 删除集合 {name} 失败：{e}")
+
+    # 重新创建（使用当前模型的维度），保证后续请求拿到的句柄有效
+    globals()['meta_collection'] = client.get_or_create_collection("kb_meta", schema=_schema_no_fts)
+    globals()['mem_collection'] = client.get_or_create_collection("memories", schema=_schema_no_fts)
+    print(f"已清空向量集合: {removed}")
+    return {
+        "status": "reset",
+        "removed": removed,
+        "note": "知识库需重新上传文档；记忆向量会在记忆下次写入或前端「立即同步」后重建（记忆原文未受影响）。",
+    }
+
+
+@app.get('/admin/repair')
+def admin_repair():
+    """检查并修复读不出来的集合（多为重启后 0 字节段导致的空集合问题）。"""
+    fixed = repair_broken_collections()
+    return {"repaired": fixed, "collections": check_embedding_dimension()}
+
+
+# 启动自检：先修复坏集合，再报告维度是否与当前模型匹配
+repair_broken_collections()
+_report_dimension()
 
 # ========== 启动服务 ==========
 if __name__ == '__main__':

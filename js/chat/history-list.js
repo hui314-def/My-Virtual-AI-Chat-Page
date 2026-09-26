@@ -40,17 +40,24 @@ export class HistoryList {
             return b.date - a.date;
         });
         sortedChats.forEach(chat => {
+            // 群聊：显示群名 + 群组图标；私聊：显示角色名 + 角色头像（原逻辑不变）
+            const isGroup = chat.kind === 'group';
             const settings = chat.settings || Constants.DEFAULT_SETTINGS;
-            const roleName = settings.roleName || Constants.DEFAULT_ROLE_NAME;
-            const avatarUrl = settings.avatarUrl;
+            const displayTitle = isGroup
+                ? (chat.title || '群聊')
+                : (settings.roleName || Constants.DEFAULT_ROLE_NAME);
+            // 群聊使用「群聊头像」（群空间设置里的 avatarUrl）；私聊使用角色头像
+            const avatarUrl = settings.avatarUrl || null;
 
             const historyItem = document.createElement('div');
-            historyItem.className = `history-item ${this.currentChatId === chat.id ? 'active' : ''}`;
+            historyItem.className = `history-item ${this.currentChatId === chat.id ? 'active' : ''}${isGroup ? ' is-group' : ''}`;
             historyItem.setAttribute('data-id', chat.id);
 
             let avatarHtml = '';
             if (avatarUrl) {
                 avatarHtml = `<img src="${resolveAssetUrl(avatarUrl)}" class="history-avatar-img" alt="avatar">`;
+            } else if (isGroup) {
+                avatarHtml = `<i class="fas fa-users history-default-icon"></i>`;
             } else {
                 avatarHtml = `<i class="fas fa-robot history-default-icon"></i>`;
             }
@@ -58,16 +65,23 @@ export class HistoryList {
             // 标题行：角色名称 + 星星（如果置顶）
             const starHtml = chat.pinned ? '<i class="fas fa-star pin-star"></i>' : '';
 
+            // 群聊：提示有多少成员的来源对话已删除（脱钩）
+            const detachedCount = isGroup
+                ? (chat.members || []).filter(m => m.detached).length : 0;
+            const syncBadge = detachedCount > 0
+                ? `<span class="grp-sync-badge" title="${detachedCount} 位成员的来源对话已删除，已转为本地副本">⚠️ 脱钩${detachedCount}</span>`
+                : '';
+
             historyItem.innerHTML = `
                 <div class="history-avatar">
                     ${avatarHtml}
                 </div >
                 <div class="history-info">
                     <div class="title">
-                        ${escapeHtml(roleName)}
+                        ${escapeHtml(displayTitle)}
                         ${starHtml}
                     </div >
-                    <div class="date">${formatDate(chat.date)}</div >
+                    <div class="date">${formatDate(chat.date)}${syncBadge}</div >
                 </div >
             `;
             const menuTrigger = document.createElement('div');
@@ -140,15 +154,21 @@ export class HistoryList {
             menu.className = 'history-menu';
             const pinText = chat.pinned ? '取消置顶' : '收藏置顶';
             const pinIcon = chat.pinned ? 'fa-thumbtack' : 'fa-thumbtack';
-            menu.innerHTML = `
-                <div class="history-menu-item" data-action="export-json">
+            // 群聊只提供 HTML 导出（D16）；私聊保持原有的 JSON 导出不变
+            const exportItem = chat.kind === 'group'
+                ? `<div class="history-menu-item" data-action="export-html">
+                    <i class="fas fa-file-code"></i> 导出 HTML
+                </div >`
+                : `<div class="history-menu-item" data-action="export-json">
                     <i class="fas fa-download"></i> 导出 JSON
-                </div >
+                </div >`;
+            menu.innerHTML = `
+                ${exportItem}
                 <div class="history-menu-item" data-action="pin">
                     <i class="fas ${pinIcon}"></i> ${pinText}
                 </div >
                 <div class="history-menu-item delete-item" data-action="delete">
-                    <i class="fas fa-trash-alt"></i> 删除会话
+                    <i class="fas fa-trash-alt"></i> 删除角色
                 </div >
             `;
             // 设置菜单位置（默认在触发按钮下方右对齐）
@@ -174,6 +194,7 @@ export class HistoryList {
                     e.stopPropagation();
                     const action = item.getAttribute('data-action');
                     if (action === 'export-json') this.chatIO.exportAsJSON(chat);
+                    else if (action === 'export-html') this.chatIO.exportAsHTML(chat);
                     else if (action === 'pin') this.chatManager.togglePinChat(chat);
                     else if (action === 'delete') this.chatManager.deleteChat(chat.id);
                     closeMenu();

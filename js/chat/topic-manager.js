@@ -18,6 +18,7 @@ export class TopicManager {
      * @param {() => void} deps.renderHistoryList
      * @param {(chatId, topicIdx) => void} deps.renderMessages
      * @param {() => Object} deps.getModalManager 惰性获取 modalManager(预留,与其余模块一致)
+     * @param {(chat:Object) => Object|null} [deps.createTopicState] 为新话题生成内隐状态初值（未启用时返回 null）
      */
     constructor({
         getChats, getCurrentChatId,
@@ -31,6 +32,7 @@ export class TopicManager {
         renderMessages,
         getModalManager,
         onTopicSwitch = () => {},
+        createTopicState = null,
     }) {
         this.getChats = getChats;
         this.getCurrentChatId = getCurrentChatId;
@@ -44,6 +46,7 @@ export class TopicManager {
         this.renderMessages = renderMessages;
         this.getModalManager = getModalManager;
         this.onTopicSwitch = onTopicSwitch;
+        this.createTopicState = createTopicState;
     }
 
     get chats() { return this.getChats(); }
@@ -72,6 +75,10 @@ export class TopicManager {
 
     // 开启新话题（创建独立话题对象 + 开场白）
     async startNewTopic() {
+        // 群聊 v1 固定单一话题，不提供话题管理（D10）——快捷键触发时静默忽略
+        const groupChat = this.chats.find(c => c.id == this.currentChatId);
+        if (groupChat && groupChat.kind === 'group') return;
+
         const modelService = this.getModelService();
         if (modelService.isStreaming()) {
             if (confirm('当前正在生成回复，开启新话题会中断本次回复。是否继续？')) {
@@ -110,6 +117,16 @@ export class TopicManager {
                 uid: genMsgUid('ai', greeting, aiTime)
             }]
         };
+        // 内隐状态（AI 人格深度）：每个话题各维护一份状态，新话题从内置默认值开始
+        // （按需求：新话题重置为默认值；createTopicState 未注入或该对话未启用时返回 null）
+        if (typeof this.createTopicState === 'function') {
+            try {
+                const initState = this.createTopicState(currentChat);
+                if (initState) newTopic.implicitState = initState;
+            } catch (err) {
+                console.warn('[ImplicitState] 新话题状态初始化失败：', err);
+            }
+        }
         currentChat.topics.push(newTopic);
         const newTopicIndex = currentChat.topics.length - 1;
 

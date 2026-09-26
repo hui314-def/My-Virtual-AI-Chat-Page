@@ -41,6 +41,9 @@ export class ModalManager {
      */
     constructor(ctx) {
         this.ctx = ctx;
+        // 「对话设置」弹窗当前编辑的目标会话（null = 当前会话）。
+        // 从群聊点击某位成员的头像时，会被设为该成员的来源对话 id。
+        this._settingsChatId = null;
         this.kbManager = new KnowledgeBaseManager({
             customAlert: (msg, type) => this.customAlert(msg, type),
             showCustomDialog: (opts) => this.showCustomDialog(opts),
@@ -330,12 +333,55 @@ export class ModalManager {
      * @param {Object} [options]
      * @param {boolean} [options.newChat] - true 表示「新建对话」模式：编辑的是一份临时设置，
      *   点击保存设置后才真正创建对话；直接关闭则取消新建。
+     * @param {number|string} [options.chatId] - 编辑**指定会话**的设置（不切换当前会话）。
+     *   用于「在群聊里点击成员头像 → 打开该成员的对话设置」。
      */
     openSettingsModal(options = {}) {
         const ctx = this.ctx;
         const newChatMode = !!(options && options.newChat);
+        const targetChatId = (options && options.chatId != null) ? options.chatId : null;
+
+        // 群聊：转交「群聊设置」弹窗（只含与群聊有关的设置 —— D9）
+        // 新建对话模式（newChat）与「指定其它会话」模式都走原逻辑，不受影响。
+        if (!newChatMode && targetChatId == null) {
+            const chat = ctx.chats.find(c => c.id == ctx.currentChatId);
+            if (chat && chat.kind === 'group') {
+                if (typeof ctx.openGroupSettings === 'function') {
+                    ctx.openGroupSettings();
+                    return;
+                }
+            }
+        }
+
+        // 记录本次编辑的目标会话（null = 当前会话）
+        this._settingsChatId = targetChatId;
         this._newChatMode = newChatMode;
-        const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
+        const currentChat = this.#resolveSettingsChat();
+
+        // 从群聊点成员头像进入时，标题带上角色名，避免与「群聊设置」混淆
+        const modalEl = document.getElementById('settings-modal');
+        const titleEl = modalEl?.querySelector('.modal-header h3');
+        if (titleEl) {
+            const roleName = (currentChat?.settings?.roleName) || Constants.DEFAULT_ROLE_NAME;
+            titleEl.innerHTML = (targetChatId != null)
+                ? `<i class="fas fa-sliders-h"></i> 对话设置 · ${escapeHtml(roleName)}`
+                : '<i class="fas fa-sliders-h"></i> 对话设置';
+        }
+
+        // 编辑「其它会话」时插一行说明：人设等会同步到群聊，但背景/音乐属于那个会话自己
+        const formEl = document.getElementById('settings-form');
+        if (formEl) {
+            formEl.querySelector('#grp-editing-other-hint')?.remove();
+            if (targetChatId != null) {
+                const hint = document.createElement('div');
+                hint.id = 'grp-editing-other-hint';
+                hint.className = 'grp-editing-other-hint';
+                hint.innerHTML = `<i class="fas fa-circle-info"></i>
+                    正在编辑「${escapeHtml(currentChat?.settings?.roleName || '该角色')}」自己的对话设置（<b>不会切换当前会话</b>）。<br>
+                    人设 / 头像 / 音色 / 模型参数会<b>实时同步</b>到群聊里；背景与背景音乐只属于这个私聊对话。`;
+                formEl.insertBefore(hint, formEl.firstChild);
+            }
+        }
         // 新建模式：使用临时默认设置（基于默认 + 全局模型参数），尚未创建对话
         const settings = newChatMode
             ? this._buildNewChatSettings()
@@ -350,6 +396,16 @@ export class ModalManager {
         const maxTokens = settings.maxTokens !== undefined ? settings.maxTokens : Constants.DEFAULT_SETTINGS.maxTokens;
 
         const modal = document.getElementById('settings-modal');
+        // 「对话设置」表单里任何按钮/回车触发的**默认提交**都会导致整页刷新（未保存的改动全丢）。
+        // 统一拦截提交：所有写入一律走「保存设置」按钮；动态插入的按钮即便漏写 type="button" 也不会再刷新页面。
+        const settingsForm = document.getElementById('settings-form');
+        if (settingsForm && !settingsForm._submitGuarded) {
+            settingsForm._submitGuarded = true;
+            settingsForm.addEventListener('submit', (e) => {
+                e.preventDefault();
+                console.warn('[ModalManager] 已拦截对话设置表单的默认提交（保存请点「保存设置」）');
+            });
+        }
         const roleNameInput = document.getElementById('role-name');
         const rolePersona = document.getElementById('role-persona');
         const roleGreeting = document.getElementById('role-greeting');
@@ -917,6 +973,14 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
 
         const content = modal.querySelector('.modal-content');
         if (content) content.classList.remove('closing');
+        // 内隐状态（AI 人格深度）：渲染「内隐状态」区块（总开关 + 开启后的字段编辑 + 自定义字段管理）
+        if (ctx.implicitStateSettings) {
+            try {
+                ctx.implicitStateSettings.render({ chat: currentChat || null, newChat: newChatMode });
+            } catch (err) {
+                console.warn('[ImplicitState] 设置区块渲染失败：', err);
+            }
+        }
         // 新建模式：标题提示「新建对话」
         const headerTitle = modal.querySelector('.modal-header h3');
         if (headerTitle) {
@@ -972,6 +1036,9 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         }
         s.ttsEnabled = document.getElementById('tts-switch').checked;
         s.ttsVoice = document.getElementById('tts-voice-select').value;
+        // 内隐状态（AI 人格深度）：新对话只带走总开关，字段在创建后再编辑
+        s.implicitStateEnabled = !!document.getElementById('implicit-state-switch')?.checked;
+        s.implicitStatePanelVisible = true;
         return s;
     }
 
@@ -995,6 +1062,8 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         this.closeModalWithAnimation(modal, () => {
             // 关闭 = 取消新建模式（若未保存则不创建对话）
             this._newChatMode = false;
+            // 关闭 = 取消「编辑其它会话」的目标（如从群聊点击成员头像进入的场景）
+            this._settingsChatId = null;
         });
     }
 
@@ -1034,7 +1103,7 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 newChatCreated = true;   // 标记：新对话已创建成功
             }
 
-            const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
+            const currentChat = this.#resolveSettingsChat();
             if (!currentChat) {
                 // 异常兜底：新对话已创建则照常关闭弹窗，否则恢复按钮后退出
                 if (newChatCreated) this.closeSettingsModal();
@@ -1158,6 +1227,15 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         currentChat.settings.ttsEnabled = ttsEnabled;
         currentChat.settings.ttsVoice = ttsVoice;
 
+        // 内隐状态（AI 人格深度）：总开关 + 本话题字段值（字段定义的增删改是即时保存的）
+        if (ctx.implicitStateSettings) {
+            try {
+                ctx.implicitStateSettings.collect(currentChat);
+            } catch (err) {
+                console.warn('[ImplicitState] 保存内隐状态设置失败：', err);
+            }
+        }
+
         ctx.applyCurrentChatSettings();
         ctx.renderHistoryList();
         await ctx.chatRepo.saveChat(currentChat);
@@ -1171,10 +1249,12 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
             URL.revokeObjectURL(this._aiPreviewUrl);
             this._aiPreviewUrl = null;
         }
-        if (oldGreeting !== newGreeting) {
+        if (oldGreeting !== newGreeting && !this.#isEditingOtherChat()) {
             ctx.startNewTopic();   // 内部会重新渲染新话题的消息
-        } else if (this.#chatUiSettingsChanged(oldSettings)) {
-            // 仅当 UI 显示相关设置（角色头像 / 角色名称 / 背景）变化时才重建聊天框
+        } else if (this.#isEditingOtherChat() || this.#chatUiSettingsChanged(oldSettings, currentChat)) {
+            // 仅当 UI 显示相关设置（角色头像 / 角色名称 / 背景）变化时才重建聊天框；
+            // 「编辑的是别的会话」（如群聊里点了成员头像）时也重绘当前聊天，
+            // 让群聊里的成员头像 / 名字立刻跟着更新。
             ctx.renderMessages(ctx.currentChatId, ctx.currentTopicIndex);
         }
         this.closeSettingsModal();   // 保存全部完成 → 立即关闭弹窗
@@ -1190,9 +1270,26 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
         }
     }
 
+    /**
+     * 解析本次「对话设置」弹窗要编辑的会话。
+     * 默认 = 当前会话；若通过 openSettingsModal({ chatId }) 指定（例如从群聊
+     * 点击某位成员的头像）则编辑该会话，**不切换当前会话**。
+     */
+    #resolveSettingsChat() {
+        const ctx = this.ctx;
+        const id = (this._settingsChatId != null) ? this._settingsChatId : ctx.currentChatId;
+        return ctx.chats.find(c => c.id == id) || null;
+    }
+
+    /** 本次编辑的是否为「其它会话」（非当前会话） */
+    #isEditingOtherChat() {
+        return this._settingsChatId != null && this._settingsChatId != this.ctx.currentChatId;
+    }
+
     /** 判断对话设置中「UI 显示相关」字段是否发生变化（角色头像 / 角色名称 / 背景） */
-    #chatUiSettingsChanged(oldSettings) {
-        const s = this.ctx.chats.find(c => c.id == this.ctx.currentChatId)?.settings || {};
+    #chatUiSettingsChanged(oldSettings, chat = null) {
+        const target = chat || this.#resolveSettingsChat();
+        const s = target?.settings || {};
         return (s.avatarUrl ?? null) !== (oldSettings.avatarUrl ?? null)
             || s.roleName !== (oldSettings.roleName ?? Constants.DEFAULT_ROLE_NAME)
             || (s.bgType ?? null) !== (oldSettings.bgType ?? null)

@@ -322,6 +322,20 @@
                     </label>
                     <textarea id="role-greeting" rows="2" placeholder="每次新对话时显示的开场白"></textarea>
                 </div>
+                <!-- 内隐状态（AI 人格深度）：总开关 + 字段编辑 + 自定义字段管理 -->
+                <div class="form-group" style="border-top: 1px dashed rgba(100,130,255,0.3); padding-top: 14px;">
+                    <label style="display: flex; align-items: center; gap: 12px;">
+                        <i class="fas fa-heart-pulse"></i> 内隐状态（AI 人格深度）
+                        <label class="switch">
+                            <input type="checkbox" id="implicit-state-switch">
+                            <span class="slider round"></span>
+                        </label>
+                    </label>
+                    <small>开启后，角色会拥有一份「当前的状态」（好感度 / 情绪 / 着装 …）：每轮回复结束后自动演化，
+                        并注入给角色本人参考，让言行与内心一致。状态<b>按话题独立维护</b>，新话题从默认值开始。</small>
+                    <!-- 由 js/state/state-settings.js 动态渲染 -->
+                    <div id="implicit-state-settings" style="display: none; margin-top: 12px;"></div>
+                </div>
                 <!-- 用户画像(对话级,留空则跟随全局「对话设定」) -->
                 <div class="form-group" style="border-top: 1px dashed rgba(100,130,255,0.3); padding-top: 14px;">
                     <label style="display: flex; align-items: center; gap: 8px;">

@@ -819,3 +819,71 @@ body.light-theme .voice-count-badge {
     background: rgba(100, 120, 200, 0.12);
     border-color: rgba(100, 120, 200, 0.3);
 }
+
+/* ---------- 8. 内隐状态面板（css/implicit-state.css 的浅色覆盖） ---------- */
+/* 悬浮卡片：玻璃拟态改浅、阴影调柔；其余颜色都走变量，自动适配 */
+body.light-theme .isc-card {
+    background: rgba(255, 255, 255, 0.94);
+    border-color: #cdd9ff;
+    box-shadow: 0 10px 26px rgba(30, 58, 138, 0.16);
+    color: #1e3a8a;
+}
+body.light-theme .isc-card:hover { box-shadow: 0 14px 30px rgba(30, 58, 138, 0.22); }
+body.light-theme .isc-title { color: #1e293b; }
+body.light-theme .isc-row:hover { background: #eef2ff; }
+body.light-theme .isc-row.isc-flash { animation: isc-flash-light 1.2s ease; }
+@keyframes isc-flash-light {
+    0% { background: rgba(37, 99, 235, 0.18); }
+    100% { background: transparent; }
+}
+body.light-theme .isc-bar { background: rgba(100, 120, 200, 0.18); }
+body.light-theme .isc-badge {
+    background: rgba(37, 99, 235, 0.1);
+    border-color: #cdd9ff;
+    color: #1e3a8a;
+}
+body.light-theme .isc-tag {
+    background: rgba(37, 99, 235, 0.1);
+    border-color: #cdd9ff;
+    color: #1e3a8a;
+}
+body.light-theme .isc-num b { color: #1e293b; }
+body.light-theme .isc-warn { color: #b45309; }
+body.light-theme .isc-edit-input,
+body.light-theme .isc-edit-select {
+    background: #f8faff;
+    border-color: #cdd9ff;
+    color: #1e293b;
+}
+body.light-theme .isc-delta.up { color: #059669; }
+body.light-theme .isc-delta.down { color: #dc2626; }
+body.light-theme .isc-spark-area { fill: rgba(220, 38, 38, 0.1); }
+body.light-theme .isc-spark-line { stroke: #dc2626; }
+body.light-theme .isc-tl-reason { color: #1e3a8a; }
+
+/* 对话设置里的「内隐状态」区块 */
+body.light-theme .iss-tr {
+    background: rgba(240, 244, 255, 0.9);
+    border-color: rgba(203, 213, 240, 0.9);
+}
+body.light-theme .iss-value input[type="text"],
+body.light-theme .iss-value input[type="number"],
+body.light-theme .iss-value select,
+body.light-theme .iss-form-grid input[type="text"],
+body.light-theme .iss-form-grid input[type="number"],
+body.light-theme .iss-form-grid select,
+body.light-theme .iss-form-grid textarea {
+    background: #f8faff;
+    border-color: #cdd9ff;
+    color: #1e293b;
+}
+body.light-theme .iss-btn {
+    background: #f0f4ff;
+    border-color: #cdd9ff;
+    color: #2563eb;
+}
+body.light-theme .iss-form {
+    background: rgba(240, 244, 255, 0.9);
+    border-color: #cdd9ff;
+}
+body.light-theme .iss-req { color: #dc2626; }

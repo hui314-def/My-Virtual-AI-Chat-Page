@@ -73,11 +73,14 @@ set "S3=未安装"
 set "S4=未安装"
 set "S5=未安装"
 set "S6=未安装"
+set "S7=未安装"
 if defined OK2 set "S2=已安装"
 if defined OK3 set "S3=已安装"
 if defined OK4 set "S4=已安装"
 if defined OK5 set "S5=已安装"
 if defined OK6 set "S6=已安装"
+REM QQ 接入服务复用 fastapi + uvicorn（WS 由 uvicorn 自带），所以与 OK2 同源
+if defined OK2 set "S7=已安装"
 
 REM ---------- 后端选择菜单 ----------
 :menu
@@ -90,6 +93,7 @@ echo %Yellow%║     [3] %Reset%知识库服务    (端口 5051)  %S3%%Yellow%
 echo %Yellow%║     [4] %Reset%千问语音合成服务 (端口 5000)  %S4%%Yellow%
 echo %Yellow%║     [5] %Reset%moss语音合成服务 (端口 5555)  %S5%%Yellow%
 echo %Yellow%║     [6] %Reset%聊天存储服务  (端口 8001)  %S6%%Yellow%
+echo %Yellow%║     [7] %Reset%QQ接入服务    (端口 5052)  %S7%%Yellow%
 echo %Yellow%║     [0] %Reset%不启动后端，仅启动前端%Yellow%
 echo %Yellow%║     [K] %Reset%停止所有已启动的服务（杀死后台进程）%Yellow%
 echo %Yellow%║                                                               
@@ -103,9 +107,9 @@ if /i "%choice%"=="K" goto stop_all
 if "%choice%"=="0" goto start_frontend
 if "%choice%"=="" goto start_frontend
 
-REM 「1 = 全部」归一化为 23456
+REM 「1 = 全部」归一化为 234567
 echo %choice% | findstr "1" >nul
-if not errorlevel 1 set "choice=23456"
+if not errorlevel 1 set "choice=234567"
 
 REM ---------- 启动所选后端 ----------
 echo %choice% | findstr "2" >nul
@@ -150,6 +154,15 @@ if not errorlevel 1 (
         call :launch "聊天存储服务" "8001" "chat_store_api.py" "%~dp0backend_code\chat_store"
     ) else (
         echo  [提示] 聊天存储服务依赖未安装，已跳过。
+    )
+)
+
+echo %choice% | findstr "7" >nul
+if not errorlevel 1 (
+    if defined OK2 (
+        call :launch "QQ接入服务" "5052" "qq_bot_api.py" "%~dp0backend_code\qq_bot"
+    ) else (
+        echo  [提示] QQ 接入服务依赖未安装（需要 fastapi / uvicorn），已跳过。
     )
 )
 

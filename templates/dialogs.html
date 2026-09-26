@@ -45,6 +45,9 @@
                 <div class="settings-menu-item" data-tab="memory">
                     <i class="fas fa-brain"></i> 记忆
                 </div>
+                <div class="settings-menu-item" data-tab="qq">
+                    <i class="fab fa-qq"></i> QQ 接入
+                </div>
                 <div class="settings-menu-item" data-tab="prompt-inject">
                     <i class="fas fa-pen-nib"></i> 提示词注入
                 </div>
@@ -172,7 +175,7 @@
                             <option value="">跟随主模型</option>
                             <!-- 由 JS 动态填充 -->
                         </select>
-                        <small>用于话题摘要、消息建议、记忆提取、开场白、人设、英文提示词等非流式小任务。建议选择非推理模型（如 gemma2/gemma4/gpt-oss），避免思考内容占满 token 预算导致输出为空</small>
+                        <small>用于话题摘要、消息建议、记忆提取、开场白、人设等非流式小任务。建议选择非推理的支持工具调用的模型</small>
                     </div>
                     <h4>全局模型默认值</h4>
                     <div class="model-param-item">
@@ -394,6 +397,124 @@
                     <div id="shortcuts-list"></div>
                     <button class="modal-btn cancel" id="reset-shortcuts-btn" style="margin-top: 20px;">恢复默认</button>
                 </div>
+                <!-- QQ 接入 -->
+                <div class="settings-tab-pane" id="tab-qq">
+                    <h4><i class="fab fa-qq"></i> QQ 接入</h4>
+                    <div style="font-size:0.82rem;color:#8b93b0;margin-bottom:14px;line-height:1.6;">
+                        让一个角色以 QQ 小号的身份在群里陪人聊天。需要先在本机启动桥接服务
+                        <code>python backend_code/qq_bot/qq_bot_api.py</code>（端口 5052），
+                        并在 NapCat 里把反向 WebSocket 指向 <code>ws://127.0.0.1:5052/onebot/ws</code>。
+                    </div>
+
+                    <!-- 运行状态 -->
+                    <div id="qq-status" style="background:rgba(30,38,60,0.6);border:1px solid rgba(100,120,200,0.25);border-radius:8px;padding:10px 12px;margin-bottom:16px;">
+                        读取运行状态…
+                    </div>
+
+                    <div class="form-group">
+                        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                            <input type="checkbox" id="qq-enabled"> 开启 QQ 接入
+                        </label>
+                        <small>开启后，网页会把「该角色 + 模型参数」推送给桥接服务；网页关掉也不影响后端继续回话</small>
+                    </div>
+
+                    <div class="form-group" id="qq-role-row">
+                        <label>接入角色</label>
+                        <select id="qq-role" style="width:100%;">
+                            <option value="">— 请选择要接入 QQ 的角色 —</option>
+                        </select>
+                        <small>角色名、人设、角色卡设定与模型参数（温度 / top_p / 最大 token）会一并继承；改了角色设定，下次推送即生效</small>
+                    </div>
+
+                    <div id="qq-optional-group">
+                        <h4 style="margin-top:20px;border-top:1px solid rgba(100,120,200,0.3);padding-top:16px;">能力开关</h4>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="qq-knowledge-enabled"> 使用知识库
+                            </label>
+                            <small>勾选后，群里的提问会先在知识库检索，命中内容注入提示词（复用网页同一套向量库，无需重新导入）</small>
+                            <div id="qq-knowledge-list" style="margin-top:8px;padding:8px 10px;background:rgba(30,38,60,0.5);border-radius:6px;max-height:150px;overflow:auto;">
+                                加载中…
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="qq-tts-enabled"> 使用语音合成
+                            </label>
+                            <small>角色回复同时以语音消息发出（音色取角色自己的设置），会明显增加回复延迟与资源占用</small>
+                        </div>
+                    </div>
+
+                    <div id="qq-advanced-group">
+                        <h4 style="margin-top:20px;border-top:1px solid rgba(100,120,200,0.3);padding-top:16px;">触发策略（热闹的群务必调好）</h4>
+                        <div style="font-size:0.82rem;color:#8b93b0;margin-bottom:12px;line-height:1.6;">
+                            只有被 <b>@</b> 才会回话；其余消息只记入上下文、不调模型。下面几项用来防止刷屏和烧钱。
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div class="form-group">
+                                <label>同群冷却（秒）</label>
+                                <input type="number" id="qq-cooldown" min="0" max="600" step="1">
+                                <small>@ 可无视此项</small>
+                            </div>
+                            <div class="form-group">
+                                <label>全局冷却（秒）</label>
+                                <input type="number" id="qq-global-cooldown" min="0" max="600" step="1">
+                                <small>跨所有群，防止多群同时刷</small>
+                            </div>
+                            <div class="form-group">
+                                <label>每小时上限（条）</label>
+                                <input type="number" id="qq-quota" min="1" max="2000" step="1">
+                                <small>按群统计，@ 也突破不了的硬上限</small>
+                            </div>
+                            <div class="form-group">
+                                <label>非 @ 消息通过率（%）</label>
+                                <input type="number" id="qq-probability" min="0" max="100" step="5">
+                                <small>当前默认只认 @，此项用于"允许它插话"的场景</small>
+                            </div>
+                        </div>
+                        <div style="font-size:0.82rem;color:#8b93b0;margin:14px 0 10px;line-height:1.6;">
+                            <b>分条发送</b>：角色会把一次回复拆成几条连着发（像真人聊天那样）。
+                            提示词里已要求模型用 <code>|||</code> 分条，下面三项控制它的尺度。
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div class="form-group">
+                                <label>单条字数上限</label>
+                                <input type="number" id="qq-split-chars" min="20" max="500" step="10">
+                                <small>每条的参考字数；超出的按句兜底切分</small>
+                            </div>
+                            <div class="form-group">
+                                <label>单次最多分几条</label>
+                                <input type="number" id="qq-parts-max" min="1" max="10" step="1">
+                                <small>群聊建议 3 条（私聊自动多一条）；超出部分合并进最后一条</small>
+                            </div>
+                            <div class="form-group">
+                                <label>分条之间的停顿（毫秒）</label>
+                                <input type="number" id="qq-part-delay" min="0" max="3000" step="100">
+                                <small>模拟真人连发的间隔，也能降低频控风险；0 = 连续发出</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="qq-mention-bypass"> @ 时无视冷却与全局冷却
+                            </label>
+                            <small>建议开启：用户点名时装死会显得很蠢。注意小时配额是硬上限，不受此项影响</small>
+                        </div>
+                    </div>
+
+                    <div style="display:flex;align-items:center;gap:12px;margin-top:18px;">
+                        <button type="button" id="qq-push-btn" class="action-btn" style="background:rgba(45,55,85,0.6);">
+                            <i class="fas fa-cloud-upload-alt"></i> 保存并推送配置
+                        </button>
+                        <button type="button" id="qq-refresh-btn" class="action-btn" style="background:rgba(45,55,85,0.6);">
+                            <i class="fas fa-sync-alt"></i> 刷新状态
+                        </button>
+                        <span id="qq-push-status" style="font-size:0.8rem;"></span>
+                    </div>
+                    <small style="display:block;margin-top:10px;color:#8b93b0;">
+                        配置存在浏览器本地，并推一份到桥接服务做常驻镜像——所以请用同一个浏览器打开过本页面，
+                        后端重启后才能恢复配置。
+                    </small>
+                </div>
                 <!-- 用量统计 -->
                 <div class="settings-tab-pane" id="tab-usage">
                     <h4><i class="fas fa-chart-bar"></i> Token 用量统计</h4>
@@ -599,4 +720,20 @@
             <button class="modal-btn cancel" id="cancel-suggest-btn">关闭</button>
         </div>
     </div>
+</div>
+<!-- 内隐状态悬浮卡片（AI 人格深度）：内容由 js/state/state-panel.js 渲染 -->
+<div id="implicit-state-card" class="isc-card" data-collapsed="false" style="display: none;"
+     role="region" aria-label="角色内隐状态">
+    <div class="isc-header" id="isc-drag-handle">
+        <span class="isc-grip"><i class="fas fa-grip-vertical"></i></span>
+        <span class="isc-title"><i class="fas fa-heart-pulse"></i> 内隐状态</span>
+        <span class="isc-brief" id="isc-brief"></span>
+        <button class="isc-btn" id="isc-refresh" type="button" title="立即更新状态（用最近几条对话重新结算）"><i class="fas fa-rotate"></i></button>
+        <button class="isc-btn" id="isc-timeline-btn" type="button" title="状态时间线"><i class="fas fa-chart-line"></i></button>
+        <button class="isc-btn" id="isc-collapse" type="button" title="折叠 / 展开"><i class="fas fa-chevron-up"></i></button>
+        <button class="isc-btn" id="isc-hide" type="button" title="隐藏卡片（可在「对话设置 → 内隐状态」中重新开启）"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="isc-body" id="isc-body"></div>
+    <div class="isc-timeline" id="isc-timeline" style="display: none;"></div>
+    <div class="isc-footer" id="isc-footer"></div>
 </div>

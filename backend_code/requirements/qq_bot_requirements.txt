@@ -1,0 +1,8 @@
+# QQ 接入桥接服务依赖
+# 说明：OneBot 反向 WebSocket 由 uvicorn[standard] 自带的 websockets 支持，
+# 不需要额外装 websocket 库。这些依赖与「知识库服务」高度重合，
+# 已装过知识库服务的话本服务可直接启动。
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+requests==2.31.0
+python-dotenv==1.0.1

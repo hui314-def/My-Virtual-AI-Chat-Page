@@ -62,6 +62,14 @@ const DEFAULTS = Object.freeze({
     autoScrollAfterSend: true,
     // 长期记忆开关（全局）
     memoryEnabled: true,
+
+    // 内隐状态（AI 人格深度）：这里只放「界面 / 引擎偏好」，
+    // 「某个角色是否启用」属于对话级设置（chat.settings.implicitStateEnabled）
+    implicitStatePanelCollapsed: false,   // 悬浮卡片默认是否折叠
+    implicitStatePanelOpacity: 0.92,      // 悬浮卡片不透明度 0.5~1
+    implicitStateExtractEvery: 1,         // 结算频率：1=每轮 / 2 / 5 / 0=仅手动
+    implicitStateMaxChars: 400,           // 注入块字数上限
+    implicitStateFastMode: false,         // 快模式（预留：主模型末尾输出 <state>，省一次请求）
 });
 
 export class SettingsManager {
@@ -382,6 +390,18 @@ export class SettingsManager {
     static getShortcuts()   { return this._read().shortcuts ?? DEFAULTS.shortcuts; }
     static getAutoScrollAfterSend() {return this._read().autoScrollAfterSend ?? DEFAULTS.autoScrollAfterSend;}
     static getMemoryEnabled() { return this._read().memoryEnabled ?? DEFAULTS.memoryEnabled; }
+
+    // ========== 内隐状态（AI 人格深度）==========
+    /** 悬浮卡片默认是否折叠 */
+    static getImplicitStatePanelCollapsed() { return this._read().implicitStatePanelCollapsed ?? DEFAULTS.implicitStatePanelCollapsed; }
+    /** 悬浮卡片不透明度（0.5~1） */
+    static getImplicitStatePanelOpacity() { return this._read().implicitStatePanelOpacity ?? DEFAULTS.implicitStatePanelOpacity; }
+    /** 结算频率：1=每轮 / 2 / 5 / 0=仅手动 */
+    static getImplicitStateExtractEvery() { return this._read().implicitStateExtractEvery ?? DEFAULTS.implicitStateExtractEvery; }
+    /** 注入块字数上限 */
+    static getImplicitStateMaxChars() { return this._read().implicitStateMaxChars ?? DEFAULTS.implicitStateMaxChars; }
+    /** 快模式（预留） */
+    static isImplicitStateFastMode() { return !!(this._read().implicitStateFastMode ?? DEFAULTS.implicitStateFastMode); }
 
     // ========== 云同步 ==========
     /** 注册设置变更回调（localStorage 写入后触发，参数为可同步子集）。 */

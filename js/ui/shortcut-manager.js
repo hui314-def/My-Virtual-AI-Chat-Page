@@ -98,6 +98,9 @@ export class ShortcutManager {
      * 匹配快捷键 → 执行对应动作。
      */
     _handleKeyDown(e) {
+        // 只处理真正的键盘事件：输入法虚拟键盘、浏览器自绘下拉（datalist / suggestion 列表）
+        // 派发的 keydown 可能没有 key 字段，直接忽略（否则 eventToShortcutString 会抛 TypeError）
+        if (!e || typeof e.key !== 'string' || e.key === '') return;
         const pressed = eventToShortcutString(e);
         if (!pressed) return;
 

@@ -27,6 +27,7 @@ import ShortcutManager from './js/ui/shortcut-manager.js';
 import { ImageGenService } from './js/media/image-gen.js';
 import { UiScroll } from './js/ui/ui-scroll.js';
 import { UiAppearance } from './js/ui/ui-appearance.js';
+import { StreamTextRenderer } from './js/ui/stream-text.js';
 import { ModelConfigUI } from './js/models/model-config-ui.js';
 import { ChatManager } from './js/chat/chat-manager.js';
 import { TopicManager } from './js/chat/topic-manager.js';
@@ -35,6 +36,9 @@ import { KnowledgeRetriever } from './js/knowledge/knowledge-retriever.js';
 import { UploadBindings } from './js/ui/upload-bindings.js';
 import { MessageSuggest } from './js/chat/message-suggest.js';
 import { CharacterCard } from './js/chat/character-card.js';
+// 群聊（编排者驱动的多智能体）
+import { GroupRuntime } from './js/group/group-runtime.js';
+import { GroupUI } from './js/group/group-ui.js';
 import { MemoryRepository } from './js/memory/memory-repository.js';
 import { SyncedMemoryRepository } from './js/memory/synced-memory-repository.js';
 import { MemoryExtractor } from './js/memory/memory-extractor.js';
@@ -43,6 +47,14 @@ import { MemoryLifecycle } from './js/memory/memory-lifecycle.js';
 import { MemoryRetriever } from './js/memory/memory-retriever.js';
 import { MemoryScheduler } from './js/memory/memory-scheduler.js';
 import { PromptInjectManager } from './js/models/prompt-inject.js';
+// 内隐状态系统（AI 人格深度）：话题级隐藏状态 + 注入 + 角色回复完成后演化
+import { ImplicitStateStore } from './js/state/implicit-state-store.js';
+import { StateExtractor } from './js/state/state-extractor.js';
+import { StatePanel } from './js/state/state-panel.js';
+import { StateSettings } from './js/state/state-settings.js';
+// QQ 接入（方案 B：网页配置 + 后端桥接服务常驻收消息）
+import { QQBridgeClient } from './js/qq/qq-bridge-client.js';
+import { QQSettings } from './js/qq/qq-settings.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -80,6 +92,7 @@ const chatRepo = new SyncedChatRepository({
 const ttsService = new TTsService();
 const chatIO = new ChatIO({
     saveAllChats: (chats) => chatRepo.saveAllChats(chats),  // 传递保存函数
+    getChats: () => chats,                                  // 群聊导出时解析成员头像
 });
 const fileUpload = new FileUploadService({
     previewArea: document.getElementById('file-preview-area'),
@@ -155,6 +168,8 @@ const topicManager = new TopicManager({
     renderMessages,
     getModalManager: () => modalManager,
     onTopicSwitch: (chatId) => memoryExtractor.onTopicSwitch(chatId),
+    // 内隐状态：新话题从内置默认值开始（未启用该对话时返回 null，不污染话题对象）
+    createTopicState: (chat) => implicitStateStore.buildInitialStateFor(chat),
 });
 const historyListUI = new HistoryList({
     getChats: () => chats,
@@ -217,15 +232,54 @@ const modalManager = new ModalManager({
     extractTopicMemory: (chatId, topicMessages) => memoryExtractor.extractFromTopic(chatId, topicMessages),
     // 延迟 getter：promptInjectManager 在下方声明，首次访问（打开设置弹窗时）已初始化
     get promptInjectManager() { return promptInjectManager; },
+    // 延迟 getter：内隐状态设置区块（对话设置弹窗里的「内隐状态」）
+    get implicitStateSettings() { return stateSettings; },
     focusChatInput: () => focusChatInput(),
     focusSearchInput: () => searchManager.focusSearchInput(),
     createNewChat: () => chatManager.createNewChat(),
     createNewChatWithSettings: (settings) => chatManager.createNewChatWithSettings(settings),
+    // 群聊会话下，「对话设置」转交「群聊设置」弹窗（延迟 getter：groupUI 在下方声明）
+    openGroupSettings: () => groupUI.openSettingsModal(),
     switchToPreviousChat: () => chatManager.switchToPreviousChat(),
     switchToNextChat: () => chatManager.switchToNextChat(),
     sendMessageWithoutAI: () => sendMessageWithoutAI(),
     toggleImmersiveMode: () => toggleImmersiveMode(),
     executeAction: (action) => shortcutManager.executeAction(action),
+});
+
+// ==================== 群聊（编排者驱动的多智能体） ====================
+// 运行时：发送流程 / 消息渲染 / 旁观模式 / @点名 —— 由 renderMessages / sendUserMessage 委托调用
+const groupRuntime = new GroupRuntime({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getModelService,
+    getOrchestratorService,
+    chatRepo,
+    chatMessagesEl: chatMessages,
+    messageInputEl: messageInput,
+    getTopicManager: () => topicManager,
+    uiScroll,
+    uiAppearance,
+    getModalManager: () => modalManager,
+    appendMessageToDOM,
+    renderHistoryList: () => historyListUI.renderHistoryList(),
+    getGroupUI: () => groupUI,
+    // 提示词注入：与私聊一致，作用在群聊成员的 system prompt 末尾
+    getPromptInjectManager: () => promptInjectManager,
+});
+
+// UI：新建群聊弹窗 + 群聊设置弹窗（DOM 来自 templates/group.html）
+const groupUI = new GroupUI({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getChatManager: () => chatManager,
+    getModalManager: () => modalManager,
+    chatRepo,
+    renderHistoryList: () => historyListUI.renderHistoryList(),
+    renderMessages: (chatId, topicIdx) => renderMessages(chatId, topicIdx),
+    applyCurrentChatSettings: () => applyCurrentChatSettings(),
+    onSpectatorToggle: () => groupRuntime.toggleSpectator(),
+    isSpectating: () => groupRuntime.isSpectating(),
 });
 
 // ==================== 账号 / 云同步 ====================
@@ -302,6 +356,20 @@ function setCurrentChatId(id) {
     localStorage.setItem(Constants.STORAGE_KEYS.LAST_CHAT_ID, id);
 }
 
+// —— 群聊：编排者专用的模型实例 ——
+// 使用「辅助任务模型」（未配置则跟随主模型），与主模型实例分开，
+// 避免编排请求与成员流式发言互相打断（ModelService 的 abortCurrentStream 是实例级的）。
+let orchestratorServiceRef = null;
+function getOrchestratorService() {
+    const cfg = SettingsManager.getAuxRequestConfig();
+    if (!orchestratorServiceRef) {
+        orchestratorServiceRef = new ModelService(cfg);
+    } else {
+        try { orchestratorServiceRef.updateConfig(cfg); } catch { /* ignore */ }
+    }
+    return orchestratorServiceRef;
+}
+
 // —— 记忆系统:开关判断 + 提取器 + 面板 ——
 function isMemoryEnabled() {
     if (!SettingsManager.getMemoryEnabled()) return false;   // 全局开关关闭
@@ -341,10 +409,133 @@ memoryPanel.onSyncResult = (msg) => {
     if (modalManager && modalManager.showBriefToast) modalManager.showBriefToast('🧠 ' + msg);
 };
 
+// —— 内隐状态系统（AI 人格深度）：话题级隐藏状态 · 注入 · 角色回复完成后演化 ——
+// 开关跟随「对话设置」（chat.settings.implicitStateEnabled，默认关闭）
+function isImplicitStateEnabled() {
+    const chat = chats.find(c => c.id == currentChatId);
+    return chat?.settings?.implicitStateEnabled === true;
+}
+
+const implicitStateStore = new ImplicitStateStore({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getCurrentTopicIndex: () => topicManager.getCurrentTopicIndex(),
+    localRepo: localChatRepo,   // 本地立即落库（刷新/关页不丢）
+    syncedRepo: chatRepo,       // 云端防抖落库（话题级 patch 是整话题上传，避免重复请求）
+    getMaxChars: () => SettingsManager.getImplicitStateMaxChars(),
+    // 状态事件写入记忆系统的日志（kind='state'），便于跨功能排查（失败静默）
+    onEvent: (kind, detail) => {
+        try {
+            memoryRepo.addEvent({
+                id: `ev_state_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`,
+                kind: 'state',
+                time: Date.now(),
+                chatId: detail?.chatId ?? currentChatId,
+                detail: { action: kind, ...detail },
+            });
+        } catch (err) { /* 日志失败不影响主流程 */ }
+    },
+});
+
+const stateExtractor = new StateExtractor({
+    getChats: () => chats,
+    getCurrentChatId: () => currentChatId,
+    getCurrentTopicIndex: () => topicManager.getCurrentTopicIndex(),
+    getModelService,
+    store: implicitStateStore,
+    getIsEnabled: () => isImplicitStateEnabled(),
+    onUpdated: (chatId, detail) => {
+        // 悬浮卡片监听此事件刷新自己（同时广播出去，便于阶段一在控制台观察）
+        try {
+            window.dispatchEvent(new CustomEvent('implicit-state-updated', { detail: { chatId, ...detail } }));
+        } catch (err) { console.warn('[ImplicitState] 广播更新事件失败：', err); }
+    },
+    onError: (chatId, detail) => {
+        console.warn('[ImplicitState] 状态更新失败（已保留原状态）：', detail);
+        try { statePanel.showError(detail?.error || '更新失败'); } catch { /* ignore */ }
+    },
+});
+
+// 悬浮卡片（展示面）与 对话设置区块（管理面）
+const statePanel = new StatePanel({
+    store: implicitStateStore,
+    extractor: stateExtractor,
+    getIsEnabled: () => isImplicitStateEnabled(),
+    getModalManager: () => modalManager,
+});
+
+const stateSettings = new StateSettings({
+    store: implicitStateStore,
+    extractor: stateExtractor,
+    getModalManager: () => modalManager,
+    onChanged: () => statePanel.renderForCurrent(),
+});
+
+// 阶段一调试入口：无界面时用控制台开关与查看（阶段三接入「对话设置 → 内隐状态」后仍保留）
+window.implicitStateDebug = {
+    store: implicitStateStore,
+    extractor: stateExtractor,
+    panel: statePanel,
+    settings: stateSettings,
+    /** 开启当前对话的内隐状态（等价于对话设置里的总开关） */
+    enable() {
+        const chat = chats.find(c => c.id == currentChatId);
+        if (!chat) return '当前没有对话';
+        chat.settings = chat.settings || {};
+        chat.settings.implicitStateEnabled = true;
+        chat.settings.implicitStatePanelVisible = true;
+        implicitStateStore.ensureState();
+        chatRepo.saveChat(chat);
+        statePanel.renderForCurrent();
+        return '已开启内隐状态（当前对话）';
+    },
+    disable() {
+        const chat = chats.find(c => c.id == currentChatId);
+        if (!chat) return '当前没有对话';
+        chat.settings = chat.settings || {};
+        chat.settings.implicitStateEnabled = false;
+        chatRepo.saveChat(chat);
+        statePanel.renderForCurrent();
+        return '已关闭内隐状态（当前对话）';
+    },
+    /** 查看当前话题的状态对象 */
+    show() { return implicitStateStore.getState({ create: true }); },
+    /** 查看本轮会注入给 AI 的状态块 */
+    block() { return implicitStateStore.renderBlock(); },
+    /** 立即结算一次（不必等下一轮回复） */
+    update() { return stateExtractor.extractNow(currentChatId); },
+    /** 把当前话题状态重置为内置默认值 */
+    reset() { return implicitStateStore.resetCurrent() ? '已重置当前话题状态' : '重置失败'; },
+};
+
+// 关页 / 切到后台前冲刷待上传的状态：本地已即时落库，这里只是让云端尽快同步（防抖窗口内的合并请求）
+window.addEventListener('beforeunload', () => implicitStateStore.flush());
+document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') implicitStateStore.flush();
+});
+
 // 提示词注入系统：管理注入到主模型 system prompt 的提示词（内置 + 自定义，开关控制）
 const promptInjectManager = new PromptInjectManager();
 // 提示词数据变化时刷新「个性化设置」弹窗的「设置发生变动」黄色提示
 promptInjectManager.setOnChangeCallback(() => modalManager.refreshGlobalSettingsDirtyHint());
+
+// ==================== QQ 接入 ====================
+// 角色设置的唯一真相源仍是网页（localStorage + IndexedDB）：
+// 桥接客户端负责把「选中角色 + 模型参数」解析成快照推送给后端的常驻服务。
+const qqBridgeClient = new QQBridgeClient({
+    settingsManager: SettingsManager,
+    getChats: () => chats,
+    chatRepo,
+    modalManager,
+    getDbName: () => getChatRepoDbName(),
+});
+const qqSettings = new QQSettings({
+    bridge: qqBridgeClient,
+    getChats: () => chats,
+    modalManager,
+});
+// 页面加载后自动推一次配置（含推送失败后的退避重试）
+qqBridgeClient.startAutoSync();
 
 // 记忆运行时状态:上一轮 AI 回复命中的记忆 id、本轮要注入的记忆列表
 let lastModelHits = new Set();
@@ -607,13 +798,24 @@ function applyCurrentChatSettings() {
         bgMusicName: settings.bgMusicName || '',
         bgMusicVolume: settings.bgMusicVolume ?? 0.5,
     });
+    // 群聊：切换会话时同步「群聊模式」（body.group-mode 控制输入区按钮精简）
+    groupRuntime.syncGroupMode();
+    // 内隐状态悬浮卡片：随对话切换刷新（状态是话题级的，切话题时由 renderMessages 再刷一次）
+    statePanel.renderForCurrent();
 }
 
 // 追加消息到DOM
-async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null, imageAttachments = null, thinkSeconds = null) {
+// memberInfo（群聊专用，可选）: { memberId, name, hue, detached }
+// —— 传入时会在气泡顶部显示发言人、标记 data-member（供 css/group.css 配色），
+//    私聊不传该参数，行为与原来完全一致。
+async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, chatIdForSave = null, customAvatarUrl = null, fileAttachment = null, modelName = null, msgUid = null, quoteRef = null, knowledgeSources = null, imageAttachments = null, thinkSeconds = null, memberInfo = null) {
     const messageDiv = document.createElement('div');
     messageDiv.className = `message ${type}`;
     if (msgUid) messageDiv.dataset.msgUid = msgUid;
+    if (memberInfo && memberInfo.memberId) {
+        messageDiv.dataset.member = memberInfo.memberId;
+        if (memberInfo.hue !== undefined) messageDiv.style.setProperty('--m-hue', String(memberInfo.hue));
+    }
     let avatarHtml = '';
 
     if (type === 'ai') {
@@ -642,6 +844,12 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     
     // 消息气泡内容
     let bubbleContent = '';
+    // 群聊：气泡顶部显示发言人名字（私聊为空串，不影响任何既有渲染）
+    let senderHtml = '';
+    if (memberInfo && type === 'ai') {
+        const flag = memberInfo.detached ? '<span class="msg-member-flag">已脱钩</span>' : '';
+        senderHtml = `<div class="msg-sender">${escapeHtml(memberInfo.name || '成员')}${flag}</div>`;
+    }
     if (type === 'ai') {
         bubbleContent = renderMessageWithThink(text, true, thinkSeconds);
     } else {
@@ -692,16 +900,36 @@ async function appendMessageToDOM(type, text, time, saveToStorageFlag = false, c
     }
     messageDiv.innerHTML = `
         <div class="avatar-msg">${avatarHtml}</div>
-        <div class="bubble">${bubbleContent}</div>
+        <div class="bubble">${senderHtml}${bubbleContent}</div>
     `;
     
     const aiAvatar = messageDiv.querySelector('.avatar-msg');
     if (type === 'ai' && aiAvatar) {
         aiAvatar.style.cursor = 'pointer';
-        aiAvatar.addEventListener('click', (e) => {
-            e.stopPropagation();
-            modalManager.openSettingsModal();   // 复用已有的打开对话设置函数
-        });
+        // 群聊：点击成员头像 → 打开**该成员自己的对话设置**（不切换当前会话）
+        if (memberInfo && memberInfo.detached) {
+            aiAvatar.title = '该成员的来源对话已被删除（已脱钩）';
+            aiAvatar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                modalManager.customAlert(
+                    '「' + (memberInfo.name || '该成员') + '」的来源对话已被删除，这个成员目前是本地副本，没有可编辑的来源设置。',
+                    'warning'
+                );
+            });
+        } else if (memberInfo && memberInfo.sourceChatId != null) {
+            const sourceChat = chats.find(c => c.id == memberInfo.sourceChatId);
+            aiAvatar.title = `点击打开「${memberInfo.name || sourceChat?.settings?.roleName || '角色'}」的对话设置`;
+            aiAvatar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                modalManager.openSettingsModal({ chatId: memberInfo.sourceChatId });
+            });
+        } else {
+            aiAvatar.title = '点击打开对话设置';
+            aiAvatar.addEventListener('click', (e) => {
+                e.stopPropagation();
+                modalManager.openSettingsModal();   // 复用已有的打开对话设置函数
+            });
+        }
     }
 
     // 添加点击气泡显示操作栏
@@ -836,9 +1064,23 @@ async function appendImageToDOM(type, imgSrc, time, saveToStorageFlag = false) {
     }
 }
 
+// 渲染当前对话的消息（也会被话题切换调用）
 function renderMessages(chatId, topicIndex = null) {
     const chat = chats.find(c => c.id == chatId);
     if (!chat || !chatMessages) return;
+
+    // 群聊：委托给群聊运行时渲染（成员配色 / 发言人名字 / 脱钩标记 / 成员对账）
+    if (chat.kind === 'group') {
+        try {
+            groupRuntime.renderMessages(chat, topicIndex);
+        } catch (err) {
+            console.error('[Group] 群聊渲染失败：', err);
+        }
+        return;
+    }
+
+    // 内隐状态悬浮卡片：话题切换 / 重渲染时一并刷新（状态按话题独立）
+    try { statePanel.renderForCurrent(); } catch (err) { console.warn('[ImplicitState] 卡片刷新失败：', err); }
     // 清理残留的动画状态（setCurrentTopic 的定时器可能尚未触发）
     chatMessages.classList.remove('no-entry-animation');
     chatMessages.innerHTML = '';
@@ -978,6 +1220,13 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         // 长期记忆注入(本轮命中的记忆 + 固定/常驻 + 活跃 Top-K)
         const memoryBlock = MemoryScheduler.renderBlock(currentInjection);
         if (memoryBlock) systemPrompt += memoryBlock;
+        // —— 内隐状态注入（AI 人格深度）——
+        // 取「当前话题」的内隐状态，让角色的语气/距离感/小动作与内心一致。
+        // 位置：记忆块之后（记忆=长期事实）、提示词注入块之前（状态=当下切片）
+        if (isImplicitStateEnabled()) {
+            const stateBlock = implicitStateStore.renderBlock();
+            if (stateBlock) systemPrompt += '\n\n' + stateBlock;
+        }
         // —— 提示词注入系统：追加所有「已启用」的注入提示词（仅作用于主模型回复）——
         // 内置的【任务目标】【回复格式规则】已移入提示词注入系统（默认启用，行为与原来一致），
         // 用户可在「个性化设置 → 提示词注入」中增删改、开关控制
@@ -1108,12 +1357,16 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         const queueText = (text) => { if (!text) return; displayQueue.push({ type: 'text', text }); };
         const queueSoulText = (text) => { if (!text) return; displayQueue.push({ type: 'soul-text', text }); };
         // 纯 DOM 渲染（仅打字机调用；数据累积已由 record* 即时完成）
+        // 用共享的 StreamTextRenderer 增量渲染：
+        //   · 括号闭合的**瞬间**就斜体（原来要等整段生成完才统一斜体化）
+        //   · 新字符仍然逐块淡入（.fade-in-text），已输出部分的动画不会重播
+        let streamRenderer = null;
+        let displayedRaw = '';   // 已经渲染到 DOM 的正文（打字机节流后的文本）
         const appendContent = (text) => {
-            if (!text) return;
-            const span = document.createElement('span');
-            span.className = 'fade-in-text';
-            span.textContent = text;
-            contentP.appendChild(span);
+            if (!text || !contentP) return;
+            displayedRaw += text;
+            if (!streamRenderer) streamRenderer = new StreamTextRenderer(contentP);
+            streamRenderer.update(displayedRaw);
         };
         // 创建内心OS折叠面板（首次检测到 <soul> 开标签时）
         const ensureSoulPanel = () => {
@@ -1441,6 +1694,17 @@ async function simulateAIResponse(userMsg, imageUrls = []) {
         } catch (err) {
             lastModelHits = new Set();
         }
+
+        // 内隐状态（AI 人格深度）：角色回复完成后结算一次
+        // 结算条件已全部满足：流结束(displayDone) → 打字机排空(await typewriterReady) → AI 消息已落库
+        // 不结算的情况（按需求）：用户消息、无 AI 直接发送、用户中途停止生成
+        // 只输出 <think>/<soul>（无正文）的回复也不结算
+        if (!displayAborted && stripHiddenTags(fullReply).trim() !== '') {
+            setTimeout(() => {
+                stateExtractor.updateAfterReply(currentChatId)
+                    .catch(err => console.warn('[ImplicitState] 结算失败：', err));
+            }, Constants.IMPLICIT_STATE_TRIGGER_DELAY_MS);
+        }
     } catch (error) {
         if (error.name === 'AbortError') {
             console.log('流式请求已被取消');
@@ -1496,7 +1760,8 @@ function createMessageBubble(type, text, time, avatarUrl, modelName = null, know
 }
 
 async function sendUserMessage() {
-    if (uiScroll.isProcessing) {
+    // 群聊：发言进行中允许「插话」（旁观模式除外，那时用户是观众）
+    if (uiScroll.isProcessing && !groupRuntime.canInterject()) {
         modalManager.showBriefToast('请等待当前回复完成后再发送');
         return;
     }
@@ -1541,6 +1806,19 @@ async function sendUserMessage() {
             sendButton.classList.remove('animate-send');
             sendButton.removeEventListener('animationend', onAnimEnd);
         }, { once: true });
+    }
+
+    // —— 群聊分支：交给群聊运行时处理（编排者派发 → 多成员依次发言）——
+    // 私聊会跳过这里，走原来的 simulateAIResponse 流程，行为完全不变。
+    if (groupRuntime.isActive()) {
+        messageInput.value = '';
+        if (messageInput) messageInput.style.height = 'auto';
+        groupRuntime.send({ text, fileAttachment, imageAttachments, imageUrls, quoteRef })
+            .catch(err => {
+                console.error('[Group] 群聊发送异常：', err);
+                modalManager.showBriefToast('群聊发送出错：' + (err.message || err));
+            });
+        return;
     }
 
     // 存储消息时附带文件信息
@@ -1910,6 +2188,10 @@ function bindSettingsPanel() {
             // 提示词注入：点击该标签时刷新（数据即时保存，重渲染保证列表最新）
             if (tabId === 'prompt-inject') {
                 promptInjectManager.render();
+            }
+            // QQ 接入：点击该标签时渲染面板并先推一次配置（保证后端拿到最新角色设定）
+            if (tabId === 'qq') {
+                qqSettings.render().then(() => qqSettings.pushNow());
             }
         });
     });
@@ -2333,7 +2615,37 @@ function bindEvents() {
     bindModalControls();
     bindSettingsPanel();
     bindChatActions();
+    bindGroupFeatures();    // 群聊：新建入口 + @点名候选浮层
     suggestManager.bind();  // 消息建议按钮（聚焦输入框时从右向左滑出）
+}
+
+// ==================== 群聊事件绑定 ====================
+function bindGroupFeatures() {
+    // 侧边栏「新建群聊」入口
+    const groupBtn = document.getElementById('new-group-btn');
+    if (groupBtn) {
+        groupBtn.addEventListener('click', () => {
+            closeSidebarOnMobile();
+            groupUI.openCreateModal();
+        });
+    }
+
+    // @ 点名候选浮层：输入框内容变化时刷新
+    if (messageInput) {
+        messageInput.addEventListener('input', () => groupRuntime.updateMentionPop());
+        messageInput.addEventListener('blur', () => {
+            setTimeout(() => groupRuntime._removeMentionPop(), 150);  // 给点选留时间
+        });
+        messageInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Escape') groupRuntime._removeMentionPop();
+        });
+    }
+
+    // 输入区上方的常驻「停止旁观」按钮（设置弹窗关闭后仍可停止无限旁观）
+    const stopSpectatorBtn = document.getElementById('group-stop-spectator');
+    if (stopSpectatorBtn) {
+        stopSpectatorBtn.addEventListener('click', () => groupRuntime.stopSpectator());
+    }
 }
 
 // 自动调整 textarea 高度
@@ -2477,6 +2789,20 @@ async function init() {
     styleSheet.textContent = modalStyleText;
     document.head.appendChild(styleSheet);
     document.body.insertAdjacentHTML('beforeend', modalHtml); // 动态创建弹窗 HTML
+
+    // ==================== 群聊弹窗模板 (templates/group.html) ====================
+    // 新建群聊弹窗 + 群聊设置弹窗（样式在 css/group.css）
+    try {
+        const grpResp = await fetch('templates/group.html');
+        if (grpResp.ok) {
+            const grpDoc = new DOMParser().parseFromString(await grpResp.text(), 'text/html');
+            document.body.insertAdjacentHTML('beforeend', grpDoc.body.innerHTML);
+        } else {
+            console.warn('[init] 群聊模板加载失败: HTTP ' + grpResp.status);
+        }
+    } catch (err) {
+        console.warn('[init] 群聊模板加载失败:', err);
+    }
     // 模板中的默认背景预览图依赖 JS 常量 (DEFAULT_BG_PREVIEW)，注入后补齐
     const bgImgEl = document.getElementById('bg-img');
     if (bgImgEl && !bgImgEl.src) bgImgEl.src = Constants.DEFAULT_BG_PREVIEW;
@@ -2501,6 +2827,9 @@ async function init() {
     shortcutManager.init();
     bindEvents();
     promptInjectManager.render();   // 渲染「提示词注入」设置面板（容器为静态 HTML，随全局设置弹窗加载）
+    // 内隐状态悬浮卡片：绑定交互并恢复位置/折叠状态（模板已在上方注入）
+    statePanel.init();
+    statePanel.renderForCurrent();
     getModelService();
     modelConfigUI.renderModelListUI();      // 渲染模型列表弹窗
     modelConfigUI.updateModelSelector();    // 更新快速切换下拉框

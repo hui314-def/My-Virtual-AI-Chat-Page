@@ -211,6 +211,10 @@ export function parseShortcut(shortcutStr) {
 }
 /** 从event对象生成快捷键字符串（用于捕获）*/ 
 export function eventToShortcutString(e) {
+    // 防御：不是所有 keydown 都带 key 字段 —— 输入法虚拟键盘会给出 'Unidentified'，
+    // 而浏览器自绘控件（如 Firefox/Edge 的 datalist 下拉、suggestion 列表）在列表内按键时
+    // 会把事件派发到 input 上，那类事件可能没有 key（undefined）。这类事件不参与快捷键匹配。
+    if (!e || typeof e.key !== 'string' || e.key === '') return null;
     const parts = [];
     if (e.ctrlKey) parts.push('ctrl');
     if (e.shiftKey) parts.push('shift');

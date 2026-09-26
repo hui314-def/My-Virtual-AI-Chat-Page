@@ -3,6 +3,10 @@
 import { getCurrentTime, replaceSTMacros } from '../core/utils.js';
 import Constants from '../core/constants.js';
 import { SettingsManager } from '../core/settings-manager.js';
+import {
+    buildDisplayNames, buildInitialSpaceSettings, defaultOrchestratorPolicy,
+    GROUP_MIN_MEMBERS, GROUP_MAX_MEMBERS,
+} from '../group/group-core.js';
 
 export class ChatManager {
     /**
@@ -69,8 +73,7 @@ export class ChatManager {
     }
 
     // 使用传入的设置新建对话（供「新对话 → 先弹设置 → 保存后创建」流程使用）
-    async createNewChatWithSettings(settings) {
-        this.closeSidebarOnMobile();
+    async createNewChatWithSettings(settings) {        this.closeSidebarOnMobile();
         // 开场白支持 SillyTavern 宏：创建时解析一次并定型（动态宏无上下文 → 空串）
         const stUserName = (settings.userProfileName || '').trim()
             || (SettingsManager.getUsername() === Constants.DEFAULT_USERNAME ? '用户' : SettingsManager.getUsername());
@@ -115,6 +118,77 @@ export class ChatManager {
                 }, { once: true });
             }
         }, 20); // 确保 DOM 已更新
+    }
+
+    /**
+     * 新建群聊（编排者驱动的多智能体会话）。
+     *
+     * - 成员的角色参数（人设 / 头像 / 音色 / 模型参数）**不复制**，而是通过
+     *   `sourceChatId` 实时继承自各自的来源对话（见 js/group/group-core.js）
+     * - 背景 / 背景音乐 / 用户画像属于「群空间设置」，由群聊独立维护，
+     *   初始值跟随**第一个被选中的成员**（D15）
+     *
+     * @param {Object} p
+     * @param {Array}  p.members - [{ sourceChatId, name, sourceTitle, ... }]
+     * @param {string} [p.name]  - 群聊名称，留空自动生成
+     * @returns {Promise<Object>} 新建的群聊会话
+     */
+    async createGroupChat({ members = [], name = '' } = {}) {
+        this.closeSidebarOnMobile();
+
+        if (members.length < GROUP_MIN_MEMBERS || members.length > GROUP_MAX_MEMBERS) {
+            throw new Error(`群聊需要 ${GROUP_MIN_MEMBERS}~${GROUP_MAX_MEMBERS} 个角色`);
+        }
+
+        // 重名去重：同名自动追加 (2)、(3)
+        const displayNames = buildDisplayNames(members);
+
+        const groupMembers = members.map((c, i) => ({
+            memberId: `m_${i + 1}`,
+            displayName: displayNames[i],
+            sourceChatId: c.sourceChatId,
+            sourceTitle: c.sourceTitle || '',
+            detached: false,
+            snapshot: null,
+            lastResolved: null,
+        }));
+
+        // 群空间初始值：跟随第一个被选中的成员
+        const firstSource = this.chats.find(c => c.id == members[0].sourceChatId);
+        const spaceSettings = buildInitialSpaceSettings(firstSource?.settings || null);
+
+        const autoTitle = members.length <= 3
+            ? `群聊 · ${displayNames.join(' / ')}`
+            : `群聊 · ${displayNames.slice(0, 3).join(' / ')} 等 ${members.length} 人`;
+
+        const newId = Date.now();
+        const newChat = {
+            id: newId,
+            kind: 'group',
+            title: name || autoTitle,
+            date: new Date(),
+            topics: [{
+                id: Date.now(),
+                name: '群聊',
+                createdAt: new Date().toISOString(),
+                summary: null,
+                messages: [],
+            }],
+            currentTopicIndex: 0,
+            members: groupMembers,
+            orchestrator: defaultOrchestratorPolicy(),
+            settings: spaceSettings,
+            pinned: false,
+        };
+
+        this.chats.unshift(newChat);
+        this.setCurrentChatId(newId);
+        this.renderHistoryList();
+        await this.renderMessages(this.currentChatId, 0);
+        this.applyCurrentChatSettings();
+        await this.chatRepo.saveAllChats(this.chats);
+
+        return newChat;
     }
 
     // 切换对话

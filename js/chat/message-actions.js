@@ -2,6 +2,7 @@
 // 处理双击消息气泡弹出的操作栏（引用/删除/播放/重新生成/继续说/保存图片等）。
 import Constants from '../core/constants.js';
 import { escapeHtml, getCurrentTime, stripHiddenTags, parseParenthesesContent, genMsgUid } from '../core/utils.js';
+import { resolveMemberSettings } from '../group/group-core.js';
 
 export class MessageActions {
     /**
@@ -282,8 +283,30 @@ export class MessageActions {
                 return;
             }
             const chat = chats.find(c => c.id == currentChatId);
-            const ttsEnabled = chat?.settings?.ttsEnabled;
-            const ttsVoice = chat?.settings?.ttsVoice || 'default';
+            let ttsEnabled = chat?.settings?.ttsEnabled;
+            let ttsVoice = chat?.settings?.ttsVoice || 'default';
+            let speakerLabel = '当前对话';
+
+            // 群聊：音色与开关继承自该成员自己的来源对话（角色级参数 —— D3）
+            // 每条群聊 AI 消息都带 data-member，用它反查是哪位成员说的。
+            if (chat?.kind === 'group') {
+                const memberId = msgElement?.dataset?.member || null;
+                const member = memberId
+                    ? (chat.members || []).find(m => m.memberId === memberId)
+                    : null;
+
+                if (member) {
+                    const memberSettings = resolveMemberSettings(member, chats) || {};
+                    ttsEnabled = memberSettings.ttsEnabled;
+                    ttsVoice = memberSettings.ttsVoice || 'default';
+                    speakerLabel = `「${member.displayName || '该成员'}」的对话`;
+                } else {
+                    // 找不到成员（例如来源已被清空）：明确提示，避免误以为是群聊没开 TTS
+                    ctx.customAlert('找不到这条消息对应的群成员，无法确定音色。');
+                    return;
+                }
+            }
+
             if (ttsEnabled) {
                 // TTS 只朗读正文：剥离 <think>（思考过程）与 <soul>（内心OS）
                 const contentToSpeak = stripHiddenTags(text) || text;
@@ -297,7 +320,12 @@ export class MessageActions {
                     ctx.customAlert('当前消息没有可朗读的语言内容');
                 }
             } else {
-                ctx.customAlert('当前对话未开启语音合成，请在对话设置中开启 TTS 开关');
+                ctx.customAlert(
+                    `${speakerLabel}未开启语音合成。\n\n` +
+                    (chat?.kind === 'group'
+                        ? '提示：在群聊里点击该成员的头像，就能直接打开它的「对话设置」，在里面开启 TTS 并选择音色。'
+                        : '请在「对话设置」中开启 TTS 开关。')
+                );
             }
         });
 
@@ -305,6 +333,12 @@ export class MessageActions {
         actionsDiv.querySelector('.generate-reply-btn')?.addEventListener('click', async (e) => {
             e.stopPropagation();
             closeActionMenu();
+            // 群聊：这里会走单角色流程，v1 暂不支持（直接用输入框发言即可）
+            const chat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
+            if (chat && chat.kind === 'group') {
+                ctx.showBriefToast('群聊请直接在输入框发言');
+                return;
+            }
             await ctx.simulateAIResponse(text);
         });
 
@@ -422,6 +456,11 @@ export class MessageActions {
         }
         const currentChat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
         if (!currentChat) return;
+        // 群聊：重新生成会走单角色流程，v1 暂不支持（请直接再发一条消息）
+        if (currentChat.kind === 'group') {
+            ctx.showBriefToast('群聊暂不支持「重新生成」，可以直接再发一条消息');
+            return;
+        }
         const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];
         if (!activeTopic) return;
 
@@ -450,6 +489,11 @@ export class MessageActions {
         const ctx = this.ctx;
         const currentChat = ctx.getChats().find(c => c.id == ctx.getCurrentChatId());
         if (!currentChat) return;
+        // 群聊：「继续」会走单角色续写流程，v1 暂不支持
+        if (currentChat.kind === 'group') {
+            ctx.showBriefToast('群聊暂不支持「继续」，可以直接再发一条消息');
+            return;
+        }
         const activeTopic = currentChat?.topics?.[ctx.getCurrentTopicIndex()];
         if (!activeTopic) return;
 

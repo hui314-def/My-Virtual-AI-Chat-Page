@@ -13,6 +13,8 @@
     <link rel="stylesheet" href="css/sidebar.css">
     <link rel="stylesheet" href="css/chat.css">
     <link rel="stylesheet" href="css/components.css">
+    <link rel="stylesheet" href="css/implicit-state.css">
+    <link rel="stylesheet" href="css/group.css">
     <link rel="stylesheet" href="css/light-theme.css">
     <link rel="stylesheet" href="css/responsive.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
@@ -78,7 +80,10 @@
             </div>
         </div>
         <div class="new-chat-fixed">
-            <div class="new-chat-btn"><i class="fas fa-plus"></i> 新对话</div>
+            <div class="new-chat-row">
+                <div class="new-chat-btn"><i class="fas fa-plus"></i> 新建角色</div>
+                <div class="group-new-btn" id="new-group-btn" title="新建群聊（2~5 个角色）"><i class="fas fa-users"></i></div>
+            </div>
         </div>
         <!-- 左下角设置 -->
         <div class="settings-area">
@@ -177,6 +182,12 @@
 
         <!-- 底部输入区域 半透明融合背景 -->
         <div class="chat-input-area">
+            <div class="grp-live-bar">
+                <div class="group-mode-indicator" id="group-mode-indicator" hidden></div>
+                <button type="button" class="grp-stop-spectator" id="group-stop-spectator" hidden>
+                    <i class="fas fa-stop"></i> 停止旁观
+                </button>
+            </div>
             <div class="file-preview-area" id="file-preview-area" style="display: none;">
                 <div class="file-preview-item">
                     <i class="fas fa-file-alt"></i>

@@ -1,0 +1,742 @@
+/* ============================================================
+   group.css — 多智能体群聊（编排者驱动）
+   ------------------------------------------------------------
+   包含：
+     1. 侧边栏「新建群聊」入口与群聊列表项
+     2. 群聊消息的成员配色（按 data-member 分配色相）
+     3. 群聊模式下的输入区按钮精简（group-mode 开关）
+     4. 新建群聊弹窗 / 群聊设置弹窗
+   ⚠️ 所有群聊相关规则都以 .group-mode / [data-member] / #group-* 为限定，
+      不影响私聊的既有样式。
+   ============================================================ */
+
+/* ==================== 1. 侧边栏入口 ==================== */
+
+/* 「新对话」与「新建群聊」并排 */
+.new-chat-fixed .new-chat-row {
+    display: flex;
+    gap: 8px;
+    align-items: stretch;
+}
+.new-chat-fixed .new-chat-row .new-chat-btn {
+    flex: 1;
+    min-width: 0;
+}
+
+.group-new-btn {
+    flex-shrink: 0;
+    width: 52px;
+    background: linear-gradient(125deg, rgba(70, 60, 140, 0.55), rgba(40, 36, 90, 0.75));
+    border: 1px solid rgba(130, 120, 255, 0.45);
+    border-radius: 30px;
+    color: #ccd6ff;
+    cursor: pointer;
+    backdrop-filter: blur(4px);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    font-size: 1.05rem;
+    transition: 0.2s;
+}
+.group-new-btn:hover {
+    background: linear-gradient(125deg, rgba(95, 85, 185, 0.8), rgba(55, 50, 125, 0.9));
+    border-color: rgba(160, 150, 255, 0.8);
+    box-shadow: 0 0 12px rgba(130, 120, 255, 0.3);
+}
+
+/* 群聊列表项 */
+.history-item.is-group > i {
+    color: #a89cff;
+}
+.history-item.is-group .title::before {
+    content: '群';
+    display: inline-block;
+    font-size: 0.6rem;
+    line-height: 1;
+    padding: 2px 4px;
+    margin-right: 5px;
+    border-radius: 4px;
+    background: rgba(130, 120, 255, 0.28);
+    border: 1px solid rgba(150, 140, 255, 0.5);
+    color: #cfc6ff;
+    vertical-align: middle;
+}
+.history-item.is-group .date .grp-sync-badge {
+    color: #ffc46b;
+    margin-left: 4px;
+}
+
+/* ==================== 2. 群聊消息的成员配色 ==================== */
+
+/* 成员色相：m_1 ~ m_5（与 js/group/group-core.js 的 MEMBER_HUES 保持一致） */
+.message[data-member="m_1"] { --m-hue: 212; }
+.message[data-member="m_2"] { --m-hue: 280; }
+.message[data-member="m_3"] { --m-hue: 340; }
+.message[data-member="m_4"] { --m-hue: 160; }
+.message[data-member="m_5"] { --m-hue: 42; }
+
+/* 群聊 AI 气泡：边框与头像随成员色相变化（仅在有 data-member 时生效） */
+.message[data-member] .bubble {
+    border-color: hsla(var(--m-hue, 212), 70%, 62%, 0.45);
+    border-left: 3px solid hsla(var(--m-hue, 212), 80%, 64%, 0.85);
+}
+.message[data-member] .avatar-msg {
+    border-color: hsla(var(--m-hue, 212), 70%, 62%, 0.6);
+    background: hsla(var(--m-hue, 212), 40%, 20%, 0.72);
+}
+
+/* 发言人名字（仅群聊渲染） */
+.msg-sender {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: hsl(var(--m-hue, 212), 80%, 78%);
+    margin-bottom: 5px;
+    line-height: 1.2;
+}
+.msg-sender .msg-member-flag {
+    font-size: 0.6rem;
+    font-weight: 400;
+    color: #ffc46b;
+    border: 1px solid rgba(255, 196, 107, 0.45);
+    border-radius: 10px;
+    padding: 1px 6px;
+}
+
+/* 群聊里用户气泡保持原样，只是确保不会被成员色影响 */
+.message.user .bubble {
+    border-left: 0.5px solid rgba(140, 160, 255, 0.55);
+}
+
+/* ==================== 3. 群聊模式下的输入区精简（D8） ====================
+   群聊模式只保留：语音输入 / 文件上传 / 对话设置（外加输入框内的消息建议与发送）
+   用 CSS class 开关而不是删 DOM —— 私聊完全不受影响。 */
+body.group-mode #topics-manage-btn,
+body.group-mode #kb-select-btn,
+body.group-mode #generate-image-btn,
+body.group-mode #collapse-toggle-btn {
+    display: none !important;
+}
+
+/* 「文件上传」原本位于可折叠容器内，群聊模式下让容器保持展开，
+   这样只留下「文件上传」一个按钮，且不需要改动任何 DOM 结构。 */
+body.group-mode .collapsible-buttons {
+    max-width: none !important;
+    opacity: 1 !important;
+    margin-left: 0 !important;
+    overflow: visible !important;
+}
+
+/* 群聊模式的状态标识（放在输入区上方，随 group-mode 显示） */
+.grp-live-bar {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+}
+.group-mode-indicator {
+    display: none;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+    padding: 5px 12px;
+    border-radius: 20px;
+    width: fit-content;
+    font-size: 0.72rem;
+    color: #c8c0ff;
+    background: rgba(70, 60, 140, 0.28);
+    border: 1px solid rgba(130, 120, 255, 0.4);
+}
+body.group-mode .group-mode-indicator {
+    display: inline-flex;
+}
+/* hidden 属性必须能盖过上面的 display 规则 */
+body.group-mode .group-mode-indicator[hidden] {
+    display: none;
+}
+
+/* 旁观模式常驻「停止」按钮：设置弹窗关掉之后也还能停 */
+.grp-stop-spectator {
+    display: none;
+    align-items: center;
+    gap: 6px;
+    margin-bottom: 8px;
+    padding: 5px 14px;
+    border-radius: 20px;
+    font-size: 0.72rem;
+    font-family: inherit;
+    cursor: pointer;
+    color: #ffd6cd;
+    background: linear-gradient(125deg, rgba(150, 55, 55, 0.55), rgba(90, 35, 45, 0.75));
+    border: 1px solid rgba(255, 138, 122, 0.7);
+    animation: grpSpecGlow 1.4s ease-in-out infinite;
+}
+.grp-stop-spectator:hover {
+    background: linear-gradient(125deg, rgba(180, 70, 70, 0.8), rgba(110, 45, 55, 0.9));
+}
+body.group-mode .grp-stop-spectator.show {
+    display: inline-flex;
+}
+
+/* 编排者状态条（临时，不落库） */
+.orchestrator-hint {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    align-self: flex-start;
+    max-width: 85%;
+    padding: 8px 16px;
+    border-radius: 20px;
+    font-size: 0.76rem;
+    color: #c6b8ff;
+    background: rgba(70, 55, 130, 0.3);
+    border: 1px dashed rgba(160, 130, 255, 0.5);
+    backdrop-filter: blur(8px);
+    animation: grpFadeIn 0.25s ease both;
+}
+.orchestrator-hint .dot-pulse {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: #a06bff;
+    animation: grpPulse 1.1s ease-in-out infinite;
+    flex-shrink: 0;
+}
+@keyframes grpPulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1.2); }
+}
+@keyframes grpFadeIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+/* ==================== 4. 弹窗通用 ==================== */
+
+.grp-modal-content {
+    max-width: 680px;
+    width: 92%;
+}
+.grp-modal-content .modal-body {
+    max-height: 68vh;
+}
+
+.grp-hint {
+    font-size: 0.76rem;
+    line-height: 1.65;
+    color: #9aa4cc;
+    margin: 0 0 14px 0;
+}
+.grp-hint-inline {
+    display: block;
+    font-size: 0.7rem;
+    color: #8e98c0;
+    margin-top: 6px;
+    line-height: 1.5;
+}
+.grp-count {
+    margin-left: auto;
+    font-size: 0.72rem;
+    font-weight: 400;
+    color: #9aa4cc;
+}
+.grp-count.invalid { color: #ffc46b; }
+.grp-meta {
+    font-size: 0.72rem;
+    color: #8e98c0;
+    margin-top: 8px;
+}
+.grp-file-name {
+    font-size: 0.72rem;
+    color: #8e98c0;
+    margin-left: 6px;
+}
+.grp-radio-row {
+    display: flex;
+    gap: 16px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+.grp-radio-row label {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+    cursor: pointer;
+    font-size: 0.8rem;
+    margin: 0;
+}
+.grp-hr {
+    border: none;
+    border-top: 1px dashed rgba(100, 130, 255, 0.28);
+    margin: 14px 0;
+}
+
+/* 可插话状态（群聊发言进行中，且不在旁观模式）：
+   给发送按钮一点微光，提示「现在可以插话」 */
+body.grp-live .send-btn {
+    box-shadow: 0 0 0 0 rgba(160, 107, 255, 0.5);
+    animation: grpInterjectGlow 1.6s ease-in-out infinite;
+}
+@keyframes grpInterjectGlow {
+    0%, 100% { box-shadow: 0 0 4px 0 rgba(160, 107, 255, 0.35); }
+    50% { box-shadow: 0 0 14px 3px rgba(160, 107, 255, 0.45); }
+}
+body.grp-live .grp-stop-spectator,
+body.grp-live .group-mode-indicator {
+    /* 插话期间状态条保持可见，但不要抢眼 */
+    opacity: 0.9;
+}
+
+/* 从群聊点击成员头像进入「该成员的对话设置」时的说明条 */
+.grp-editing-other-hint {
+    font-size: 0.74rem;
+    line-height: 1.65;
+    color: #a8b8ff;
+    background: rgba(95, 126, 255, 0.1);
+    border: 1px solid rgba(100, 140, 255, 0.32);
+    border-radius: 12px;
+    padding: 9px 12px;
+    margin-bottom: 16px;
+}
+.grp-editing-other-hint i {
+    color: #8fa8ff;
+    margin-right: 4px;
+}
+.grp-editing-other-hint b {
+    color: #cfd9ff;
+    font-weight: 600;
+}
+
+/* 群聊流式气泡里的「正在输入…」标记 */
+.grp-typing {
+    font-size: 0.66rem;
+    font-weight: 400;
+    color: #b0b4df;
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}
+.grp-typing::before {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: hsl(var(--m-hue, 212), 80%, 70%);
+    animation: grpTypingPulse 1s ease-in-out infinite;
+    flex-shrink: 0;
+}
+@keyframes grpTypingPulse {
+    0%, 100% { opacity: 0.35; transform: scale(0.85); }
+    50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* 群聊头像预览（圆形，与角色头像一致） */
+.grp-avatar-preview {
+    width: 84px;
+    height: 84px;
+    border-radius: 50%;
+    overflow: hidden;
+    border: 2px solid #5f7eff;
+    background: #1a1c2a;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 8px;
+    transition: 0.2s;
+}
+.grp-avatar-preview:hover {
+    border-color: #8fa8ff;
+    box-shadow: 0 0 12px rgba(95, 126, 255, 0.4);
+}
+.grp-avatar-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+.grp-avatar-preview .grp-avatar-fallback {
+    font-size: 1.7rem;
+    color: #8fa8ff;
+}
+
+/* 聊天背景预览：方形（16:10）。⚠️ 不能用 modal.html 的 .image-preview，
+   那个是 100×100 的圆形角色头像框。 */
+.grp-image-preview {
+    width: 100%;
+    max-width: 260px;
+    aspect-ratio: 16 / 10;
+    border-radius: 12px;
+    overflow: hidden;
+    border: 1px solid rgba(100, 130, 255, 0.45);
+    background: #1a1c2a;
+    margin-bottom: 10px;
+}
+.grp-image-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+}
+
+/* 内嵌提示条 */
+.grp-spoiler {
+    font-size: 0.74rem;
+    line-height: 1.6;
+    color: #ffc46b;
+    background: rgba(255, 196, 107, 0.09);
+    border: 1px solid rgba(255, 196, 107, 0.3);
+    border-radius: 12px;
+    padding: 8px 12px;
+}
+.grp-spoiler:empty { display: none; }
+
+/* ==================== 5. 新建群聊：成员选择 ==================== */
+
+.grp-char-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+    gap: 8px;
+    max-height: 260px;
+    overflow-y: auto;
+    padding: 2px;
+}
+
+.grp-char {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(100, 130, 255, 0.2);
+    background: rgba(30, 34, 55, 0.55);
+    cursor: pointer;
+    transition: 0.18s;
+    user-select: none;
+    overflow: hidden;
+}
+.grp-char:hover {
+    border-color: rgba(100, 140, 255, 0.55);
+    background: rgba(45, 55, 90, 0.65);
+}
+.grp-char.selected {
+    border-color: rgba(120, 160, 255, 0.9);
+    background: rgba(95, 126, 255, 0.2);
+    box-shadow: 0 0 12px rgba(95, 126, 255, 0.2);
+}
+.grp-char.disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
+}
+.grp-char img,
+.grp-char .grp-char-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid rgba(100, 130, 255, 0.4);
+}
+.grp-char .grp-char-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, rgba(95, 126, 255, 0.35), rgba(155, 140, 255, 0.25));
+    color: #e8eeff;
+    font-size: 0.85rem;
+}
+.grp-char-meta {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    gap: 2px;
+}
+.grp-char-name {
+    font-size: 0.82rem;
+    color: #e4ebff;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.grp-char-src {
+    font-size: 0.68rem;
+    color: #8e98c0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.grp-char-check {
+    margin-left: auto;
+    color: #8fa8ff;
+    font-size: 0.9rem;
+    opacity: 0;
+    flex-shrink: 0;
+}
+.grp-char.selected .grp-char-check { opacity: 1; }
+
+/* ==================== 6. 群聊设置弹窗 ==================== */
+
+.grp-section {
+    border-top: 1px solid rgba(100, 120, 200, 0.22);
+    padding-top: 16px;
+    margin-top: 16px;
+}
+.grp-section:first-child {
+    border-top: none;
+    padding-top: 0;
+    margin-top: 0;
+}
+.grp-section-title {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #c8d3ff;
+    margin: 0 0 12px 0;
+}
+.grp-section-title i {
+    color: #8fa8ff;
+    font-size: 0.85rem;
+}
+
+/* 成员卡片列表 */
+.grp-member-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 10px;
+}
+.grp-member-card {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 12px;
+    border-radius: 12px;
+    background: rgba(30, 34, 55, 0.55);
+    border: 1px solid rgba(100, 130, 255, 0.22);
+    border-left: 3px solid hsla(var(--m-hue, 212), 75%, 62%, 0.8);
+}
+.grp-member-card img,
+.grp-member-card .grp-char-avatar {
+    width: 34px;
+    height: 34px;
+    border-radius: 50%;
+    object-fit: cover;
+    flex-shrink: 0;
+    border: 1px solid hsla(var(--m-hue, 212), 70%, 62%, 0.55);
+}
+.grp-member-card .grp-char-avatar {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    background: hsla(var(--m-hue, 212), 40%, 22%, 0.75);
+    color: #e8eeff;
+    font-size: 0.85rem;
+}
+.grp-member-info {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 0;
+    flex: 1;
+}
+.grp-member-name {
+    font-size: 0.84rem;
+    color: hsl(var(--m-hue, 212), 80%, 82%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.grp-member-src {
+    font-size: 0.68rem;
+    color: #8e98c0;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.grp-badge {
+    font-size: 0.6rem;
+    padding: 1px 7px;
+    border-radius: 10px;
+    border: 1px solid transparent;
+    flex-shrink: 0;
+}
+.grp-badge.synced {
+    color: #7ee0a8;
+    border-color: rgba(126, 224, 168, 0.4);
+    background: rgba(126, 224, 168, 0.08);
+}
+.grp-badge.detached {
+    color: #ffc46b;
+    border-color: rgba(255, 196, 107, 0.45);
+    background: rgba(255, 196, 107, 0.09);
+}
+.grp-member-remove {
+    background: transparent;
+    border: 1px solid rgba(255, 138, 122, 0.35);
+    color: #ffb3a7;
+    border-radius: 50%;
+    width: 26px;
+    height: 26px;
+    padding: 0;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.75rem;
+    flex-shrink: 0;
+}
+.grp-member-remove:hover:not(:disabled) {
+    background: rgba(255, 138, 122, 0.18);
+    border-color: rgba(255, 138, 122, 0.7);
+}
+.grp-member-remove:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* 策略行 */
+.grp-policy-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin: 10px 0;
+    font-size: 0.78rem;
+    color: #b9c6ff;
+    flex-wrap: wrap;
+}
+.grp-policy-row > span:first-child {
+    min-width: 118px;
+    flex-shrink: 0;
+}
+.grp-policy-row input[type="range"] {
+    flex: 1;
+    min-width: 0;
+    accent-color: #5f7eff;
+}
+.grp-policy-row .grp-val {
+    min-width: 34px;
+    text-align: right;
+    color: #a8b8ff;
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+}
+
+/* 策略行里的下拉选择器（如「发言顺序」） */
+.grp-policy-row select {
+    flex: 1;
+    min-width: 0;
+    background: rgba(30, 34, 55, 0.7);
+    border: 1px solid rgba(100, 130, 255, 0.4);
+    border-radius: 12px;
+    padding: 6px 10px;
+    color: #ccd6ff;
+    font-size: 0.78rem;
+    font-family: inherit;
+    cursor: pointer;
+}
+.grp-policy-row select:focus {
+    outline: none;
+    border-color: rgba(140, 170, 255, 0.75);
+}
+
+/* 复选框行（⚠️ 不能用 base.css 的 .switch —— 那是 48×24 的滑块开关，
+   而且 .switch input 被设为 opacity:0/width:0，复选框会完全看不见） */
+.grp-switch-label {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    cursor: pointer;
+    line-height: 1.5;
+    width: 100%;
+    user-select: none;
+}
+.grp-switch-label input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    margin: 0;
+    flex-shrink: 0;
+    opacity: 1;
+    accent-color: #5f7eff;
+    cursor: pointer;
+}
+.grp-switch-label span {
+    flex: 1;
+    min-width: 0;
+}
+
+/* 旁观按钮 */
+.grp-spectator-btn {
+    width: 100%;
+    margin-top: 10px;
+    padding: 9px 14px;
+    border-radius: 20px;
+    background: linear-gradient(125deg, rgba(90, 60, 150, 0.5), rgba(45, 35, 90, 0.7));
+    border: 1px solid rgba(160, 107, 255, 0.5);
+    color: #ddd0ff;
+    font-size: 0.82rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: 0.2s;
+}
+.grp-spectator-btn:hover:not(:disabled) {
+    background: linear-gradient(125deg, rgba(115, 78, 185, 0.7), rgba(60, 45, 115, 0.85));
+    border-color: rgba(180, 140, 255, 0.85);
+}
+.grp-spectator-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.grp-spectator-btn.active {
+    background: linear-gradient(125deg, rgba(150, 55, 55, 0.5), rgba(90, 35, 45, 0.72));
+    border-color: rgba(255, 138, 122, 0.7);
+    color: #ffd6cd;
+    animation: grpSpecGlow 1.4s ease-in-out infinite;
+}
+@keyframes grpSpecGlow {
+    0%, 100% { box-shadow: 0 0 0 0 rgba(160, 107, 255, 0.35); }
+    50% { box-shadow: 0 0 0 5px rgba(160, 107, 255, 0.08); }
+}
+
+/* @ 点名候选浮层（输入区上方） */
+.grp-mention-pop {
+    position: absolute;
+    left: 34px;
+    bottom: 76px;
+    background: rgba(18, 22, 40, 0.97);
+    border: 1px solid rgba(100, 140, 255, 0.55);
+    border-radius: 14px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-width: 180px;
+    box-shadow: 0 12px 28px rgba(0, 0, 0, 0.5);
+    z-index: 300;
+}
+.grp-mention-pop[hidden] { display: none; }
+.grp-mention-item {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    border: none;
+    background: transparent;
+    border-radius: 10px;
+    padding: 6px 10px;
+    color: hsl(var(--m-hue, 212), 85%, 82%);
+    font-size: 0.8rem;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+.grp-mention-item:hover { background: rgba(95, 126, 255, 0.2); }
+.grp-mention-item img,
+.grp-mention-item .grp-char-avatar {
+    width: 20px;
+    height: 20px;
+    border-radius: 50%;
+    object-fit: cover;
+}
+
+/* 兼容窄屏 */
+@media (max-width: 720px) {
+    .grp-modal-content { width: 96%; }
+    .grp-char-grid { grid-template-columns: 1fr 1fr; }
+    .grp-policy-row > span:first-child { min-width: 96px; }
+}

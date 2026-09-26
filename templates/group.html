@@ -1,0 +1,244 @@
+<!-- ============================================================
+     群聊模板：新建群聊弹窗 + 群聊设置弹窗
+     由 script.js 在 init() 时 fetch 加载并注入页面（与 templates/modal.html 同机制）
+     样式见 css/group.css
+     ============================================================ -->
+
+<!-- ==================== ① 新建群聊 ==================== -->
+<div id="group-create-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content grp-modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-users"></i> 新建群聊</h3>
+            <button class="modal-close" id="grp-create-close">&times;</button>
+        </div>
+        <div class="modal-body">
+            <p class="grp-hint">
+                从已有的对话存档中挑选角色组建群聊。被选中的角色会带上自己原本的人设、头像、
+                音色与模型参数——<b>并且跟随来源对话实时同步</b>。
+            </p>
+
+            <div class="form-group">
+                <label style="display:flex; align-items:center; gap:8px;">
+                    <i class="fas fa-user-astronaut"></i> 选择成员
+                    <span class="grp-count" id="grp-char-count">已选 0 / 5</span>
+                </label>
+                <div class="grp-char-grid" id="grp-char-list"></div>
+                <small class="grp-hint-inline">请选择 <b>2 ~ 5</b> 个角色</small>
+            </div>
+
+            <div class="form-group">
+                <label>群聊名称 <small style="font-weight:normal; opacity:0.7;">（可选）</small></label>
+                <input type="text" id="grp-group-name" placeholder="留空则自动生成，例如「群聊 · Nova / 江雨霞」">
+            </div>
+
+            <div class="grp-spoiler" id="grp-create-hint"></div>
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" id="grp-create-cancel">取消</button>
+            <button class="modal-btn save" id="grp-create-confirm" disabled>创建群聊</button>
+        </div>
+    </div>
+</div>
+
+<!-- ==================== ② 群聊设置 ==================== -->
+<div id="group-settings-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content grp-modal-content">
+        <div class="modal-header">
+            <h3><i class="fas fa-users-cog"></i> 群聊设置</h3>
+            <button class="modal-close" id="grp-settings-close">&times;</button>
+        </div>
+        <div class="modal-body">
+
+            <!-- ---------- 群聊头像（最顶部，与角色头像一致） ---------- -->
+            <div class="form-group">
+                <label>群聊头像</label>
+                <div class="grp-avatar-preview" id="grp-avatar-preview">
+                    <img id="grp-avatar-img" alt="群聊头像" title="点击更换群聊头像" style="display:none;">
+                </div>
+                <input type="file" id="grp-avatar-upload" accept="image/*" style="display:none;">
+                <small>点击头像即可更换 · 会显示在左侧「智能体档案」列表中</small>
+            </div>
+
+            <!-- ---------- ① 群聊信息 ---------- -->
+            <section class="grp-section">
+                <h4 class="grp-section-title"><i class="fas fa-circle-info"></i> 群聊信息</h4>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>群聊名称</label>
+                    <input type="text" id="grp-name" placeholder="给这个群起个名字">
+                </div>
+                <div class="grp-meta" id="grp-meta"></div>
+            </section>
+
+            <!-- ---------- ② 群空间 ---------- -->
+            <section class="grp-section">
+                <h4 class="grp-section-title"><i class="fas fa-image"></i> 群空间</h4>
+                <p class="grp-hint">背景与音乐属于「群空间设置」，不随成员同步——群聊自己独立一套。</p>
+
+                <div class="form-group">
+                    <label>聊天背景</label>
+                    <select id="grp-bg-type">
+                        <option value="">默认背景</option>
+                        <option value="image">静态图片</option>
+                        <option value="video">视频背景</option>
+                    </select>
+                </div>
+
+                <div class="form-group" id="grp-bg-image-section" style="display:none;">
+                    <label>选择图片</label>
+                    <div class="grp-image-preview" id="grp-bg-preview">
+                        <img id="grp-bg-img" alt="背景预览">
+                    </div>
+                    <input type="file" id="grp-bg-upload" accept="image/*">
+                    <small>背景图将应用于本群聊的聊天区域</small>
+                </div>
+
+                <div class="form-group" id="grp-bg-video-section" style="display:none;">
+                    <label>视频来源</label>
+                    <div class="grp-radio-row">
+                        <label><input type="radio" name="grp-bg-video-mode" value="url" checked> URL 链接</label>
+                        <label><input type="radio" name="grp-bg-video-mode" value="file"> 上传文件</label>
+                    </div>
+                    <div id="grp-bg-video-url-row">
+                        <input type="text" id="grp-bg-video-url" placeholder="https://example.com/bg.mp4">
+                    </div>
+                    <div id="grp-bg-video-file-row" style="display:none;">
+                        <input type="file" id="grp-bg-video-file" accept="video/mp4,video/webm">
+                        <span id="grp-bg-video-file-name" class="grp-file-name"></span>
+                    </div>
+                    <small>支持 mp4/webm，建议 720p、≤50MB，自动静音循环播放</small>
+                </div>
+
+                <div class="form-group">
+                    <label style="display:flex; align-items:center; gap:12px;">
+                        <i class="fas fa-music"></i> 背景音乐
+                        <label class="switch">
+                            <input type="checkbox" id="grp-bg-music-switch">
+                            <span class="slider round"></span>
+                        </label>
+                    </label>
+                    <div id="grp-bg-music-controls" style="display:none;">
+                        <div class="grp-radio-row">
+                            <label><input type="radio" name="grp-bg-music-mode" value="url" checked> URL 链接</label>
+                            <label><input type="radio" name="grp-bg-music-mode" value="file"> 上传文件</label>
+                        </div>
+                        <div id="grp-bg-music-url-row">
+                            <input type="text" id="grp-bg-music-url" placeholder="https://example.com/bgm.mp3">
+                        </div>
+                        <div id="grp-bg-music-file-row" style="display:none;">
+                            <input type="file" id="grp-bg-music-file" accept=".mp3,.wav,.ogg,.flac,.m4a,.weba,.aac">
+                            <span id="grp-bg-music-file-name" class="grp-file-name"></span>
+                        </div>
+                        <label style="margin-top:8px;">音量</label>
+                        <div style="display:flex; align-items:center; gap:8px;">
+                            <i class="fas fa-volume-down" style="font-size:0.8rem; opacity:0.7;"></i>
+                            <input type="range" id="grp-bg-music-volume" min="0" max="100" value="50" style="flex:1;">
+                            <span id="grp-bg-music-volume-value" style="min-width:35px; font-size:0.75rem;">50%</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- ---------- ③ 群成员 ---------- -->
+            <section class="grp-section">
+                <h4 class="grp-section-title"><i class="fas fa-users"></i> 群成员</h4>
+                <p class="grp-hint">
+                    角色的人设、音色与模型参数<b>继承自来源对话</b>；要改这些，请前往对应的私聊对话修改，群里会自动同步。
+                </p>
+                <div class="grp-member-list" id="grp-members-list"></div>
+                <button type="button" class="mini-btn" id="grp-add-member-btn">
+                    <i class="fas fa-plus"></i> 添加成员
+                </button>
+                <div class="grp-char-grid" id="grp-add-member-list" style="display:none; margin-top:10px;"></div>
+            </section>
+
+            <!-- ---------- ④ 编排策略 ---------- -->
+            <section class="grp-section">
+                <h4 class="grp-section-title"><i class="fas fa-sliders-h"></i> 编排策略</h4>
+
+                <div class="grp-policy-row">
+                    <span>发言顺序</span>
+                    <select id="grp-speaker-order">
+                        <option value="orchestrator">编排者决定</option>
+                        <option value="rotate">轮流发言</option>
+                        <option value="random">随机</option>
+                    </select>
+                </div>
+                <small class="grp-hint-inline" id="grp-speaker-order-hint">
+                    编排者会阅读聊天记录后决定该谁开口；「轮流 / 随机」不调用模型，省一次请求、出话更快。
+                </small>
+
+                <div class="grp-policy-row">
+                    <span>单次最多发言角色</span>
+                    <input type="range" id="grp-max-responders" min="1" max="5" step="1" value="2">
+                    <span class="grp-val" id="grp-max-responders-val">2</span>
+                </div>
+
+                <div class="grp-policy-row">
+                    <span>单次最多发言条数</span>
+                    <input type="range" id="grp-max-total" min="1" max="20" step="1" value="6">
+                    <span class="grp-val" id="grp-max-total-val">6</span>
+                </div>
+
+                <div class="grp-policy-row">
+                    <span>自动接力轮数</span>
+                    <input type="range" id="grp-relay-rounds" min="0" max="3" step="1" value="1">
+                    <span class="grp-val" id="grp-relay-rounds-val">1</span>
+                </div>
+
+                <div class="grp-policy-row">
+                    <label class="grp-switch-label">
+                        <input type="checkbox" id="grp-allow-consecutive">
+                        <span>允许同一成员连续发言（默认禁止，避免一个人霸屏）</span>
+                    </label>
+                </div>
+
+                <div class="grp-policy-row">
+                    <span>参考历史条数</span>
+                    <input type="range" id="grp-context-messages" min="4" max="30" step="1" value="12">
+                    <span class="grp-val" id="grp-context-messages-val">12</span>
+                </div>
+                <small class="grp-hint-inline">
+                    编排者据此判断该轮到谁；成员也据此理解群聊上下文。条数越少越省 token，越多理解越准。
+                </small>
+
+                <hr class="grp-hr">
+
+                <div class="grp-policy-row">
+                    <span>旁观模式轮数</span>
+                    <input type="range" id="grp-spectator-rounds" min="1" max="20" step="1" value="3">
+                    <span class="grp-val" id="grp-spectator-rounds-val">3</span>
+                </div>
+
+                <div class="grp-policy-row">
+                    <label class="grp-switch-label">
+                        <input type="checkbox" id="grp-spectator-unlimited">
+                        <span>无限轮（随时可停）</span>
+                    </label>
+                </div>
+
+                <button type="button" class="grp-spectator-btn" id="grp-spectator-btn">
+                    <i class="fas fa-eye"></i> 开始旁观
+                </button>
+                <small class="grp-hint-inline">旁观模式下，成员们会自己聊起来，不需要你发言。</small>
+            </section>
+
+            <!-- ---------- ⑤ 用户画像 ---------- -->
+            <section class="grp-section">
+                <h4 class="grp-section-title"><i class="fas fa-user-astronaut"></i> 用户画像</h4>
+                <div class="form-group">
+                    <label>群聊内我的昵称 <small style="font-weight:normal; opacity:0.7;">（留空 = 跟随全局设置）</small></label>
+                    <input type="text" id="grp-user-name" placeholder="留空则使用全局昵称">
+                </div>
+                <div class="form-group" style="margin-bottom:0;">
+                    <label>群聊内我的简介 <small style="font-weight:normal; opacity:0.7;">（留空 = 跟随全局设置）</small></label>
+                    <textarea id="grp-user-bio" rows="3" placeholder="留空则使用全局简介"></textarea>
+                </div>
+            </section>
+
+        </div>
+        <div class="modal-footer">
+            <button class="modal-btn cancel" id="grp-settings-cancel">取消</button>
+            <button class="modal-btn save" id="grp-settings-save">保存设置</button>
+        </div>
+    </div>
+</div>
