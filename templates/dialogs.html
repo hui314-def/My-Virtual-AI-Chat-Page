@@ -60,6 +60,9 @@
                 <div class="settings-menu-item" data-tab="usage">
                     <i class="fas fa-chart-bar"></i> 用量统计
                 </div>
+                <div class="settings-menu-item" data-tab="onboarding">
+                    <i class="fas fa-graduation-cap"></i> 新手引导
+                </div>
             </div>
             <!-- 右侧内容区域 -->
             <div class="settings-content">
@@ -499,6 +502,56 @@
                             </label>
                             <small>建议开启：用户点名时装死会显得很蠢。注意小时配额是硬上限，不受此项影响</small>
                         </div>
+
+                        <h4 style="margin-top:20px;border-top:1px solid rgba(100,120,200,0.3);padding-top:16px;">互动行为</h4>
+                        <div style="font-size:0.82rem;color:#8b93b0;margin-bottom:12px;line-height:1.6;">
+                            群里人多时，"回了一句话但不知道在回谁"是最大的可读性问题——引用回复就是解决它的。
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="qq-reply-enabled"> 群聊里引用回复
+                            </label>
+                            <small>发消息时引用触发它的那条消息（私聊恒开）。别人引用它的消息，也会被视为"点名"而触发回复</small>
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="qq-reply-show-original"> 引用时展示被引用的原文
+                            </label>
+                            <small>关掉后只显示"回复"标记，气泡更小更清爽</small>
+                        </div>
+
+                        <div style="font-size:0.82rem;color:#8b93b0;margin:14px 0 10px;line-height:1.6;">
+                            <b>戳一戳</b>：有人戳它时，回一句话（符合人设的即时反应）。
+                            戳一戳走独立配额，不会吃掉聊天的额度。
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="qq-poke-enabled"> 被戳一戳时回应
+                            </label>
+                        </div>
+                        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+                            <div class="form-group">
+                                <label>戳一戳冷却（秒）</label>
+                                <input type="number" id="qq-poke-cooldown" min="0" max="3600" step="10">
+                                <small>防止被连点刷屏，建议 30~120</small>
+                            </div>
+                            <div class="form-group">
+                                <label>戳一戳每小时上限</label>
+                                <input type="number" id="qq-poke-quota" min="1" max="500" step="1">
+                                <small>独立配额，与消息额度互不影响</small>
+                            </div>
+                        </div>
+                        <div class="form-group">
+                            <label>固定回应文本（留空 = 让模型按人设生成）</label>
+                            <input type="text" id="qq-poke-content" placeholder="例如：呜……别戳我啦">
+                            <small>填了就每次都用这句：省一次模型调用，但少一点变化</small>
+                        </div>
+                        <div class="form-group">
+                            <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+                                <input type="checkbox" id="qq-poke-back"> 回应时反戳对方一下
+                            </label>
+                            <small>更俏皮，但会打扰对方；协议端支持 poke 段才有效</small>
+                        </div>
                     </div>
 
                     <div style="display:flex;align-items:center;gap:12px;margin-top:18px;">
@@ -578,6 +631,30 @@
                         Token 数据来自 API 响应。Ollama 本地模型可能不提供 Token 计数（显示为 0）。
                     </small>
                 </div>
+                <!-- 新手引导 / 功能地图 -->
+                <div class="settings-tab-pane" id="tab-onboarding">
+                    <h4><i class="fas fa-graduation-cap"></i> 新手引导</h4>
+                    <small style="display: block; color: #9aa6cc; line-height: 1.7; margin-bottom: 14px;">
+                        第一次使用本站？可以重看 5 步上手指引，或者打开「功能地图」按分类浏览全部功能与入口（每项都带入口位置，还能一键定位到界面上的按钮）。
+                    </small>
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <button class="modal-btn save" id="replay-onboarding-btn"><i class="fas fa-graduation-cap"></i> 重看新手引导</button>
+                        <button class="modal-btn" id="open-feature-map-btn" style="background: rgba(45,55,85,0.6); border: 1px solid rgba(100,130,255,0.4); color: #ccd6ff;">
+                            <i class="fas fa-map-signs"></i> 打开功能地图
+                        </button>
+                    </div>
+                    <h4 style="margin-top: 24px;"><i class="fas fa-shoe-prints"></i> 快速上手 5 步</h4>
+                    <ol style="font-size: 0.82rem; color: #9aa6cc; line-height: 1.95; padding-left: 20px; margin-top: 6px;">
+                        <li>在「模型设置」配好 Ollama 地址或 OpenAI 兼容 API Key（顺手选好辅助任务模型）</li>
+                        <li>新建角色，或导入 SillyTavern 角色卡（PNG / JSON）</li>
+                        <li>在输入框发消息；✨ 按钮可以让 AI 帮你想 3 种回复</li>
+                        <li>双击消息气泡 → 引用 / 删除 / 重新生成 / 继续生成</li>
+                        <li>聊长了用「话题管理」（Ctrl + /）开新话题分段，亦可生成简介或导出 HTML</li>
+                    </ol>
+                    <small style="display: block; color: #8e8eb3; margin-top: 14px;">
+                        小提示：模型的思考过程与「内心OS」只用于展示，不会进入下一轮上下文；生成的图片也需要双击消息手动引用才会发给模型。
+                    </small>
+                </div>
             </div>
         </div>
         <div class="modal-footer">
@@ -588,6 +665,36 @@
             </div>
             <button class="modal-btn cancel" id="cancel-global-settings">取消</button>
             <button class="modal-btn save" id="save-global-settings">保存设置</button>
+        </div>
+    </div>
+</div>
+<!-- 新建角色弹窗（新建空白角色 / 导入角色卡·对话存档） -->
+<div id="new-character-modal" class="settings-modal" style="display: none;">
+    <div class="modal-content" style="max-width: 470px;">
+        <div class="modal-header">
+            <h3><i class="fas fa-user-plus"></i> 新建角色</h3>
+            <button class="modal-close" id="close-new-character-modal">&times;</button>
+        </div>
+        <div class="modal-body">
+            <div class="nc-option" id="nc-blank-option">
+                <div class="nc-option-icon"><i class="fas fa-plus"></i></div>
+                <div class="nc-option-main">
+                    <div class="nc-option-name">新建空白角色</div>
+                    <div class="nc-option-desc">从默认模板开始，稍后可在「对话设置」里自定义人设、开场白、头像与音色</div>
+                </div>
+                <i class="fas fa-chevron-right nc-option-arrow"></i>
+            </div>
+            <div class="nc-option" id="nc-import-option">
+                <div class="nc-option-icon"><i class="fas fa-file-import"></i></div>
+                <div class="nc-option-main">
+                    <div class="nc-option-name">导入角色卡 / 对话存档</div>
+                    <div class="nc-option-desc">支持 SillyTavern 社区角色卡（PNG 内嵌 JSON / JSON），以及本站导出的对话 JSON</div>
+                </div>
+                <i class="fas fa-chevron-right nc-option-arrow"></i>
+            </div>
+            <small class="nc-hint">
+                <i class="fas fa-lightbulb"></i> 角色卡导入后会自动应用人设、开场白与头像；PNG 卡片还会让你裁剪头像。想批量管理已有角色，用左侧「智能体档案」列表。
+            </small>
         </div>
     </div>
 </div>

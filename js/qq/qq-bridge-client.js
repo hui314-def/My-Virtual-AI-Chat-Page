@@ -196,6 +196,19 @@ export class QQBridgeClient {
                 historyLimit: this._num(cfg.historyLimit, 12),
                 groupScope: 'per_group',
             },
+            // 引用回复：出站消息带 reply 段（私聊恒开，群聊受 enabled 控制）
+            reply: {
+                enabled: cfg.replyEnabled !== false,
+                showOriginal: cfg.replyShowOriginal !== false,
+            },
+            // 戳一戳：独立冷却与配额，不与消息额度互相挤占
+            poke: {
+                enabled: cfg.pokeEnabled !== false,
+                cooldownSec: this._num(cfg.pokeCooldownSec, 60),
+                hourlyQuota: this._num(cfg.pokeHourlyQuota, 20),
+                content: cfg.pokeContent || '',
+                sendPokeBack: !!cfg.sendPokeBack,
+            },
             _source: 'web',
         };
     }
@@ -254,18 +267,57 @@ export class QQBridgeClient {
     // ---------- 自动推送时机 ----------
 
     /**
+     * 影响「是否需要重新推送」的配置指纹。
+     *
+     * 只挑**开关类**字段：开关没变就没必要再推一遍（角色人设、模型参数的更新
+     * 由设置面板显式 push，不依赖这里）。
+     */
+    syncFingerprint(cfg) {
+        const c = cfg || {};
+        return JSON.stringify([!!c.enabled, c.sourceChatId ?? null,
+            !!c.knowledgeEnabled, c.knowledgeIds || [],
+            !!c.ttsEnabled]);
+    }
+
+    /**
+     * 本轮同步是否可以跳过。
+     *
+     * 规则：**已关闭** 且 **这个关闭状态已经成功同步过** → 跳过。
+     * 关闭那一刻仍会推一次（后端得知道要停），之后就不再无谓发请求——
+     * 否则用户关掉开关后再看 Network 里的请求，会以为开关没生效。
+     * 配置真的变了（含重新打开）指纹就会不同，自然不会被误跳过。
+     */
+    shouldSkipSync() {
+        const cfg = this.readConfig();
+        return !cfg.enabled && this._syncedOffSnap === this.syncFingerprint(cfg);
+    }
+
+    /**
      * 启动「自动同步」：在几个关键时机把配置推到后端。
      *  - 页面加载完成后 3 秒（等服务起、也让首屏先渲染完）
      *  - 从设置面板改完配置（由面板显式调用 push）
      *  - 浏览器标签页重新可见（换设备/唤醒后补一次）
      *  - 每 5 分钟兜底一次（指数退避：失败后拉长到 30 分钟）
+     *
+     * 跳过规则见 shouldSkipSync()。
      */
     startAutoSync() {
         const tick = async () => {
             const cfg = this.readConfig();
+
+            if (this.shouldSkipSync()) {
+                clearTimeout(this._timer);
+                this._timer = setTimeout(tick, 5 * 60 * 1000);
+                return { ok: true, skipped: true };
+            }
+
             const res = await this.push();
             if (res.ok) {
                 this._backoffMs = 5 * 60 * 1000;
+                if (!cfg.enabled) {
+                    // 记住"这个关闭状态已同步"，下次就不必再发
+                    this._syncedOffSnap = this.syncFingerprint(cfg);
+                }
             } else {
                 this._backoffMs = Math.min((this._backoffMs || 5 * 60 * 1000) * 2, 30 * 60 * 1000);
             }

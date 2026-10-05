@@ -350,19 +350,4 @@
     background: rgba(60, 80, 140, 0.8);
 }
 
-.import-chat-btn {
-    background: rgba(45, 55, 85, 0.6);
-    border: 1px solid rgba(100, 120, 200, 0.4);
-    border-radius: 30px;
-    padding: 5px 12px;
-    font-size: 0.7rem;
-    color: #ccd6ff;
-    cursor: pointer;
-    backdrop-filter: blur(4px);
-    display: inline-flex;
-    align-items: center;
-    gap: 6px;
-}
-.import-chat-btn:hover {
-    background: rgba(60, 80, 140, 0.8);
-}
+/* 「导入」按钮已移入「新建角色」弹窗（样式见 components.css 的 .nc-option） */

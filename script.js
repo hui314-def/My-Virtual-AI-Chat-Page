@@ -55,6 +55,8 @@ import { StateSettings } from './js/state/state-settings.js';
 // QQ 接入（方案 B：网页配置 + 后端桥接服务常驻收消息）
 import { QQBridgeClient } from './js/qq/qq-bridge-client.js';
 import { QQSettings } from './js/qq/qq-settings.js';
+// 新手引导（聚光灯引导 + 功能地图）
+import { Onboarding } from './js/ui/onboarding.js';
 
 
 // ==================== DOM 元素绑定 ====================
@@ -245,6 +247,22 @@ const modalManager = new ModalManager({
     sendMessageWithoutAI: () => sendMessageWithoutAI(),
     toggleImmersiveMode: () => toggleImmersiveMode(),
     executeAction: (action) => shortcutManager.executeAction(action),
+});
+
+// ==================== 新手引导 / 功能地图 ====================
+// 首次访问自动弹出 5 步上手引导（可跳过），随时可在「个性化设置 → 新手引导」重看
+const onboarding = new Onboarding({
+    getModalManager: () => modalManager,
+    openGlobalSettings: (tab) => {
+        modalManager.openGlobalSettings();
+        if (tab) {
+            // 等弹窗渲染完成后再切到指定分区（复用已有菜单项的点击逻辑，避免重复实现）
+            setTimeout(() => {
+                const menuItem = document.querySelector(`.settings-menu-item[data-tab="${tab}"]`);
+                if (menuItem) menuItem.click();
+            }, 150);
+        }
+    },
 });
 
 // ==================== 群聊（编排者驱动的多智能体） ====================
@@ -2136,6 +2154,18 @@ function bindModalControls() {
     const showAllTopicsBtn = document.getElementById('show-all-topics-btn');
     if (showAllTopicsBtn) showAllTopicsBtn.addEventListener('click', async () => { await topicManager.setCurrentTopic(null); modalManager.closeTopicsModal(); });
 
+    // —— 新手引导 / 功能地图（个性化设置 → 新手引导）——
+    const replayOnboardingBtn = document.getElementById('replay-onboarding-btn');
+    if (replayOnboardingBtn) replayOnboardingBtn.addEventListener('click', () => {
+        modalManager.closeGlobalModal();
+        setTimeout(() => onboarding.start(), 200);      // 等设置弹窗收起动画结束再开始引导
+    });
+    const openFeatureMapBtn = document.getElementById('open-feature-map-btn');
+    if (openFeatureMapBtn) openFeatureMapBtn.addEventListener('click', () => {
+        modalManager.closeGlobalModal();
+        setTimeout(() => onboarding.openFeatureMap(), 200);
+    });
+
     // —— 知识库选择弹窗 (kb-select-modal) ——
     const closeKbModal = document.getElementById('close-kb-select-modal');
     const cancelKbBtn = document.getElementById('cancel-kb-select-btn');
@@ -2490,8 +2520,38 @@ function bindSettingsPanel() {
 
 // —— 对话操作：新建 / 导入 / 滚动 / 返回全部 / 引用关闭 / 搜索 / 添加模型 ——
 function bindChatActions() {
+    // —— 新建角色弹窗：新建空白角色 / 导入角色卡·对话存档 ——
+    function openNewCharacterModal() {
+        const modal = document.getElementById('new-character-modal');
+        if (modal) modal.style.display = 'flex';
+    }
+    function closeNewCharacterModal() {
+        const modal = document.getElementById('new-character-modal');
+        if (modal) modal.style.display = 'none';
+    }
+
     const newChatBtn = document.querySelector('.new-chat-btn');
-    if (newChatBtn) newChatBtn.addEventListener('click', () => chatManager.createNewChat());
+    if (newChatBtn) newChatBtn.addEventListener('click', openNewCharacterModal);
+
+    const newCharModal = document.getElementById('new-character-modal');
+    const closeNewCharBtn = document.getElementById('close-new-character-modal');
+    if (closeNewCharBtn) closeNewCharBtn.addEventListener('click', closeNewCharacterModal);
+    if (newCharModal) modalManager.bindModalOverlayClose(newCharModal, closeNewCharacterModal);
+
+    // 选项一：新建空白角色（保持原有行为）
+    const ncBlankOption = document.getElementById('nc-blank-option');
+    if (ncBlankOption) ncBlankOption.addEventListener('click', () => {
+        closeNewCharacterModal();
+        chatManager.createNewChat();
+    });
+
+    // 选项二：导入角色卡 / 对话存档（打开文件选择框）
+    const ncImportOption = document.getElementById('nc-import-option');
+    if (ncImportOption) ncImportOption.addEventListener('click', () => {
+        closeNewCharacterModal();
+        // 等弹窗收起动画结束再打开系统文件选择框，避免两者叠在一起
+        setTimeout(() => openImportFilePicker(), 180);
+    });
 
     // —— 角色卡导入辅助:PNG 角色卡解析 + 确认 + 裁剪 + 建对话 ——
     function buildCardPreviewLines(card) {
@@ -2538,49 +2598,47 @@ function bindChatActions() {
         await finalizeCharacterCardImport(card, avatarDataUrl);
     }
 
-    // 导入(支持:本项目对话 JSON、SillyTavern 社区标准角色卡 PNG / JSON)
-    const importBtn = document.querySelector('.import-chat-btn');
-    if (importBtn) {
-        importBtn.addEventListener('click', () => {
-            const fileInput = document.createElement('input');
-            fileInput.type = 'file';
-            fileInput.accept = '.json,.png,application/json,image/png';
-            fileInput.onchange = async (e) => {
-                const file = e.target.files[0];
-                if (!file) return;
+    // 导入（支持：本项目对话 JSON、SillyTavern 社区标准角色卡 PNG / JSON）
+    // 入口已移至「新建角色」弹窗 → 导入角色卡 / 对话存档
+    function openImportFilePicker() {
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.json,.png,application/json,image/png';
+        fileInput.onchange = async (e) => {
+            const file = e.target.files[0];
+            if (!file) return;
 
-                // —— 分支一:PNG 角色卡(内嵌 chara JSON) ——
-                if (file.type === 'image/png' || /\.png$/i.test(file.name)) {
-                    await handlePngCharacterCard(file);
-                    return;
-                }
+            // —— 分支一:PNG 角色卡(内嵌 chara JSON) ——
+            if (file.type === 'image/png' || /\.png$/i.test(file.name)) {
+                await handlePngCharacterCard(file);
+                return;
+            }
 
-                // —— JSON 文件:角色卡 JSON 或本项目对话 JSON ——
-                const reader = new FileReader();
-                reader.onload = async (ev) => {
-                    try {
-                        const importedData = JSON.parse(ev.target.result);
-                        if (CharacterCard.isCharacterCardJSON(importedData)) {
-                            await handleCharacterCardData(CharacterCard.normalizeCard(importedData), null);
-                        } else {
-                            const newChat = await chatIO.importFromJSON(importedData, chats);
-                            chats.unshift(newChat);
-                            setCurrentChatId(newChat.id);
-                            topicManager.setCurrentTopicIndex(null);
-                            historyListUI.renderHistoryList();
-                            renderMessages(currentChatId);
-                            applyCurrentChatSettings();
-                            await chatRepo.saveAllChats(chats);
-                            modalManager.customAlert('导入成功', 'success');
-                        }
-                    } catch (err) {
-                        modalManager.customAlert('JSON 解析失败：' + err.message, 'error');
+            // —— JSON 文件:角色卡 JSON 或本项目对话 JSON ——
+            const reader = new FileReader();
+            reader.onload = async (ev) => {
+                try {
+                    const importedData = JSON.parse(ev.target.result);
+                    if (CharacterCard.isCharacterCardJSON(importedData)) {
+                        await handleCharacterCardData(CharacterCard.normalizeCard(importedData), null);
+                    } else {
+                        const newChat = await chatIO.importFromJSON(importedData, chats);
+                        chats.unshift(newChat);
+                        setCurrentChatId(newChat.id);
+                        topicManager.setCurrentTopicIndex(null);
+                        historyListUI.renderHistoryList();
+                        renderMessages(currentChatId);
+                        applyCurrentChatSettings();
+                        await chatRepo.saveAllChats(chats);
+                        modalManager.customAlert('导入成功', 'success');
                     }
-                };
-                reader.readAsText(file, 'UTF-8');
+                } catch (err) {
+                    modalManager.customAlert('JSON 解析失败：' + err.message, 'error');
+                }
             };
-            fileInput.click();
-        });
+            reader.readAsText(file, 'UTF-8');
+        };
+        fileInput.click();
     }
 
     // 聊天区滚动
@@ -2641,10 +2699,10 @@ function bindGroupFeatures() {
         });
     }
 
-    // 输入区上方的常驻「停止旁观」按钮（设置弹窗关闭后仍可停止无限旁观）
-    const stopSpectatorBtn = document.getElementById('group-stop-spectator');
-    if (stopSpectatorBtn) {
-        stopSpectatorBtn.addEventListener('click', () => groupRuntime.stopSpectator());
+    // 输入区按钮栏里的旁观开关：同一个按钮在「开始旁观 / 停止旁观」之间切换
+    const spectatorBtn = document.getElementById('group-spectator-btn');
+    if (spectatorBtn) {
+        spectatorBtn.addEventListener('click', () => groupRuntime.toggleSpectator());
     }
 }
 
@@ -2850,5 +2908,12 @@ async function init() {
     if (chatApp) {
         chatApp.classList.add('visible');
     }
+
+    // ==================== 新手引导：首次访问自动弹出一次 ====================
+    // 已有对话记录的老用户不打扰（引导入口保留在「个性化设置 → 新手引导」）
+    const hasChatHistory = Array.isArray(chats) && chats.some(c =>
+        Array.isArray(c.topics) && c.topics.some(t => (t.messages || []).some(m => m.type === 'user'))
+    );
+    onboarding.maybeAutoStart(hasChatHistory);
 }
 init();

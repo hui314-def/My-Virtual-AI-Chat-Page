@@ -49,7 +49,6 @@ body.light-theme .settings-area {
     border-top: 1px solid #e5e9f0 !important;
 }
 body.light-theme .new-chat-btn,
-body.light-theme .import-chat-btn,
 body.light-theme .setting-btn {
     background: #f0f4ff !important;
     border: 1px solid #cdd9ff !important;
@@ -183,19 +182,64 @@ body.light-theme .topic-item {
 body.light-theme .topic-header .topic-title { color: #1e3a8a !important; }
 body.light-theme .topic-header .topic-time { color: #6c7b9e !important; }
 body.light-theme .topic-preview { color: #2563eb !important; background: transparent !important; }
+body.light-theme .topic-preview-input {
+    background: #ffffff !important;
+    border-color: #2563eb !important;
+    color: #1e293b !important;
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12) !important;
+}
 body.light-theme .topic-actions { background: transparent !important; }
-body.light-theme .topic-actions button {
+body.light-theme .topic-actions > button {
     background: #eef2ff !important;
     border: 1px solid #cdd9ff !important;
     color: #2563eb !important;
-    border-radius: 24px !important;
-    padding: 4px 12px !important;
+    border-radius: 999px !important;
+    padding: 6px 14px !important;
     font-size: 0.75rem !important;
-    transition: 0.2s !important;
+    transition: transform 0.18s ease, background 0.18s ease, box-shadow 0.18s ease, border-color 0.18s ease !important;
 }
-body.light-theme .topic-actions button:hover { background: #e6edff !important; }
-body.light-theme .topic-actions .topic-delete-btn { color: #ef4444 !important; }
-body.light-theme .topic-actions .topic-delete-btn:hover { background: #fee2e2 !important; }
+body.light-theme .topic-actions > button:hover {
+    background: #e6edff !important;
+    transform: translateY(-1px) !important;
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.16) !important;
+}
+body.light-theme .topic-actions > button:disabled { opacity: 0.55 !important; transform: none !important; }
+/* 生成简介：浅色主题主按钮（蓝紫渐变） */
+body.light-theme .topic-actions > .topic-gen-intro-btn {
+    background: linear-gradient(135deg, #3b82f6, #7c3aed) !important;
+    border-color: rgba(59, 130, 246, 0.5) !important;
+    color: #ffffff !important;
+    box-shadow: 0 4px 12px rgba(59, 130, 246, 0.25) !important;
+}
+body.light-theme .topic-actions > .topic-gen-intro-btn:hover {
+    background: linear-gradient(135deg, #2563eb, #6d28d9) !important;
+    box-shadow: 0 6px 18px rgba(59, 130, 246, 0.35) !important;
+}
+/* 三点「更多操作」按钮：浅色圆形 */
+body.light-theme .topic-actions > .topic-more-btn {
+    width: 32px !important;
+    height: 32px !important;
+    padding: 0 !important;
+    background: #eef2ff !important;
+    border-color: #cdd9ff !important;
+    color: #2563eb !important;
+}
+body.light-theme .topic-actions > .topic-more-btn:hover,
+body.light-theme .topic-actions > .topic-more-btn.active {
+    background: #dbe6ff !important;
+    border-color: #93b4ff !important;
+    color: #1d4ed8 !important;
+}
+/* 三点菜单（浅色） */
+body.light-theme .topic-menu {
+    background: #ffffff !important;
+    border: 1px solid #e0e4f0 !important;
+    box-shadow: 0 12px 32px rgba(30, 64, 175, 0.16) !important;
+}
+body.light-theme .topic-menu-item { color: #334155 !important; }
+body.light-theme .topic-menu-item:hover { background: #eef2ff !important; color: #1e3a8a !important; }
+body.light-theme .topic-menu-item.is-danger { color: #dc2626 !important; }
+body.light-theme .topic-menu-item.is-danger:hover { background: #fee2e2 !important; color: #b91c1c !important; }
 body.light-theme #topics-modal .modal-footer { border-top: 1px solid #e5e9f0 !important; }
 body.light-theme #topics-modal .modal-footer .modal-btn.cancel {
     background: #f0f4ff !important;
@@ -203,6 +247,26 @@ body.light-theme #topics-modal .modal-footer .modal-btn.cancel {
     border: 1px solid #cdd9ff !important;
 }
 body.light-theme #topics-modal .modal-footer .modal-btn.cancel:hover { background: #e6edff !important; }
+
+/* ---- 新建角色弹窗 ---- */
+body.light-theme .nc-option {
+    background: #f8faff;
+    border-color: #e0e4f0;
+}
+body.light-theme .nc-option:hover {
+    background: #eef2ff;
+    border-color: #93b4ff;
+    box-shadow: 0 8px 22px rgba(37, 99, 235, 0.12);
+}
+body.light-theme .nc-option-icon {
+    color: #2563eb;
+    background: linear-gradient(135deg, rgba(59, 130, 246, 0.16), rgba(124, 58, 237, 0.16));
+    border-color: rgba(59, 130, 246, 0.3);
+}
+body.light-theme .nc-option-name { color: #1e293b; }
+body.light-theme .nc-option-desc { color: #475569; }
+body.light-theme .nc-option-arrow { color: #2563eb; }
+body.light-theme .nc-hint { color: #64748b; }
 
 /* ---- 通用文字颜色 ---- */
 body.light-theme small,
@@ -630,9 +694,14 @@ body.light-theme #custom-dialog .modal-body p { color: #334155; }
 body.light-theme .param-value { background: rgba(37, 99, 235, 0.08); }
 /* 新建话题按钮 */
 body.light-theme #new-topic-modal-btn {
-    background: #2563eb !important;
+    background: linear-gradient(135deg, #3b82f6, #2563eb) !important;
     border-color: #2563eb !important;
     color: #ffffff !important;
+    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.26) !important;
+}
+body.light-theme #new-topic-modal-btn:hover {
+    background: linear-gradient(135deg, #2563eb, #1d4ed8) !important;
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.36) !important;
 }
 /* 搜索下拉 */
 body.light-theme .search-dropdown-item { border-bottom-color: rgba(100, 130, 255, 0.15); }

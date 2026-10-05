@@ -19,6 +19,7 @@ import os
 import sys
 import time
 import threading
+from collections import deque
 
 # 允许 `python qq_bot/qq_bot_api.py` 直接启动：把 backend_code 加进模块搜索路径，
 # 这样相对导入（from .config_store import ...）才能正常解析。
@@ -36,7 +37,8 @@ from dotenv import load_dotenv
 from .config_store import store, AUDIO_DIR
 from .trigger import gate
 from .prompt_builder import (
-    build_roleplay_prompt, build_private_prompt, call_model, clean_reply, split_reply,
+    build_roleplay_prompt, build_private_prompt, build_poke_prompt,
+    call_model, clean_reply, split_reply,
     retrieve_knowledge, synthesize_voice, audio_path, _part_limits,
 )
 
@@ -98,7 +100,8 @@ class Channel:
         self.connected_at = time.time()
         self.peer = f'{ws.client.host}:{ws.client.port}' if getattr(ws, 'client', None) else '未知'
         self.send_lock = threading.RLock()   # 串行化同一连接的写入
-        self.pending = {}                    # echo -> threading.Event
+        self.pending = {}                    # echo -> threading.Event（等待应答）
+        self.responses = {}                  # echo -> 应答体（等到了就放这儿）
 
     def close(self):
         self.alive = False
@@ -223,6 +226,8 @@ onebot = OneBotClient()
 
 # 连接 id 自增序号（多设备 / 重连时可从日志区分是哪条连接）
 _cid_seq = itertools.count(1)
+# 动作 echo 自增序号（用来把应答和发出去的动作对上）
+_echo_seq = itertools.count(1)
 
 # 已处理过的 message_id 集合：OneBot 断线重连可能重放事件，去重防止重复回话
 _seen_msg_ids = set()
@@ -255,12 +260,16 @@ def _segments(message):
 
 
 def _extract(message, self_id=None):
-    """从消息段里取出「纯文本」与「是否 @ 了机器人」。
+    """从消息段里取出「纯文本」「是否 @ 了机器人」「是否在回复机器人」。
 
-    图片 / 语音 / 表情等非文本段直接丢弃——第一版不处理多模态输入。
+    图片 / 语音 / 表情等非文本段直接丢弃——目前不处理多模态输入。
+
+    @returns (text, mentioned, reply_id)：reply_id 是本条消息引用的消息 ID
+             （没有引用则为空串）。注意 OneBot 的 reply 段**只给 ID**，
+             要拿被引用的原文得另调 get_msg——第一版不做这事。
     """
     bot_id = str(self_id or onebot.self_id or '')
-    text_parts, mentioned = [], False
+    text_parts, mentioned, reply_id = [], False, ''
     for seg in _segments(message):
         if not isinstance(seg, dict):
             continue
@@ -273,18 +282,100 @@ def _extract(message, self_id=None):
             # OneBot 用 qq='all' 表示 @全体成员；也兼容 self_id 是数字的情况
             if qq == 'all' or (bot_id and qq == bot_id):
                 mentioned = True
-    return ''.join(text_parts).strip(), mentioned
+        elif stype == 'reply':
+            reply_id = str(data.get('id') or '')
+    return ''.join(text_parts).strip(), mentioned, reply_id
 
 
-def _strip_leading_at(text):
-    """去掉 @ 之后残留的前导空格。"""
-    return (text or '').lstrip(' \u3000').strip()
+# ---- 出站消息 ID 记录：用来判断"有人回复了机器人" ----
+
+_sent_ids = deque(maxlen=200)
+_sent_lock = threading.Lock()
+
+
+def _remember_sent(message_id):
+    """记下机器人发出的消息 ID。
+
+    为什么要记：OneBot 的 reply 段只给被引用消息的 ID，
+    所以要判断"这条是在回复机器人"就必须自己比对发出去过的 ID。
+    """
+    if message_id in (None, '', 0):
+        return
+    with _sent_lock:
+        _sent_ids.append(str(message_id))
+
+
+def _is_reply_to_bot(reply_id):
+    if not reply_id:
+        return False
+    with _sent_lock:
+        return str(reply_id) in _sent_ids
+
+
+def _send_action(channel, action, params):
+    """发一个动作，并在后台把应答里的 message_id 记下来。
+
+    应答是异步回来的（协议端在自己的 WS 上回执），所以这里起个小线程等它，
+    不阻塞回复链路——记不上 ID 只影响"能否识别引用回复"，不该拖慢回话。
+    """
+    if channel is None:
+        return onebot.call(action, params)
+
+    echo = f'a{next(_echo_seq)}'
+    ev = threading.Event()
+    channel.pending[echo] = ev
+    params = dict(params)
+    params['echo'] = echo
+
+    token = _current_channel.set(channel)
+    try:
+        ok, detail = onebot.call(action, params)
+    finally:
+        _current_channel.reset(token)
+
+    if not ok:
+        channel.pending.pop(echo, None)
+        return ok, detail
+
+    def _wait():
+        # 动作已发出，应答随时可能到——先等，再从 responses 取走
+        if ev.wait(8):
+            payload = channel.responses.pop(echo, None)
+            if isinstance(payload, dict):
+                _remember_sent((payload.get('data') or {}).get('message_id'))
+        else:
+            channel.pending.pop(echo, None)
+
+    threading.Thread(target=_wait, daemon=True).start()
+    return ok, detail
+
+
+def _reply_segments(cfg, is_group, reply_id):
+    """构造引用回复段。返回消息段数组（可能为空）。
+
+    群聊受 reply.enabled 控制；**私聊恒开**——一对一场景里引用不会显得啰嗦，
+    反而能让对话更清楚。
+    """
+    if not reply_id:
+        return []
+    rcfg = cfg.get('reply') or {}
+    if is_group and not rcfg.get('enabled', True):
+        return []
+    seg = {'type': 'reply', 'data': {'id': str(reply_id)}}
+    if not rcfg.get('showOriginal', True):
+        seg['data']['text'] = ''          # 部分实现用它控制是否展示被引用原文
+    return [seg]
 
 
 def _sender_name(event):
     sender = event.get('sender') or {}
     return (sender.get('card') or sender.get('nickname') or
             str(event.get('user_id') or '某位群友')).strip()
+
+
+def _strip_leading_at(text):
+    """去掉 @ 之后残留的前导空格。"""
+    return (text or '').lstrip(' \u3000').strip()
 
 
 # ==================== 核心处理 ====================
@@ -305,7 +396,15 @@ def handle_event(event, channel=None):
             log(f'协议端上线，机器人 QQ：{sid or "未知"}'
                 f'{f"（连接 {channel.id}）" if channel else ""}')
         return
+    # 戳一戳走 notice 事件，不是消息事件 —— 单独分流
+    if _is_poke_event(event):
+        log(f'收到戳一戳：group={event.get("group_id")} user={event.get("user_id")} '
+            f'target={event.get("target_id")}', 'trace')
+        handle_poke(event, channel)
+        return
     if post_type != 'message':
+        if post_type == 'notice':
+            log(f'收到未处理的 notice：{event.get("notice_type")}/{event.get("sub_type")}', 'trace')
         return
     log(f'进入消息处理：{event.get("message_type")} group={event.get("group_id")} '
         f'user={event.get("user_id")} msgid={event.get("message_id")}', 'trace')
@@ -332,14 +431,25 @@ def handle_event(event, channel=None):
 
     cfg = store.snapshot()
     if not cfg.get('enabled'):
+        # 留痕很重要：否则用户会以为是"失灵"，实际是总开关按预期把它挡在外面。
+        # 看到这行说明**事件仍在进、只是被总开关丢弃**——想彻底停就把服务也停掉。
+        log('消息忽略：QQ 接入总开关已关闭（事件仍在接收，但不会回应）', 'trace')
         return
 
     user_id = event.get('user_id')
     # 会话键：群聊按群隔离，私聊按人隔离 —— 两种上下文互不串味
     group_key = f'group_{group_id}' if is_group else f'private_{user_id}'
     sender = _sender_name(event)
-    text, mentioned = _extract(event.get('message'), self_id)
+    text, mentioned, reply_id = _extract(event.get('message'), self_id)
     text = _strip_leading_at(text)
+    log(f'消息段解析：text={len(text)}字 mentioned={mentioned} reply_id={reply_id or "-"}', 'trace')
+
+    # 回复机器人的消息 = 点名。群里有人引用它某句话接着聊，语义上就是"在跟它说话"，
+    # 此时若还要求必须 @ 就显得很笨。注意：这只是绕过"必须 @"的闸门，
+    # 冷却与每小时配额照旧生效（见 TriggerGate.respond 的语义分工）。
+    if reply_id and _is_reply_to_bot(reply_id):
+        mentioned = True
+        log(f'检测到引用回复机器人（引用消息 {reply_id}）→ 视为点名', 'trace')
 
     # 私聊里每条消息都是对机器人说的 → 视为已点名。
     # 这样既不参与「非 @ 抖动」，也不受同会话冷却限制（否则用户必须 @ 才能收到回复）。
@@ -367,7 +477,9 @@ def handle_event(event, channel=None):
         knowledge = retrieve_knowledge(cfg, prompt_text)
 
         history = gate.history(group_key)
-        # 历史里最近一条就是本条消息，转录时去掉，避免与「请你回复」重复
+        # 本条消息在进闸门前就被记进了历史（这样上下文里能看到被拦下的闲聊），
+        # 所以这里必须把它从转录里剥掉——它随后会以【本条消息】单独传给模型，
+        # 避免同一句话在提示词里出现两次。
         transcript = [(name, t) for _, name, t in history]
         if transcript and transcript[-1][1] == text:
             transcript = transcript[:-1]
@@ -377,11 +489,17 @@ def handle_event(event, channel=None):
         user_bio = (cfg.get('user') or {}).get('bio') or ''
 
         if is_private:
-            messages = build_private_prompt(cfg, transcript, sender, user_bio, knowledge)
+            messages = build_private_prompt(cfg, transcript, sender, user_bio,
+                                            knowledge, user_text=prompt_text)
         else:
             members = sorted({name for _, name, _ in history
                               if name and name != role_cfg.get('roleName')})
-            messages = build_roleplay_prompt(cfg, members, transcript, sender, user_bio, knowledge)
+            messages = build_roleplay_prompt(cfg, members, transcript, sender, user_bio,
+                                             knowledge, user_text=prompt_text)
+
+        # 留痕：出问题时能直接确认"本条消息到底有没有进提示词"
+        log(f'提示词就绪：历史 {len(transcript)} 条 · 本条消息 {len(prompt_text)} 字'
+            f'{" · 含知识库" if knowledge else ""}', 'trace')
 
         raw = call_model(cfg, messages)
         cleaned = clean_reply(raw, role_name)
@@ -407,25 +525,33 @@ def handle_event(event, channel=None):
 
         tts_cfg = cfg.get('tts') or {}
         send_failures = []
+        # 引用回复段：只挂在**第一条**上（连发多条时每条都引用会显得很吵）
+        reply_segs = _reply_segments(cfg, is_group, reply_id)
+        if reply_segs:
+            log(f'本条回复将引用消息 {reply_id}', 'trace')
+
         # 分条之间的停顿：真人连发是有间隔的，同理也能避免过于密集触发频控。
         # 只在"确实分了多条"且不是最后一条时等待。
         gap_ms = max(0, min(3000, int(trig.get('partSendDelayMs', 400) or 0)))
         for idx, part in enumerate(parts):
             if idx > 0 and gap_ms:
                 time.sleep(gap_ms / 1000.0)
+            head = reply_segs if idx == 0 else []
             sent_voice = False
             if tts_cfg.get('enabled'):
                 audio_name = synthesize_voice(cfg, part)
                 if audio_name:
                     url = f'{PUBLIC_BASE}/audio/{audio_name}'
-                    ok_send, detail = onebot.call(send_action, dict(target, message=[
+                    ok_send, detail = _send_action(channel, send_action, dict(target, message=[
+                        *head,
                         {'type': 'record', 'data': {'file': url}},
                     ]))
                     sent_voice = ok_send
                     if not ok_send:
                         log(f'语音发送失败（{detail}），退回文本', 'warn')
             if not sent_voice:
-                ok_send, detail = onebot.call(send_action, dict(target, message=[
+                ok_send, detail = _send_action(channel, send_action, dict(target, message=[
+                    *head,
                     {'type': 'text', 'data': {'text': part}},
                 ]))
                 # 发送失败必须留痕：否则会出现"日志说回复了，对方却没收到"的鬼故事
@@ -443,6 +569,99 @@ def handle_event(event, channel=None):
                 f'{"（含语音）" if tts_cfg.get("enabled") else ""}')
     except Exception as e:              # noqa: BLE001
         log(f'处理消息出错：{type(e).__name__}: {e}', 'error')
+
+
+def handle_poke(event, channel=None):
+    """处理戳一戳通知（notice / sub_type=poke）。
+
+    为什么单独一条链路：戳一戳**不是消息事件**，而是 notice 事件，
+    携带的是 user_id（戳的人）与 target_id（被戳的人）——没有任何正文。
+    所以它既不能走"消息判定"，也不需要"回复某条消息"。
+    """
+    cfg = store.snapshot()
+    # ★ 总开关优先：「关闭 QQ 接入」就应该让**所有**自动行为停掉。
+    # 之前这里只看了 poke.enabled，于是关掉总开关后，别人一戳它照样调模型、照样发消息。
+    if not cfg.get('enabled'):
+        log('戳一戳忽略：QQ 接入总开关已关闭', 'trace')
+        return
+    pcfg = cfg.get('poke') or {}
+    if not pcfg.get('enabled', True):
+        return
+
+    self_id = str(event.get('self_id') or onebot.self_id or '')
+    target = str(event.get('target_id') or '')
+    poker_id = str(event.get('user_id') or '')
+    group_id = event.get('group_id')
+    is_group = bool(group_id)
+
+    # 只回应"戳机器人自己"的；别人互相戳不关它的事
+    if target != self_id:
+        return
+    if poker_id == self_id:
+        return                          # 自己戳自己（协议端偶尔会回声），忽略
+
+    group_key = f'group_{group_id}' if is_group else f'private_{poker_id}'
+
+    cooldown = int(pcfg.get('cooldownSec', 60) or 0)
+    quota = int(pcfg.get('hourlyQuota', 20) or 0)
+    log(f'戳一戳判定：冷却={cooldown}s 配额={quota}/h', 'trace')
+    allowed, reason = gate.record_poke(group_key, cooldown=cooldown, quota=quota)
+    if not allowed:
+        log(f'戳一戳被拦下（{reason}）', 'trace')
+        return
+
+    sender = (event.get('sender') or {}).get('nickname') or poker_id
+    try:
+        # 固定文案优先：轻互动用固定句子更可控，也能省一次模型调用
+        fixed = str(pcfg.get('content') or '').strip()
+        if fixed:
+            parts = [fixed]
+        else:
+            role_name = ((cfg.get('role') or {}).get('roleName') or '').strip()
+            transcript = [(n, t) for _, n, t in gate.history(group_key)]
+            messages = build_poke_prompt(cfg, transcript, sender,
+                                         (cfg.get('user') or {}).get('bio') or '',
+                                         is_private=not is_group)
+            raw = call_model(cfg, messages)
+            cleaned = clean_reply(raw, role_name)
+            parts = split_reply(cleaned, 60, 2)     # 戳一戳的反应要短，最多两条
+            if not parts:
+                return
+
+        send_action = 'send_group_msg' if is_group else 'send_private_msg'
+        target_params = {'group_id': group_id} if is_group else {'user_id': poker_id}
+
+        # 可选：反戳一下（OneBot poke 段；NapCat 支持出站）
+        if pcfg.get('sendPokeBack'):
+            _send_action(channel, send_action, dict(target_params, message=[
+                {'type': 'poke', 'data': {'type': '1', 'id': str(poker_id)}},
+            ]))
+
+        for part in parts:
+            ok_send, detail = _send_action(channel, send_action, dict(target_params, message=[
+                {'type': 'text', 'data': {'text': part}},
+            ]))
+            if not ok_send:
+                log(f'戳一戳回复发送失败：{detail}', 'error')
+                return
+            gate.remember(group_key, (cfg.get('role') or {}).get('roleName') or '我', part)
+
+        scope = '私聊' if not is_group else '群聊'
+        log(f'[{group_key}]（{scope}）被 {sender} 戳了一下 → 回应：{parts[0][:40]}')
+    except Exception as e:              # noqa: BLE001
+        log(f'处理戳一戳出错：{type(e).__name__}: {e}', 'error')
+
+
+def _is_poke_event(event):
+    """戳一戳：notice 事件，notice_type='notify' 且 sub_type='poke'。
+
+    不同协议端在这两个字段上略有出入，所以只在**能确认是戳一戳**时才认。
+    """
+    if event.get('post_type') != 'notice':
+        return False
+    sub = str(event.get('sub_type') or '')
+    ntype = str(event.get('notice_type') or '')
+    return sub == 'poke' or (ntype == 'notify' and 'poke' in sub)
 
 
 # ==================== HTTP 接口 ====================
@@ -512,9 +731,19 @@ async def runtime(full: int = 0):
     }
 
 
+@app.post('/qq/reset')
+def reset_runtime():
+    """清空运行时状态（上下文历史 / 冷却 / 配额 / 统计），**不动配置**。
+
+    用例：改完提示词或参数，想从干净状态重新观察效果；自检脚本要可重复运行。
+    """
+    gate.reset()
+    log('运行时状态已重置（上下文 / 冷却 / 配额 / 统计已清空）', 'warn')
+    return {'ok': True, 'stats': gate.stats()}
+
+
 @app.get('/audio/{name}')
 def serve_audio(name: str):
-    """把合成的语音暴露成 HTTP 地址，让 NapCat 去拉取（跨机部署也能用）。"""
     path = audio_path(name)
     if not path:
         return JSONResponse({'ok': False, 'error': '文件不存在'}, status_code=404)
@@ -585,6 +814,8 @@ async def onebot_ws(websocket: WebSocket):
                 log(f'接口应答：{_brief(payload)}', 'trace')
                 echo = payload.get('echo')
                 if echo:
+                    # 交给等待方：先存应答体，再唤醒（顺序不能反）
+                    channel.responses[echo] = payload
                     waiting = channel.pending.pop(echo, None)
                     if waiting:
                         waiting.set()

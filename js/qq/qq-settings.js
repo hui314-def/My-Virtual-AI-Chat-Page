@@ -49,6 +49,14 @@ export class QQSettings {
         this._setValue('qq-parts-max', this._num(cfg.replyPartsMax, 3));
         this._setValue('qq-part-delay', this._num(cfg.partSendDelayMs, 400));
         this._setValue('qq-mention-bypass', cfg.mentionBypass !== false);
+        // 互动行为：引用回复 / 戳一戳
+        this._setValue('qq-reply-enabled', cfg.replyEnabled !== false);
+        this._setValue('qq-reply-show-original', cfg.replyShowOriginal !== false);
+        this._setValue('qq-poke-enabled', cfg.pokeEnabled !== false);
+        this._setValue('qq-poke-cooldown', this._num(cfg.pokeCooldownSec, 60));
+        this._setValue('qq-poke-quota', this._num(cfg.pokeHourlyQuota, 20));
+        this._setValue('qq-poke-content', cfg.pokeContent || '');
+        this._setValue('qq-poke-back', !!cfg.sendPokeBack);
 
         this._checkKnowledgeBoxes(Array.isArray(cfg.knowledgeIds) ? cfg.knowledgeIds : []);
         this._applyEnabledState();
@@ -173,6 +181,17 @@ export class QQSettings {
         });
         on('qq-mention-bypass', 'change', () => this.saveAndPush());
 
+        // 互动行为：引用回复 / 戳一戳
+        ['qq-reply-enabled', 'qq-reply-show-original',
+            'qq-poke-enabled', 'qq-poke-back'].forEach(id => {
+            on(id, 'change', () => this.saveAndPush());
+        });
+        ['qq-poke-cooldown', 'qq-poke-quota'].forEach(id => {
+            on(id, 'change', () => this.saveAndPush());
+        });
+        // 文本框用 change（失焦/回车才推送），避免每敲一个字就发一次配置
+        on('qq-poke-content', 'change', () => this.saveAndPush());
+
         on('qq-push-btn', 'click', () => this.saveAndPush(true));
         on('qq-refresh-btn', 'click', () => this.refreshStatus());
     }
@@ -198,6 +217,13 @@ export class QQSettings {
             replyPartsMax: this._toNum('qq-parts-max', 3),
             partSendDelayMs: this._toNum('qq-part-delay', 400),
             mentionBypass: this._checked('qq-mention-bypass'),
+            replyEnabled: this._checked('qq-reply-enabled'),
+            replyShowOriginal: this._checked('qq-reply-show-original'),
+            pokeEnabled: this._checked('qq-poke-enabled'),
+            pokeCooldownSec: this._toNum('qq-poke-cooldown', 60),
+            pokeHourlyQuota: this._toNum('qq-poke-quota', 20),
+            pokeContent: this._value('qq-poke-content') || '',
+            sendPokeBack: this._checked('qq-poke-back'),
         });
 
         const res = await this.bridge.push();

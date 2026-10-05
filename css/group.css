@@ -68,12 +68,17 @@
 
 /* ==================== 2. 群聊消息的成员配色 ==================== */
 
-/* 成员色相：m_1 ~ m_5（与 js/group/group-core.js 的 MEMBER_HUES 保持一致） */
-.message[data-member="m_1"] { --m-hue: 212; }
-.message[data-member="m_2"] { --m-hue: 280; }
-.message[data-member="m_3"] { --m-hue: 340; }
-.message[data-member="m_4"] { --m-hue: 160; }
-.message[data-member="m_5"] { --m-hue: 42; }
+/* 成员色相：m_1 ~ m_10（与 js/group/group-core.js 的 MEMBER_HUES 保持一致，每 36° 一个） */
+.message[data-member="m_1"]  { --m-hue: 212; }
+.message[data-member="m_2"]  { --m-hue: 248; }
+.message[data-member="m_3"]  { --m-hue: 284; }
+.message[data-member="m_4"]  { --m-hue: 320; }
+.message[data-member="m_5"]  { --m-hue: 356; }
+.message[data-member="m_6"]  { --m-hue: 32; }
+.message[data-member="m_7"]  { --m-hue: 68; }
+.message[data-member="m_8"]  { --m-hue: 104; }
+.message[data-member="m_9"]  { --m-hue: 140; }
+.message[data-member="m_10"] { --m-hue: 176; }
 
 /* 群聊 AI 气泡：边框与头像随成员色相变化（仅在有 data-member 时生效） */
 .message[data-member] .bubble {
@@ -111,7 +116,7 @@
 }
 
 /* ==================== 3. 群聊模式下的输入区精简（D8） ====================
-   群聊模式只保留：语音输入 / 文件上传 / 对话设置（外加输入框内的消息建议与发送）
+   群聊模式只保留：语音输入 / 文件上传 / 群聊设置 / 旁观开关（外加输入框内的消息建议与发送）
    用 CSS class 开关而不是删 DOM —— 私聊完全不受影响。 */
 body.group-mode #topics-manage-btn,
 body.group-mode #kb-select-btn,
@@ -129,55 +134,29 @@ body.group-mode .collapsible-buttons {
     overflow: visible !important;
 }
 
-/* 群聊模式的状态标识（放在输入区上方，随 group-mode 显示） */
-.grp-live-bar {
-    display: flex;
-    align-items: center;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-.group-mode-indicator {
+/* 旁观开关：只在群聊模式下出现在输入区按钮栏里，同一个按钮做「开始 / 停止」切换 */
+#group-spectator-btn {
     display: none;
     align-items: center;
     gap: 8px;
-    margin-bottom: 8px;
-    padding: 5px 12px;
-    border-radius: 20px;
-    width: fit-content;
-    font-size: 0.72rem;
-    color: #c8c0ff;
-    background: rgba(70, 60, 140, 0.28);
-    border: 1px solid rgba(130, 120, 255, 0.4);
 }
-body.group-mode .group-mode-indicator {
+body.group-mode #group-spectator-btn {
     display: inline-flex;
 }
-/* hidden 属性必须能盖过上面的 display 规则 */
-body.group-mode .group-mode-indicator[hidden] {
-    display: none;
-}
-
-/* 旁观模式常驻「停止」按钮：设置弹窗关掉之后也还能停 */
-.grp-stop-spectator {
-    display: none;
-    align-items: center;
-    gap: 6px;
-    margin-bottom: 8px;
-    padding: 5px 14px;
-    border-radius: 20px;
-    font-size: 0.72rem;
-    font-family: inherit;
-    cursor: pointer;
+/* 旁观进行中：按钮转为醒目的红色「停止旁观」 */
+#group-spectator-btn.active {
     color: #ffd6cd;
-    background: linear-gradient(125deg, rgba(150, 55, 55, 0.55), rgba(90, 35, 45, 0.75));
-    border: 1px solid rgba(255, 138, 122, 0.7);
-    animation: grpSpecGlow 1.4s ease-in-out infinite;
+    background: linear-gradient(125deg, rgba(150, 55, 55, 0.6), rgba(90, 35, 45, 0.8));
+    border-color: rgba(255, 138, 122, 0.75);
+    animation: grpSpecGlow 1.6s ease-in-out infinite;
 }
-.grp-stop-spectator:hover {
-    background: linear-gradient(125deg, rgba(180, 70, 70, 0.8), rgba(110, 45, 55, 0.9));
+#group-spectator-btn.active:hover:not(:disabled) {
+    background: linear-gradient(125deg, rgba(180, 70, 70, 0.85), rgba(110, 45, 55, 0.95));
+    border-color: rgba(255, 160, 145, 0.95);
 }
-body.group-mode .grp-stop-spectator.show {
-    display: inline-flex;
+#group-spectator-btn:disabled {
+    opacity: 0.45;
+    cursor: not-allowed;
 }
 
 /* 编排者状态条（临时，不落库） */
@@ -283,11 +262,6 @@ body.grp-live .send-btn {
     0%, 100% { box-shadow: 0 0 4px 0 rgba(160, 107, 255, 0.35); }
     50% { box-shadow: 0 0 14px 3px rgba(160, 107, 255, 0.45); }
 }
-body.grp-live .grp-stop-spectator,
-body.grp-live .group-mode-indicator {
-    /* 插话期间状态条保持可见，但不要抢眼 */
-    opacity: 0.9;
-}
 
 /* 从群聊点击成员头像进入「该成员的对话设置」时的说明条 */
 .grp-editing-other-hint {
@@ -330,6 +304,32 @@ body.grp-live .group-mode-indicator {
 @keyframes grpTypingPulse {
     0%, 100% { opacity: 0.35; transform: scale(0.85); }
     50% { opacity: 1; transform: scale(1.2); }
+}
+
+/* 危险操作区（清空聊天记录等） */
+.grp-danger-zone {
+    margin-top: 14px;
+    padding-top: 12px;
+    border-top: 1px dashed rgba(255, 138, 122, 0.28);
+}
+.grp-danger-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    padding: 7px 16px;
+    border-radius: 20px;
+    font-size: 0.78rem;
+    font-family: inherit;
+    cursor: pointer;
+    color: #ffb3a7;
+    background: rgba(150, 55, 55, 0.22);
+    border: 1px solid rgba(255, 138, 122, 0.45);
+    transition: 0.2s;
+}
+.grp-danger-btn:hover {
+    color: #ffd6cd;
+    background: rgba(180, 70, 70, 0.45);
+    border-color: rgba(255, 160, 145, 0.85);
 }
 
 /* 群聊头像预览（圆形，与角色头像一致） */

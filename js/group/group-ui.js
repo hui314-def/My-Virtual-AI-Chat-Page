@@ -366,6 +366,9 @@ export class GroupUI {
         // 添加成员
         document.getElementById('grp-add-member-btn')?.addEventListener('click', () => this._toggleAddMemberList());
 
+        // 清空聊天记录（危险操作：二次确认后硬删除）
+        document.getElementById('grp-clear-messages')?.addEventListener('click', () => this._clearMessages());
+
         this.modalManager.bindModalOverlayClose(modal, () => this.closeSettingsModal());
     }
 
@@ -705,6 +708,55 @@ export class GroupUI {
                 used.set(base, 1);
                 m.displayName = base;
             }
+        }
+    }
+
+    /**
+     * 清空本群聊的全部聊天记录（危险操作）。
+     *
+     * - **二次确认**：弹窗里明确说明「直接从本地数据库删除、无法撤销」
+     * - **硬删除**：直接清空各话题的 messages（不做软删除、不留回收站）
+     * - 群成员、人设、群头像与群设置**都会保留**
+     */
+    async _clearMessages() {
+        const chat = this.editingChat;
+        if (!chat) return;
+
+        const total = (chat.topics || []).reduce((n, t) => n + ((t.messages || []).length), 0);
+        if (total === 0) {
+            this.modalManager.showBriefToast('这个群聊还没有聊天记录');
+            return;
+        }
+
+        const groupTitle = escapeHtml(chat.title || '群聊');
+        const confirmed = await this.modalManager.showCustomDialog({
+            title: '清空聊天记录',
+            isHtml: true,
+            message: `确定要清空「<b>${groupTitle}</b>」的<b>全部聊天记录</b>吗？<br><br>`
+                + `共 <b>${total}</b> 条消息，将<b>直接从本地数据库删除，无法撤销</b>。<br>`
+                + `<span style="opacity:.75;">群成员、人设、群头像与群设置都会保留。</span>`,
+            buttons: [
+                { text: '取消', value: false, className: 'cancel' },
+                { text: '清空并删除', value: true, className: 'save' },
+            ],
+        });
+        if (!confirmed) return;
+
+        try {
+            for (const topic of chat.topics || []) {
+                topic.messages = [];
+                topic.summary = null;
+            }
+            chat.date = new Date();
+            await this.chatRepo.saveChat(chat);
+
+            this.renderHistoryList();
+            this.closeSettingsModal();
+            await this.renderMessages(chat.id, null);
+            this.modalManager.showBriefToast(`🗑️ 已清空 ${total} 条聊天记录`);
+        } catch (err) {
+            console.error('[GroupUI] 清空聊天记录失败：', err);
+            this.modalManager.customAlert('清空失败：' + (err.message || err), 'error');
         }
     }
 

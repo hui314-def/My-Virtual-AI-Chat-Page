@@ -4,6 +4,7 @@
 """
 import os
 import sys
+import time
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -29,9 +30,10 @@ _cs.store = _cs.ConfigStore(path=_probe_cfg)
 from qq_bot.config_store import store          # noqa: E402
 from qq_bot.trigger import gate                # noqa: E402
 from qq_bot.prompt_builder import (            # noqa: E402
-    render_macros, build_roleplay_prompt, build_private_prompt,
+    render_macros, build_roleplay_prompt, build_private_prompt, build_poke_prompt,
     clean_reply, split_reply, _is_ollama,
 )
+from qq_bot import qq_bot_api as api           # noqa: E402
 
 FAIL = []
 
@@ -88,6 +90,7 @@ msgs = build_roleplay_prompt(
     transcript=[('小明', '今天好累啊')],
     speaker_name='小明',
     user_bio='喜欢钓鱼',
+    user_text='晚饭吃什么好呢',
 )
 check('返回两条消息', len(msgs), 2)
 check('第一条是 system', msgs[0]['role'], 'system')
@@ -99,6 +102,17 @@ check('含禁链接要求', '链接' in system, True)
 check('含群成员', '小明' in system, True)
 check('知识库未启用时不注入', '知识库资料' in system, False)
 check('user 含转录', '小明：今天好累啊' in msgs[1]['content'], True)
+
+# ★ 回归：本条消息必须传进 user 消息（曾经整段漏掉，模型看不到用户说了什么）
+user_msg = msgs[1]['content']
+check('user 含【本条消息】区块', '【本条消息】' in user_msg, True)
+check('本条消息正文已传入', '晚饭吃什么好呢' in user_msg, True)
+check('本条消息带发言人', '小明：晚饭吃什么好呢' in user_msg, True)
+check('本条消息只出现一次', user_msg.count('晚饭吃什么好呢'), 1)
+
+# 只 @ 了机器人、没带正文时的兜底
+msgs_nb = build_roleplay_prompt(cfg, [], [], '小明', '', user_text='')
+check('无正文时有兜底说明', '没有说别的' in msgs_nb[1]['content'], True)
 
 cfg2 = store.snapshot()
 msgs2 = build_roleplay_prompt(cfg2, [], [], '小明', '', knowledge_text='- （来自《手册》）测试内容')
@@ -219,6 +233,7 @@ pmsgs = build_private_prompt(
     transcript=[('小明', '你在吗'), ('鲸鱼娘', '呜……我在的。')],
     speaker_name='小明',
     user_bio='喜欢钓鱼',
+    user_text='那我先走了',
 )
 check('私聊返回两条消息', len(pmsgs), 2)
 psystem = pmsgs[0]['content']
@@ -228,6 +243,12 @@ check('私聊含禁链接要求', '链接' in psystem, True)
 check('私聊不出现群聊外壳', '群聊规则' in psystem, False)
 check('私聊不出现"群里其他人"', '群里正在聊天的人有' in psystem, False)
 check('私聊 user 含对话记录', '你在吗' in pmsgs[1]['content'], True)
+# ★ 同一回归：私聊的本条消息也必须传进去
+check('私聊含【本条消息】区块', '【本条消息】' in pmsgs[1]['content'], True)
+check('私聊本条消息已传入', '那我先走了' in pmsgs[1]['content'], True)
+check('私聊本条消息只出现一次', pmsgs[1]['content'].count('那我先走了'), 1)
+check('私聊无正文时有兜底', '没有说别的' in build_private_prompt(
+    store.snapshot(), [], '小明', '', user_text='')[1]['content'], True)
 
 # 私聊判定：不 @ 也必须放行（私聊里每句话都是对机器人说的）
 gate._reply_times.clear()
@@ -269,6 +290,97 @@ print('=== 9. 运行统计 ===')
 stats = gate.stats()
 print(f'        收到 {stats["seen"]} 条 · 回复 {stats["replied"]} 条 · 丢弃 {stats["dropped"]}')
 check('统计含被丢弃分类', isinstance(stats['dropped'], dict), True)
+
+print()
+print('=== 10. 引用回复 ===')
+# 消息段解析：文本 + @ + 引用 三种段混在一起
+t, m, r = api._extract([
+    {'type': 'reply', 'data': {'id': '900'}},
+    {'type': 'at', 'data': {'qq': '10001'}},
+    {'type': 'text', 'data': {'text': ' 在吗'}},
+], '10001')
+check('提取出正文', t, '在吗')
+check('识别出 @', m, True)
+check('提取出被引用消息 ID', r, '900')
+
+t2, m2, r2 = api._extract([{'type': 'text', 'data': {'text': '普通消息'}}], '10001')
+check('无引用时 reply_id 为空', r2, '')
+check('无 @ 时不误报', m2, False)
+
+# 出站消息 ID 记录 → 用于识别"有人回复了机器人"
+check('未记录过的 ID 不算回复机器人', api._is_reply_to_bot('123456'), False)
+api._remember_sent(123456)
+check('记录后能认出回复机器人', api._is_reply_to_bot('123456'), True)
+api._remember_sent(None)          # 空 ID 不应抛异常
+api._remember_sent('')
+check('空 ID 记录不报错', api._is_reply_to_bot(''), False)
+
+# 引用段的构造：群聊受开关控制，私聊恒开
+rep_cfg = {'reply': {'enabled': True, 'showOriginal': True}}
+segs = api._reply_segments(rep_cfg, is_group=True, reply_id='900')
+check('群聊开启时生成引用段', len(segs), 1)
+check('引用段类型正确', segs[0]['type'], 'reply')
+check('引用段带正确 ID', segs[0]['data']['id'], '900')
+check('无 reply_id 时不生成', len(api._reply_segments(rep_cfg, True, '')), 0)
+check('群聊关闭时不生成',
+      len(api._reply_segments({'reply': {'enabled': False}}, is_group=True, reply_id='900')), 0)
+check('私聊恒开（不受群聊开关影响）',
+      len(api._reply_segments({'reply': {'enabled': False}}, is_group=False, reply_id='900')), 1)
+
+print()
+print('=== 11. 戳一戳 ===')
+# 事件识别：不同协议端写法有出入，只在确定是戳一戳时才认
+check('notice/notify/poke 识别', api._is_poke_event(
+    {'post_type': 'notice', 'notice_type': 'notify', 'sub_type': 'poke'}), True)
+check('普通 notice 不误判', api._is_poke_event(
+    {'post_type': 'notice', 'notice_type': 'notify', 'sub_type': 'honor'}), False)
+check('消息事件不误判', api._is_poke_event({'post_type': 'message'}), False)
+
+# 戳一戳提示词：共用角色锚定，外壳是"被戳了一下"
+poke_msgs = build_poke_prompt(store.snapshot(), [('小明', '在吗')], '小鱼', '')
+poke_sys = poke_msgs[0]['content']
+check('戳一戳返回两条消息', len(poke_msgs), 2)
+check('戳一戳仍继承人设', '害羞的鲸鱼娘' in poke_sys, True)
+check('含戳一戳外壳', '【有人戳了你一下】' in poke_sys, True)
+check('要求简短反应', '20~40 字' in poke_sys, True)
+check('戳一戳 user 提示被戳', '戳了你一下' in poke_msgs[1]['content'], True)
+check('私聊戳语气不同', '私聊里' in build_poke_prompt(
+    store.snapshot(), [], '小鱼', '', is_private=True)[0]['content'], True)
+
+# 戳一戳限流：独立冷却与独立配额，且不与消息额度互相挤占
+gate._reply_times.clear()
+gate._last_reply_group.clear()
+gate._last_reply_global = 0.0
+store.update({'trigger': {'cooldownSec': 10, 'globalCooldownSec': 0, 'hourlyQuota': 5,
+                          'privateHourlyQuota': 5, 'mentionBypass': True, 'probability': 0.0}})
+ok1, r1 = gate.record_poke('group_p', cooldown=60, quota=3)
+check('首次戳一戳放行', ok1, True)
+ok2, r2 = gate.record_poke('group_p', cooldown=60, quota=3)
+check('冷却内的第二次被拦', ok2, False)
+check('拦下原因是冷却', r2, 'cooldown')
+# 换一个群不受该群冷却影响
+check('换群不受同群戳冷却影响', gate.record_poke('group_q', 60, 3)[0], True)
+# 独立配额：戳一戳用满后，消息额度不受影响
+gate._reply_times.clear()
+gate._last_reply_group.clear()
+gate._last_reply_global = 0.0
+for _ in range(3):
+    gate.record_poke('group_p', cooldown=0, quota=3)
+ok3, r3 = gate.record_poke('group_p', cooldown=0, quota=3)
+check('戳一戳配额是硬上限', ok3, False)
+check('拦下原因是配额', r3, 'quota')
+check('戳一戳不消耗消息配额', gate.should_reply('group_new', True, '消息照常').allowed, True)
+
+# 冷却会**过期**：等过冷却后应当又能回应
+# （端到端不方便测这条——需要等真实时间，且依赖 HTTP 假模型服务的存活）
+gate._reply_times.clear()
+gate._last_reply_group.clear()
+gate._last_reply_global = 0.0
+check('冷却前首次戳放行', gate.record_poke('group_exp', cooldown=1, quota=10)[0], True)
+check('冷却内立刻再戳被拦', gate.record_poke('group_exp', cooldown=1, quota=10)[0], False)
+time.sleep(1.15)
+check('过了冷却后又能回应（冷却是真的会过期）',
+      gate.record_poke('group_exp', cooldown=1, quota=10)[0], True)
 
 print()
 if FAIL:

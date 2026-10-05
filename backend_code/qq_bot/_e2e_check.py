@@ -8,7 +8,7 @@ import os
 import sys
 import threading
 import time
-from http.server import BaseHTTPRequestHandler, HTTPServer
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 try:
@@ -32,22 +32,55 @@ RUN_TAG = str(int(time.time() * 1000) % 100000000)
 # 假模型服务返回的文本（故意带 Markdown 与链接，验证清洗链路）
 STUB_TEXT = ''
 
+# 假模型服务收到的请求体（用来验证"用户消息到底有没有传给模型"）
+# —— 这是《本条消息没有进提示词》那个 bug 的回归防线：
+# 光测提示词构建函数不够，要确认服务**实际发出去**的请求里带着用户的话。
+STUB_REQUESTS = []
+_STUB_LOCK = threading.Lock()
+
 
 class _StubHandler(BaseHTTPRequestHandler):
-    """OpenAI 兼容的最小假模型：只实现 /v1/chat/completions。"""
+    """OpenAI 兼容的最小假模型：只实现 /v1/chat/completions。
+
+    会按请求里带的 `echo` 回显一条应答——用来验证"服务能不能从应答里
+    取到 message_id"（这是识别引用回复的前提）。
+
+    protocol_version 固定 HTTP/1.0：每次响应后关连接。
+    默认的 keep-alive + 单线程 HTTPServer 在连续多次调用时会偶发
+    "远程主机强迫关闭了一个现有的连接"，那会伪装成服务端故障，让测试结果飘。
+    """
+
+    protocol_version = 'HTTP/1.0'
 
     def do_POST(self):                                  # noqa: N802
-        length = int(self.headers.get('Content-Length') or 0)
-        self.rfile.read(length)
-        body = json.dumps({
-            'choices': [{'message': {'role': 'assistant', 'content': STUB_TEXT}}],
-            'usage': {'prompt_tokens': 1, 'completion_tokens': 1},
-        }).encode('utf-8')
-        self.send_response(200)
-        self.send_header('Content-Type', 'application/json')
-        self.send_header('Content-Length', str(len(body)))
-        self.end_headers()
-        self.wfile.write(body)
+        try:
+            length = int(self.headers.get('Content-Length') or 0)
+            raw = self.rfile.read(length)
+            echo = None
+            try:
+                body_in = json.loads(raw.decode('utf-8'))
+                echo = body_in.get('echo')
+                with _STUB_LOCK:
+                    STUB_REQUESTS.append(body_in)
+            except Exception:                           # noqa: BLE001
+                pass
+            body = json.dumps({
+                'choices': [{'message': {'role': 'assistant', 'content': STUB_TEXT}}],
+                'usage': {'prompt_tokens': 1, 'completion_tokens': 1},
+                'echo': echo,
+            }).encode('utf-8')
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.send_header('Content-Length', str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        except Exception as e:                          # noqa: BLE001
+            # 假模型出错必须吵出来，否则会伪装成"服务端发不出消息"
+            print(f'  [stub 出错] {type(e).__name__}: {e}')
+        finally:
+            # 每次请求都报出自己监听的端口：便于一眼看出服务端到底在往哪个端口发
+            with _STUB_LOCK:
+                print(f'  [stub :{self.server.server_port}] 第 {len(STUB_REQUESTS)} 次请求')
 
     def log_message(self, *args):                       # 静音
         pass
@@ -71,6 +104,78 @@ def _free_port():
     with socket.socket() as s:
         s.bind(('127.0.0.1', 0))
         return s.getsockname()[1]
+
+
+class FakeNapCat:
+    """会**回应答帧**的极简协议端。
+
+    这是必须的，不是可选的便利：桥接服务靠 NapCat 的应答帧拿到"自己发出去的消息 ID"，
+    再靠它识别"有人在引用机器人的消息"。测试客户端若不回应答，
+    引用回复这条链路就永远测不出来（第一版 e2e 正是栽在这里）。
+    """
+
+    def __init__(self, url):
+        self.url = url
+        self.ws = None
+        self.actions = []
+        self.lock = threading.Lock()
+        self.stop = False
+        self._next_mid = 900100
+
+    def __enter__(self):
+        self.ws = connect(self.url, open_timeout=8).__enter__()
+        threading.Thread(target=self._reader, daemon=True).start()
+        self.send({'post_type': 'meta_event', 'meta_event_type': 'lifecycle',
+                   'self_id': 10001, 'time': int(time.time())})
+        time.sleep(0.3)
+        return self
+
+    def __exit__(self, *a):
+        self.stop = True
+        try:
+            self.ws.__exit__(*a)
+        except Exception:       # noqa: BLE001
+            pass
+
+    def send(self, payload):
+        self.ws.send(json.dumps(payload))
+
+    def _reader(self):
+        while not self.stop:
+            try:
+                raw = self.ws.recv(timeout=0.5)
+            except TimeoutError:
+                continue
+            except Exception:       # noqa: BLE001
+                return
+            if not raw:
+                continue
+            try:
+                frame = json.loads(raw)
+            except Exception:       # noqa: BLE001
+                continue
+            if 'action' in frame:
+                with self.lock:
+                    self.actions.append(frame)
+                echo = (frame.get('params') or {}).get('echo')
+                if echo:
+                    self._next_mid += 1
+                    self.send({'status': 'ok', 'retcode': 0,
+                               'data': {'message_id': self._next_mid},
+                               'echo': echo, 'stream': 'normal-action'})
+
+    def wait_action(self, count=1, timeout=10):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            with self.lock:
+                if len(self.actions) >= count:
+                    return list(self.actions)
+            time.sleep(0.1)
+        with self.lock:
+            return list(self.actions)
+
+    def last_mid(self):
+        return self._next_mid
 
 
 print('=== 1. 服务可达性 ===')
@@ -101,13 +206,19 @@ payload = {
     'knowledge': {'enabled': False, 'ids': [], 'apiBase': 'http://localhost:5051'},
     'tts': {'enabled': False, 'apiUrl': '', 'apiKey': '', 'voiceId': 'default'},
     'trigger': {'cooldownSec': 0, 'globalCooldownSec': 0, 'hourlyQuota': 100,
-                'mentionBypass': True, 'probability': 0.0, 'maxRepliesPerMessage': 1,
+                'mentionBypass': True, 'probability': 0.0, 'replyPartsMax': 3,
+                'replyPartMaxChars': 80, 'partSendDelayMs': 0,
                 'replySplitChars': 120},
     '_source': 'e2e-check',
 }
 r = requests.post(f'{BASE}/qq/config', json=payload, timeout=8).json()
 check('推送成功', r.get('ok'))
 check('配置就绪', r.get('ready'))
+
+# 先清空运行时状态：服务是常驻的，上一轮跑留下的上下文历史会让
+# "本条消息只出现一次"之类的断言误判（机器人对自己回复的转述里也含那句话）。
+_reset = requests.post(f'{BASE}/qq/reset', timeout=8).json()
+check('运行时状态可重置', _reset.get('ok'))
 
 disk_ok = False
 # 数据目录与 config_store 的解析规则保持一致（支持 QQ_BOT_DATA_DIR 覆盖）
@@ -123,6 +234,55 @@ except Exception as e:      # noqa: BLE001
 check('中文角色名在磁盘镜像中无损', disk_ok)
 if disk_ok:
     print(f'        落盘角色名：{disk["role"]["roleName"]} · 人设：{disk["role"]["persona"][:16]}…')
+
+print()
+print('=== 2.5 回归：总开关关闭时不该有任何自动行为 ===')
+# 曾经的 bug：handle_poke 只看了 poke.enabled，**没看总开关** ——
+# 于是"关闭 QQ 接入"后，别人一戳它照样调模型、照样发消息。
+# 这里把总开关关掉，同时保持 poke/reply 各自都是开启的，验证两条链路都被挡住。
+off_payload = json.loads(json.dumps(payload))
+off_payload['enabled'] = False
+off_payload['poke'] = {'enabled': True, 'cooldownSec': 0, 'hourlyQuota': 50}
+off_payload['reply'] = {'enabled': True, 'showOriginal': True}
+off_payload['_source'] = 'e2e-off'
+requests.post(f'{BASE}/qq/config', json=off_payload, timeout=8)
+requests.post(f'{BASE}/qq/reset', timeout=8)
+
+off_actions = []
+try:
+    with FakeNapCat(WS) as obot:
+        # 1) @ 消息
+        obot.send({'post_type': 'message', 'message_type': 'group',
+                   'self_id': 10001, 'group_id': 555300, 'user_id': 20041,
+                   'message_id': f'{RUN_TAG}8', 'time': int(time.time()),
+                   'sender': {'user_id': 20041, 'nickname': '关闭测试'},
+                   'message': [{'type': 'at', 'data': {'qq': '10001'}},
+                               {'type': 'text', 'data': {'text': ' 在吗'}}]})
+        # 2) 私聊消息（私聊恒开，更容易漏掉总开关）
+        obot.send({'post_type': 'message', 'message_type': 'private',
+                   'self_id': 10001, 'user_id': 20042,
+                   'message_id': f'{RUN_TAG}9', 'time': int(time.time()),
+                   'sender': {'user_id': 20042, 'nickname': '关闭测试2'},
+                   'message': [{'type': 'text', 'data': {'text': '你好'}}]})
+        # 3) 戳一戳（这就是有 bug 的那条路）
+        obot.send({'post_type': 'notice', 'notice_type': 'notify', 'sub_type': 'poke',
+                   'self_id': 10001, 'group_id': 555300, 'user_id': 20041,
+                   'target_id': 10001, 'time': int(time.time())})
+        time.sleep(2.5)
+        off_actions = obot.wait_action(count=1, timeout=2)
+except Exception as e:      # noqa: BLE001
+    print(f'  连接异常：{type(e).__name__}: {e}')
+
+print(f'  · 总开关关闭时推回的动作数：{len(off_actions)}')
+check('总开关关闭后：@ 消息不回应', len(off_actions), 0)
+rt_off = requests.get(f'{BASE}/qq/runtime', timeout=8).json()
+print(f'        ready={rt_off.get("ready")}（{rt_off.get("readyDetail")}）enabled={rt_off.get("enabled")}')
+check('运行状态报告为未启用', rt_off.get('enabled'), False)
+check('运行状态报告为未就绪', rt_off.get('ready'), False)
+
+# 复原本段之前的配置，后面几节照常跑
+requests.post(f'{BASE}/qq/config', json=payload, timeout=8)
+requests.post(f'{BASE}/qq/reset', timeout=8)
 
 print()
 print('=== 3. 反向 WS：连接并上报一条 @ 消息 ===')
@@ -201,7 +361,7 @@ STUB_TEXT = (
     '|||这是模型的第三条消息。'
 )
 
-stub = HTTPServer(('127.0.0.1', STUB_PORT), _StubHandler)
+stub = ThreadingHTTPServer(('127.0.0.1', STUB_PORT), _StubHandler)
 threading.Thread(target=stub.serve_forever, daemon=True).start()
 print(f'  · 假模型服务已启动 :{STUB_PORT}')
 
@@ -213,6 +373,10 @@ payload2['trigger']['cooldownSec'] = 0
 payload2['trigger']['globalCooldownSec'] = 0
 payload2['_source'] = 'e2e-check-stub'
 requests.post(f'{BASE}/qq/config', json=payload2, timeout=8)
+
+# 清空假模型收到的请求记录，后面用来断言"用户消息有没有传过去"
+with _STUB_LOCK:
+    STUB_REQUESTS.clear()
 
 sent = []
 try:
@@ -227,7 +391,8 @@ try:
             'sender': {'user_id': 20005, 'nickname': '小鱼'},
             'message': [
                 {'type': 'at', 'data': {'qq': '10001'}},
-                {'type': 'text', 'data': {'text': ' 说点什么吧'}},
+                # 这句是"能不能传进模型"的探针：独特的字样，便于断言
+                {'type': 'text', 'data': {'text': ' 今天想吃烤鱼'}},
             ],
         }))
         # 等待服务把动作推回来：模型分了几条，就应当收到几个动作
@@ -271,6 +436,33 @@ if sent:
     check('加粗星号被清掉', '**' not in joined)
     check('链接被清掉', 'http' not in joined)
     check('每一条都不超长', all(len(t) <= 100 for t in texts), True)
+
+print()
+print('=== 5.5 回归：用户消息必须真的传进模型请求体 ===')
+# 这是「本条消息没有进提示词」那个 bug 的回归防线。
+# 直接看服务**实际发出**的请求体，而不是只测提示词构建函数。
+with _STUB_LOCK:
+    captured = list(STUB_REQUESTS)
+print(f'  · 假模型收到 {len(captured)} 次请求')
+check('假模型确实被调用了', len(captured) >= 1)
+
+if captured:
+    req = captured[-1]
+    msgs = req.get('messages') or []
+    sys_msg = next((m.get('content', '') for m in msgs if m.get('role') == 'system'), '')
+    usr_msg = next((m.get('content', '') for m in msgs if m.get('role') == 'user'), '')
+    print('        —— 服务实际发给模型的 user 消息 ——')
+    for line in usr_msg.splitlines():
+        print(f'        | {line}')
+    check('user 消息非空', len(usr_msg) > 0)
+    check('用户说的那句话传进去了', '今天想吃烤鱼' in usr_msg)
+    check('发送者名字也带上了', '小鱼' in usr_msg)
+    check('有「本条消息」区块', '【本条消息】' in usr_msg)
+    check('system 里有人设', '海洋鲸鱼娘' in sys_msg)
+    # 同一句话不该在提示词里出现两次（转录已剥掉本条消息）
+    check('本条消息没有重复出现', usr_msg.count('今天想吃烤鱼'), 1)
+    check('请求是非流式', req.get('stream'), False)
+    check('模型参数继承自角色', req.get('temperature'), 0.85)
 
 print()
 print('=== 6. 频控：非 @ 消息不应触发 ===')
@@ -428,6 +620,98 @@ trace_ack = [t for t in texts if '接口应答' in t]
 print(f'  · 相关日志：{trace_ack or "（无）"}')
 check('应答帧被识别为应答', len(trace_ack) >= 1)
 check('应答帧不再被报警', len(warned), 0)
+
+print()
+print('=== 10. 引用回复（出站带 reply 段 + 入站识别为点名）===')
+payload3 = json.loads(json.dumps(payload2))
+payload3['reply'] = {'enabled': True, 'showOriginal': True}
+# 戳一戳必须**显式配置**：否则会继承磁盘上残留的值（测试之间就不隔离了）。
+# cooldownSec 设成 1 秒：足以验证冷却生效，又不至于让用例等太久。
+payload3['poke'] = {'enabled': True, 'cooldownSec': 1, 'hourlyQuota': 50,
+                    'content': '', 'sendPokeBack': False}
+payload3['trigger']['cooldownSec'] = 0
+payload3['trigger']['globalCooldownSec'] = 0
+payload3['_source'] = 'e2e-reply'
+requests.post(f'{BASE}/qq/config', json=payload3, timeout=8)
+requests.post(f'{BASE}/qq/reset', timeout=8)
+
+bot_mid = None
+try:
+    # 第 1 步：让机器人回一条，并像真协议端那样回执 message_id
+    with FakeNapCat(WS) as bot:
+        bot.send({'post_type': 'message', 'message_type': 'group',
+                  'self_id': 10001, 'group_id': 666100, 'user_id': 20011,
+                  'message_id': f'{RUN_TAG}6', 'time': int(time.time()),
+                  'sender': {'user_id': 20011, 'nickname': '引用测试'},
+                  'message': [{'type': 'at', 'data': {'qq': '10001'}},
+                              {'type': 'text', 'data': {'text': ' 第一句话'}}]})
+        acts = bot.wait_action()
+        print(f'  · 机器人发出 {len(acts)} 个动作')
+        check('@ 触发后确实发了消息', len(acts) >= 1)
+        time.sleep(1.5)                      # 等服务端处理应答
+        bot_mid = bot.last_mid()
+        print(f'  · 协议端回执的 message_id = {bot_mid}')
+    check('拿到了协议端回执的消息 ID', isinstance(bot_mid, int))
+
+    # 第 2 步：引用机器人那条消息，且**不带 @**
+    with FakeNapCat(WS) as bot2:
+        bot2.send({'post_type': 'message', 'message_type': 'group',
+                   'self_id': 10001, 'group_id': 666100, 'user_id': 20012,
+                   'message_id': f'{RUN_TAG}7', 'time': int(time.time()),
+                   'sender': {'user_id': 20012, 'nickname': '引用测试2'},
+                   'message': [{'type': 'reply', 'data': {'id': str(bot_mid)}},
+                               {'type': 'text', 'data': {'text': '这句什么意思'}}]})
+        acts2 = bot2.wait_action()
+        print(f'  · 引用消息触发 {len(acts2)} 个动作')
+        check('引用机器人消息也被回复（视为点名）', len(acts2) >= 1)
+        if acts2:
+            segs = (acts2[0].get('params') or {}).get('message') or []
+            print(f'        消息段：{json.dumps(segs, ensure_ascii=False)}')
+            check('回复里第一段是 reply', segs[0].get('type'), 'reply')
+            check('引用的正是机器人那条消息', str(segs[0]['data']['id']), str(bot_mid))
+            check('正文段跟在引用段后面', segs[1].get('type'), 'text')
+except Exception as e:      # noqa: BLE001
+    print(f'  连接异常：{type(e).__name__}: {e}')
+
+print()
+print('=== 11. 戳一戳（notice 事件 → 回应）===')
+poke_actions = []
+try:
+    with FakeNapCat(WS) as pbot:
+        # 戳一戳是 notice 事件，不是 message —— 早期版本直接忽略了 notice
+        pbot.send({'post_type': 'notice', 'notice_type': 'notify', 'sub_type': 'poke',
+                   'self_id': 10001, 'group_id': 666200, 'user_id': 20013, 'target_id': 10001,
+                   'time': int(time.time())})
+        poke_actions = pbot.wait_action(timeout=10)
+        first_count = len(poke_actions)
+        print(f'  · 第一次戳 → {first_count} 个动作')
+
+        # 冷却内（1 秒）立刻再戳：应当被拦住，动作数不再增加
+        pbot.send({'post_type': 'notice', 'notice_type': 'notify', 'sub_type': 'poke',
+                   'self_id': 10001, 'group_id': 666200, 'user_id': 20013, 'target_id': 10001,
+                   'time': int(time.time())})
+        time.sleep(0.4)                       # 确保仍在冷却窗口内
+        poke_actions = pbot.wait_action(timeout=2)
+except Exception as e:      # noqa: BLE001
+    print(f'  连接异常：{type(e).__name__}: {e}')
+    first_count = 0
+
+print(f'  · 戳一戳推回的动作数：{len(poke_actions)}')
+check('被戳后发出了回应', len(poke_actions) >= 1)
+check('冷却内的第二次戳没有产生新动作', len(poke_actions), first_count)
+# 注：这里刻意**不**验证"冷却过期后又能回应"——
+# 那需要等真实时间，且会依赖假模型服务在此刻仍然存活（本机实测它偶发拒绝连接），
+# 会让 e2e 变得不稳定。那条行为由 _selfcheck.py 第 11 节直接对闸门验证，更可靠。
+
+if poke_actions:
+    pact = poke_actions[0]
+    check('戳一戳回复用 send_group_msg', pact.get('action'), 'send_group_msg')
+    check('戳一戳回复发到正确的群', str((pact.get('params') or {}).get('group_id')), '666200')
+    psegs = (pact.get('params') or {}).get('message') or []
+    ptext = ''.join(s.get('data', {}).get('text', '') for s in psegs if s.get('type') == 'text')
+    print(f'        戳一戳回应文本：{ptext}')
+    check('戳一戳回应非空', len(ptext) > 3)
+    check('戳一戳回应不带 reply 段（无可引用的消息）', psegs[0].get('type'), 'text')
 
 # 到这里假模型服务不再需要了
 stub.shutdown()

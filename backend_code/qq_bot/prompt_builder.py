@@ -125,12 +125,16 @@ def _roleplay_anchor(cfg, speaker_name, user_bio, knowledge_text, ctx):
     return role_name, system
 
 
-def build_roleplay_prompt(cfg, members, transcript, speaker_name, user_bio, knowledge_text=''):
+def build_roleplay_prompt(cfg, members, transcript, speaker_name, user_bio,
+                          knowledge_text='', user_text=''):
     """群聊提示词：拼出 system + user 两条消息。
 
     @param members  : 群里其他人的显示名（不含自己）
-    @param transcript: [(发送者名, 文本)] 最近群聊记录
+    @param transcript: [(发送者名, 文本)] 最近群聊记录。**不要包含本条触发消息**
+                       （调用方已剥掉），本条消息由 user_text 单独给出。
     @param speaker_name: 本条触发消息的发送者
+    @param user_text: **本条触发消息的正文**。必须传——早期版本漏了它，
+                      模型只能看到历史却看不到用户当前说了什么。
     """
     role = cfg.get('role') or {}
     ctx = {'roleName': (role.get('roleName') or '').strip() or '助手', 'userName': speaker_name}
@@ -164,14 +168,21 @@ def build_roleplay_prompt(cfg, members, transcript, speaker_name, user_bio, know
         '当你的回复中包含非语言表达的内容时，请使用括号（）包裹，例如："（轻轻叹气）我相信你能做到。"'
     )
 
-    # ---- user：群聊转录 + 本条消息 + 发言指令 ----
+    # ---- user：群聊历史 + **本条消息** + 发言指令 ----
     lines = [f'{name}：{text}' for name, text in (transcript or []) if (text or '').strip()]
     transcript_text = '\n'.join(lines) if lines else '（暂无记录）'
 
+    # 本条消息单独列出：它已经被调用方从 transcript 里剥掉（避免重复），
+    # 所以这里必须显式带上，否则模型根本不知道用户说了什么。
+    current = (user_text or '').strip()
+    current_block = (f'【本条消息】\n{speaker_name}：{current}\n\n' if current
+                     else '【本条消息】\n（对方只是喊了你一声，没有说别的）\n\n')
+
     user_content = (
         f'【群聊记录】\n{transcript_text}\n\n'
+        f'{current_block}'
         f'【现在请你发言】\n'
-        f'请以「{role_name}」的身份，紧接着上面的聊天记录往下说。\n'
+        f'请以「{role_name}」的身份，针对上面【本条消息】作出回应；可结合【群聊记录】理解上下文。\n'
         f'只输出「{role_name}」要说的话本身——不要写名字前缀，不要写旁白或解释，不要复述聊天记录。'
     )
     return [
@@ -180,12 +191,15 @@ def build_roleplay_prompt(cfg, members, transcript, speaker_name, user_bio, know
     ]
 
 
-def build_private_prompt(cfg, transcript, speaker_name, user_bio, knowledge_text=''):
+def build_private_prompt(cfg, transcript, speaker_name, user_bio,
+                         knowledge_text='', user_text=''):
     """私聊提示词：与群聊**共用角色锚定部分**，只换成一对一外壳。
 
     与群聊的两处实质差别：
       · 不需要「分辨谁在说话」，也不该出现"群里其他人"这类描述
       · 一对一场景可以比群聊话多一点（群聊要防刷屏，私聊是朋友对话）
+
+    @param user_text: **本条触发消息的正文**（必传，理由同群聊）。
     """
     role = cfg.get('role') or {}
     ctx = {'roleName': (role.get('roleName') or '').strip() or '助手', 'userName': speaker_name}
@@ -216,7 +230,7 @@ def build_private_prompt(cfg, transcript, speaker_name, user_bio, knowledge_text
         '当你的回复中包含非语言表达的内容时，请使用括号（）包裹，例如："（轻轻叹气）我相信你能做到。"'
     )
 
-    # ---- user：一对一对话记录 + 本条消息 + 发言指令 ----
+    # ---- user：一对一对话记录 + **本条消息** + 回复指令 ----
     # 私聊转录里只有「对方：…」「角色名：…」两种发言人
     lines = []
     for name, text in (transcript or []):
@@ -225,10 +239,15 @@ def build_private_prompt(cfg, transcript, speaker_name, user_bio, knowledge_text
         lines.append(f'{text}' if name == role_name else f'{name}：{text}')
     transcript_text = '\n'.join(lines) if lines else '（暂无记录）'
 
+    current = (user_text or '').strip()
+    current_block = (f'【本条消息】\n{current}\n\n' if current
+                     else '【本条消息】\n（对方只是喊了你一声，没有说别的）\n\n')
+
     user_content = (
         f'【对话记录】\n{transcript_text}\n\n'
+        f'{current_block}'
         f'【现在请你回复】\n'
-        f'请以「{role_name}」的身份，紧接着上面的对话往下说。\n'
+        f'请以「{role_name}」的身份，针对上面【本条消息】作出回应；可结合【对话记录】理解上下文。\n'
         f'只输出「{role_name}」要说的话本身——不要写名字前缀，不要写旁白或解释，不要复述对话记录。'
     )
     return [
@@ -237,7 +256,49 @@ def build_private_prompt(cfg, transcript, speaker_name, user_bio, knowledge_text
     ]
 
 
-# ==================== 回复文本清洗 ====================
+def build_poke_prompt(cfg, transcript, poker_name, user_bio, knowledge_text='',
+                      is_private=False):
+    """戳一戳的提示词：共用角色锚定，外壳是"被戳了一下"。
+
+    与消息场景的关键差别：**戳一戳没有正文**。对方什么都没说，只是戳了你一下——
+    所以这里不要求"针对某条消息回应"，而是让角色对这一下**做出符合性格的反应**。
+
+    @param poker_name: 戳你的人（群名片 / 昵称）
+    @param is_private: 是否私聊戳（私聊的戳更亲昵，语气可以更贴近）
+    """
+    role = cfg.get('role') or {}
+    ctx = {'roleName': (role.get('roleName') or '').strip() or '助手', 'userName': poker_name}
+    role_name, system = _roleplay_anchor(cfg, poker_name, user_bio, knowledge_text, ctx)
+
+    where = 'QQ 私聊里' if is_private else '一个 QQ 群里'
+    system += (
+        f'\n\n【有人戳了你一下】\n'
+        f'你在{where}，{poker_name} 刚刚**戳了你一下**（戳一戳，QQ 的轻互动）。\n'
+        '这不是一条消息——对方什么都没说，只是想逗你、叫你、或者引起你的注意。\n\n'
+        '【反应要求】\n'
+        f'1. 只以「{role_name}」自己的身份做出反应，不要替对方说话。\n'
+        '2. 反应要**短**：一句话，20~40 字，像真人被戳时的即时反应。\n'
+        '3. 反应要符合你的性格——害羞就窘迫、活泼就回怼、温柔就柔声问一句。\n'
+        '4. 不要写成长篇大论，不要解释"戳一戳"是什么，也不要提"系统""提示词"这类词。\n'
+        '5. 可以带括号里的神态或动作，例如"（缩了缩脖子）"。\n'
+        '6. 回复是**纯文本**发到 QQ：不要 Markdown、不要链接。\n\n'
+        '【回复格式规则】\n'
+        '只输出你要说的话本身——不要写名字前缀，不要写旁白或解释。'
+    )
+
+    lines = [f'{name}：{text}' for name, text in (transcript or []) if (text or '').strip()]
+    transcript_text = '\n'.join(lines) if lines else '（暂无记录）'
+
+    user_content = (
+        f'【最近的聊天记录（仅供理解氛围，不需要接话）】\n{transcript_text}\n\n'
+        f'【现在请你发言】\n'
+        f'{poker_name} 戳了你一下。请以「{role_name}」的身份，针对这一下做出简短反应。\n'
+        f'只输出「{role_name}」要说的话本身。'
+    )
+    return [
+        {'role': 'system', 'content': system},
+        {'role': 'user', 'content': user_content},
+    ]
 
 _HIDDEN_TAGS = re.compile(r'<(think|soul|thinking)>.*?</\1>', re.S | re.I)
 _CODE_FENCE = re.compile(r'```[a-zA-Z0-9_+-]*\n?(.*?)```', re.S)
@@ -247,6 +308,9 @@ _MD_BOLD = re.compile(r'\*\*(.+?)\*\*', re.S)
 _MD_ITALIC = re.compile(r'(?<!\*)\*(?!\s)(.+?)(?<!\s)\*(?!\*)', re.S)
 _MD_QUOTE = re.compile(r'^\s{0,3}>\s?', re.M)
 _LEADING_NAME = re.compile(r'^\s*[^：:\n]{1,12}[：:]\s*')
+
+
+# ==================== 回复文本清洗 ====================
 
 
 def clean_reply(text, role_name=''):
@@ -369,6 +433,29 @@ def _is_ollama(model_host, kind=''):
     return ':11434' in host or '/api/chat' in host
 
 
+def _post_with_one_retry(url, body, headers, timeout):
+    """POST 到模型；遇到**瞬时断连**重试一次。
+
+    为什么需要：连接池复用的 keep-alive 连接可能刚被服务端关掉，复用时会拿到
+    "远程主机强迫关闭了一个现有的连接"（本地模型、反向代理都很常见）。
+    这种属于瞬时故障，重试一次就好。
+
+    只重试 ConnectionError；HTTP 4xx/5xx 与"连接被拒绝"一律直接抛出——
+    那些是配置或服务真有问题，重试只会掩盖它们。
+    """
+    try:
+        return requests.post(url, json=body, headers=headers, timeout=timeout)
+    except requests.exceptions.ConnectionError as e:
+        msg = str(e).lower()
+        transient = ('connection aborted' in msg or 'connection reset' in msg
+                     or 'remotedisconnected' in msg or 'forcibly closed' in msg)
+        if not transient:
+            raise
+        print('[QQ] 模型连接被重置，重试一次')
+        time.sleep(0.3)
+        return requests.post(url, json=body, headers=headers, timeout=timeout)
+
+
 def call_model(cfg, messages, timeout=120):
     """调模型，返回纯文本回复。非流式——QQ 侧本来就是整条发，流式没有收益。"""
     model = cfg.get('model') or {}
@@ -407,11 +494,21 @@ def call_model(cfg, messages, timeout=120):
         if think_level == 0:
             body['think'] = False
 
-    headers = {'Content-Type': 'application/json'}
+    # 明确要求服务端在响应后关闭连接。
+    # 原因：连接池会复用 keep-alive 连接，若服务端刚把它关掉（本地模型、
+    # 反向代理很常见），复用就会命中"远程主机强迫关闭了一个现有的连接"。
+    # 每次新建连接的开销对一次对话来说可以忽略，换来的是不再有这类瞬时失败。
+    headers = {'Content-Type': 'application/json', 'Connection': 'close'}
     if api_key:
         headers['Authorization'] = f'Bearer {api_key}'
 
-    resp = requests.post(url, json=body, headers=headers, timeout=timeout)
+    try:
+        resp = _post_with_one_retry(url, body, headers, timeout)
+    except Exception as e:              # noqa: BLE001
+        # 调用失败时把地址与模型名一起抛出来：排错时最常见的困惑就是
+        # "明明配置过模型，为什么连不上"——通常是被别处推送的配置覆盖了。
+        raise RuntimeError(f'调用模型失败（{url}，模型 {model_name}）：'
+                           f'{type(e).__name__}: {e}') from e
     if resp.status_code >= 400:
         raise RuntimeError(f'模型返回 HTTP {resp.status_code}: {resp.text[:300]}')
     data = resp.json()

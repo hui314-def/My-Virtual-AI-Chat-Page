@@ -918,13 +918,7 @@
     opacity: 0.8;
 }
 
-/* 话题生成开场白按钮 */
-.topic-gen-intro-btn {
-    background: rgba(95, 126, 255, 0.2);
-}
-.topic-gen-intro-btn:hover {
-    background: rgba(95, 126, 255, 0.5);
-}
+/* 话题操作按钮样式已统一迁移至 css/components.css（.topic-actions / .topic-gen-intro-btn）*/
 
 /* ---------- 知识库引用标签 ---------- */
 .kb-sources {

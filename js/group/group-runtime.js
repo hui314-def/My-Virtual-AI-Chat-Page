@@ -228,7 +228,7 @@ export class GroupRuntime {
     // 1. 群聊模式开关（输入区按钮精简约 D8）
     // ============================================================
 
-    /** 根据当前会话类型切换 body.group-mode 与状态标识 */
+    /** 根据当前会话类型切换 body.group-mode（控制输入区按钮精简） */
     syncGroupMode() {
         const isGroup = this.isActive();
         document.body.classList.toggle('group-mode', isGroup);
@@ -241,27 +241,9 @@ export class GroupRuntime {
                 : '<i class="fas fa-sliders-h"></i> 对话设置';
         }
 
-        const indicator = document.getElementById('group-mode-indicator');
-        if (!indicator) return;
-
-        if (!isGroup) {
-            indicator.hidden = true;
-            this._removeMentionPop();
-            return;
-        }
-
-        indicator.hidden = false;
-        const chat = this.currentChat();
-        const members = chat ? resolveMembers(chat, this.chats) : [];
-        const avatarUrl = chat?.settings?.avatarUrl || null;
-        const avatarHtml = avatarUrl
-            ? `<img src="${escapeHtml(resolveAssetUrl(avatarUrl))}" style="width:18px;height:18px;border-radius:50%;object-fit:cover;" alt="">`
-            : '<i class="fas fa-users"></i>';
-        const groupTitle = escapeHtml(chat?.title || '群聊');
-
-        indicator.innerHTML = members.length
-            ? `${avatarHtml} ${groupTitle} · ${escapeHtml(members.map(m => m.displayName).join(' / '))}`
-            : `${avatarHtml} ${groupTitle}（成员不可用）`;
+        if (!isGroup) this._removeMentionPop();
+        // 旁观开关按钮的显隐 / 文案随会话类型刷新
+        this.syncSpectatorButton();
     }
 
     // ============================================================
@@ -588,19 +570,30 @@ export class GroupRuntime {
         else this.startSpectator();
     }
 
-    /** 同步「开始旁观 / 停止旁观」按钮外观（设置弹窗 + 输入区常驻停止按钮） */
+    /**
+     * 同步「开始旁观 / 停止旁观」按钮外观。
+     * 两处入口共用同一状态：输入区按钮栏里的开关按钮 + 群聊设置弹窗里的按钮。
+     */
     syncSpectatorButton() {
         const groupUI = this.getGroupUI();
         if (groupUI && typeof groupUI._syncSpectatorButton === 'function') {
             try { groupUI._syncSpectatorButton(); } catch { /* ignore */ }
         }
-        // 输入区上方的常驻「停止旁观」：关掉设置弹窗后依然可以停止
-        const stopBtn = document.getElementById('group-stop-spectator');
-        if (stopBtn) {
-            const show = this._spectating;
-            stopBtn.hidden = !show;
-            stopBtn.classList.toggle('show', show);
-        }
+
+        // 输入区按钮栏里的开关：点击在「开始旁观 / 停止旁观」之间切换
+        const btn = document.getElementById('group-spectator-btn');
+        if (!btn) return;
+
+        const active = this._spectating;
+        btn.classList.toggle('active', active);
+        // 普通回复进行中（非旁观）时不可再点，避免打断
+        btn.disabled = this._running && !active;
+        btn.title = active ? '停止旁观' : '让成员们自己聊起来（不需要你发言）';
+
+        const icon = btn.querySelector('i');
+        if (icon) icon.className = active ? 'fas fa-stop' : 'fas fa-eye';
+        const label = document.getElementById('group-spectator-label');
+        if (label) label.textContent = active ? '停止旁观' : '开始旁观';
     }
 
     // ============================================================

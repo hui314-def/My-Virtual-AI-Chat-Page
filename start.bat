@@ -32,7 +32,7 @@ set "Red=%ESC%[31;1m"
 echo.
 echo %Yellow%╔════════════════════════════════════════════════════════════════╗%Reset%
 echo %Yellow%║  %Cyan%✦ 虚拟AI · 灵境投影  ✦%Yellow%
-echo %Yellow%║  %Green%一键启动器 (conda 环境)%Yellow%
+echo %Yellow%║  %Green%一键启动器 (venv 环境)%Yellow%
 echo %Yellow%╠════════════════════════════════════════════════════════════════╣%Reset%
 echo %Yellow%║  %Reset%▶ 环境: %Green%%CONDA_ENV%%Reset%
 echo %Yellow%║  %Reset%▶ 模式: 后台最小化运行 (任务栏可见)%Yellow%

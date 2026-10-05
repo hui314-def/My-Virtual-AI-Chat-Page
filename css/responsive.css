@@ -106,7 +106,8 @@
     /* 话题 */
     .topic-item { padding: 10px; }
     .topic-actions { flex-wrap: wrap; gap: 8px; }
-    .topic-actions button { padding: 4px 8px; font-size: 0.7rem; }
+    .topic-actions > button { padding: 4px 8px; font-size: 0.7rem; }
+    .topic-actions > .topic-more-btn { padding: 0; width: 30px; height: 30px; }
 
     /* 侧边栏 */
     .new-chat-fixed { padding: 12px; }

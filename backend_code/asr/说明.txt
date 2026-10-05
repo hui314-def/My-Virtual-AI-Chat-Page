@@ -1,8 +1,7 @@
 SenseVoice 语音识别（ASR）后端服务
 ====================================
 
-作用：把前端录制的语音转成文字（本地模型，无需联网到国外语音服务，
-      360 安全浏览器等国内网络环境下也能正常使用）。
+作用：把前端录制的语音转成文字（本地模型）。
 
 运行方式（复用 voxcpm2 conda 环境，该环境已装 funasr/modelscope/torch）：
     D:\Miniconda3\envs\voxcpm2\python.exe asr_server.py

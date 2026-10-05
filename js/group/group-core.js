@@ -18,10 +18,14 @@ import Constants from '../core/constants.js';
 
 /** 群聊成员数量限制 */
 export const GROUP_MIN_MEMBERS = 2;
-export const GROUP_MAX_MEMBERS = 5;
+export const GROUP_MAX_MEMBERS = 10;
 
-/** 成员配色（最多 5 人，依次分配色相） */
-export const MEMBER_HUES = [212, 280, 340, 160, 42];
+/**
+ * 成员配色（依次分配色相）。
+ * 数量与 GROUP_MAX_MEMBERS 对齐：沿色环每 36° 取一个，保证相邻成员一眼可辨。
+ * ⚠️ 调整取值时，记得同步 css/group.css 里的 `[data-member="m_N"]` 规则。
+ */
+export const MEMBER_HUES = [212, 248, 284, 320, 356, 32, 68, 104, 140, 176];
 
 /**
  * 「角色级参数」清单：这些字段由群成员**实时继承自源对话**。

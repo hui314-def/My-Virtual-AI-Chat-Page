@@ -90,10 +90,18 @@
 }
 
 #new-topic-modal-btn {
-    background: linear-gradient(125deg, #2d3370, #1b1f48);
-    border: 1px solid #6c7eff;
+    background: linear-gradient(135deg, #4a5cd0, #2d3370);
+    border: 1px solid rgba(140, 160, 255, 0.55);
     color: white;
+    box-shadow: 0 4px 14px rgba(80, 110, 255, 0.26);
+    transition: transform 0.18s ease, box-shadow 0.18s ease, filter 0.18s ease;
 }
+#new-topic-modal-btn:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 6px 20px rgba(100, 130, 255, 0.4);
+    filter: brightness(1.08);
+}
+#new-topic-modal-btn:active { transform: translateY(0) scale(0.98); }
 
 /* ========== 话题管理 ========== */
 .topic-item {
@@ -127,27 +135,132 @@
     margin-bottom: 12px;
     line-height: 1.4;
     cursor: text;
+    transition: background 0.18s ease;
+}
+.topic-preview.editing { margin-bottom: 10px; }
+/* 摘要行内编辑输入框（替代原内联样式） */
+.topic-preview-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 6px 10px;
+    border-radius: 8px;
+    border: 1px solid #5f7eff;
+    background: var(--bg-card-soft, rgba(20, 24, 45, 0.7));
+    color: var(--text-primary, #e6ecff);
+    font-size: 0.8rem;
+    font-family: inherit;
+    outline: none;
+    box-shadow: 0 0 0 3px rgba(95, 126, 255, 0.16);
 }
 .topic-actions {
     display: flex;
-    gap: 12px;
-    width: fit-content;
-    min-width: 280px;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;   /* 生成简介靠左，三点按钮靠右 */
+    gap: 8px;
+    width: 100%;
 }
-.topic-export-btn, .topic-delete-btn {
-    background: rgba(20, 24, 45, 0.7);
-    border: none;
-    padding: 4px 12px;
-    border-radius: 20px;
-    color: #ccd6ff;
-    font-size: 0.75rem;
-    cursor: pointer;
+/* 话题操作按钮（仅直接子级：生成简介 + 三点「更多」按钮） */
+.topic-actions > button {
     display: inline-flex;
     align-items: center;
     gap: 6px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(100, 130, 255, 0.28);
+    background: rgba(20, 24, 45, 0.7);
+    color: #ccd6ff;
+    font-size: 0.75rem;
+    font-family: inherit;
+    line-height: 1.25;
+    cursor: pointer;
+    transition: transform 0.18s ease, background 0.18s ease, border-color 0.18s ease, box-shadow 0.18s ease, color 0.18s ease;
 }
-.topic-delete-btn:hover { background: rgba(255, 80, 80, 0.6); }
-.topic-export-btn:hover { background: rgba(80, 120, 255, 0.6); }
+.topic-actions > button i { font-size: 0.72rem; }
+.topic-actions > button:hover {
+    transform: translateY(-1px);
+    border-color: rgba(120, 150, 255, 0.5);
+    background: rgba(45, 55, 95, 0.85);
+    color: #e6ecff;
+}
+.topic-actions > button:active { transform: translateY(0) scale(0.97); }
+.topic-actions > button:disabled { opacity: 0.55; cursor: default; transform: none; }
+
+/* 生成简介：主按钮（紫蓝渐变 + 柔光） */
+.topic-gen-intro-btn {
+    background: linear-gradient(135deg, #5f7eff, #8b5cf6);
+    border-color: rgba(150, 170, 255, 0.55);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(95, 126, 255, 0.26);
+}
+.topic-gen-intro-btn:hover {
+    background: linear-gradient(135deg, #6d8bff, #9d70ff);
+    border-color: rgba(180, 195, 255, 0.7);
+    color: #ffffff;
+    box-shadow: 0 6px 18px rgba(120, 140, 255, 0.4);
+}
+
+/* 三点「更多操作」按钮：圆形图标按钮 */
+.topic-actions > .topic-more-btn {
+    width: 32px;
+    height: 32px;
+    padding: 0;
+    justify-content: center;
+    border-radius: 50%;
+    background: rgba(20, 24, 45, 0.7);
+}
+.topic-actions > .topic-more-btn i { font-size: 0.85rem; }
+.topic-actions > .topic-more-btn:hover {
+    background: rgba(60, 72, 120, 0.9);
+    border-color: rgba(120, 150, 255, 0.55);
+    color: #ffffff;
+}
+.topic-actions > .topic-more-btn.active {
+    background: rgba(95, 126, 255, 0.45);
+    border-color: rgba(140, 165, 255, 0.7);
+    color: #ffffff;
+}
+
+/* ---------- 三点菜单（浮动层：挂在 body 上，避免被 overflow 容器裁剪）---------- */
+.topic-menu {
+    position: fixed;
+    z-index: 100000;
+    min-width: 168px;
+    padding: 6px;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border-radius: 12px;
+    border: 1px solid rgba(100, 130, 255, 0.3);
+    background: rgba(26, 30, 52, 0.98);
+    box-shadow: 0 12px 32px rgba(0, 0, 0, 0.45);
+    backdrop-filter: blur(8px);
+    animation: topicMenuIn 0.14s ease-out;
+}
+@keyframes topicMenuIn {
+    from { opacity: 0; transform: translateY(-4px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+.topic-menu-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    width: 100%;
+    padding: 8px 12px;
+    border: none;
+    border-radius: 8px;
+    background: transparent;
+    color: #ccd6ff;
+    font-size: 0.8rem;
+    font-family: inherit;
+    text-align: left;
+    cursor: pointer;
+    transition: background 0.16s ease, color 0.16s ease;
+}
+.topic-menu-item i { width: 14px; font-size: 0.78rem; opacity: 0.9; }
+.topic-menu-item:hover { background: rgba(95, 126, 255, 0.22); color: #ffffff; }
+.topic-menu-item.is-danger { color: #ff9d9d; }
+.topic-menu-item.is-danger:hover { background: rgba(255, 80, 80, 0.22); color: #ffd9d9; }
 .topic-item.removing {
     transform: translateX(-120%);
     opacity: 0;
@@ -159,6 +272,67 @@
     border-width: 0;
     pointer-events: none;
 }
+
+/* ========== 新建角色弹窗 ========== */
+.nc-option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 14px 16px;
+    border-radius: 14px;
+    border: 1px solid rgba(100, 130, 255, 0.25);
+    background: rgba(30, 36, 62, 0.55);
+    cursor: pointer;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.nc-option + .nc-option { margin-top: 10px; }
+.nc-option:hover {
+    transform: translateY(-1px);
+    background: rgba(45, 58, 100, 0.75);
+    border-color: rgba(120, 150, 255, 0.55);
+    box-shadow: 0 8px 22px rgba(60, 90, 200, 0.22);
+}
+.nc-option-icon {
+    flex: none;
+    width: 40px;
+    height: 40px;
+    border-radius: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1rem;
+    color: #cfe0ff;
+    background: linear-gradient(135deg, rgba(95, 126, 255, 0.35), rgba(139, 92, 246, 0.35));
+    border: 1px solid rgba(140, 165, 255, 0.35);
+}
+.nc-option-main { flex: 1; min-width: 0; }
+.nc-option-name {
+    font-size: 0.88rem;
+    font-weight: 600;
+    color: #e2e9ff;
+    margin-bottom: 3px;
+}
+.nc-option-desc {
+    font-size: 0.76rem;
+    line-height: 1.55;
+    color: #9fabd6;
+}
+.nc-option-arrow {
+    flex: none;
+    color: #7f9dff;
+    font-size: 0.8rem;
+    opacity: 0.7;
+    transition: transform 0.16s ease, opacity 0.16s ease;
+}
+.nc-option:hover .nc-option-arrow { transform: translateX(2px); opacity: 1; }
+.nc-hint {
+    display: block;
+    margin-top: 14px;
+    font-size: 0.72rem;
+    line-height: 1.6;
+    color: #8e97bd;
+}
+.nc-hint i { color: #ffc46b; margin-right: 4px; }
 
 /* ========== 搜索组件 ========== */
 .search-container {

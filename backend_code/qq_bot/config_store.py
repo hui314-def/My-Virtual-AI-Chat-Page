@@ -45,6 +45,19 @@ def _defaults():
             'maxRepliesPerMessage': 1,
         },
         'context': {'historyLimit': 12, 'groupScope': 'per_group'},
+        # ---- 引用回复（出站消息带上 reply 段，指向触发它的那条消息）----
+        'reply': {
+            'enabled': True,          # 群聊里是否引用回复（私聊恒开：一对一里引用不啰嗦）
+            'showOriginal': True,     # 让协议端顺带展示被引用的原文
+        },
+        # ---- 戳一戳 ----
+        'poke': {
+            'enabled': True,          # 被戳时是否回应
+            'cooldownSec': 60,        # 同会话内两次回应之间的最短间隔
+            'hourlyQuota': 20,        # 每小时上限（与消息配额相互独立，另算一本账）
+            'content': '',            # 固定回复文本；留空 = 走模型生成（更符合人设）
+            'sendPokeBack': False,    # 回应时是否反戳一下（NapCat 支持出站 poke 段）
+        },
         'updatedAt': 0,
         'updatedBy': '',             # 推送来源描述（便于排错）
     }

@@ -23,6 +23,8 @@ class Constants {
             IMPLICIT_STATE_PANEL_POS: 'implicit_state_panel_pos',            // 悬浮卡片位置（桌面）
             IMPLICIT_STATE_PANEL_POS_M: 'implicit_state_panel_pos_mobile',   // 悬浮卡片位置（移动端）
             IMPLICIT_STATE_FIELD_TEMPLATE: 'implicit_state_field_template',  // 全局字段模板（新对话初始定义）
+            // 新手引导
+            ONBOARDING_DONE: 'onboarding_done',                              // 已完成/跳过新手引导（'1' = 不再自动弹出）
         };
     }
 

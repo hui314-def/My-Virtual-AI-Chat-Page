@@ -17,6 +17,7 @@
     <link rel="stylesheet" href="css/group.css">
     <link rel="stylesheet" href="css/light-theme.css">
     <link rel="stylesheet" href="css/responsive.css">
+    <link rel="stylesheet" href="css/onboarding.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/cropperjs/1.6.1/cropper.min.css">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=yes">
 </head>
@@ -46,7 +47,6 @@
         <div class="history-section">
             <div class="history-header">
                 <h3><i class="fas fa-history"></i> 智能体档案</h3>
-                <div class="import-chat-btn" title="导入对话 JSON / SillyTavern 角色卡 (PNG/JSON)"><i class="fas fa-file-import"></i> 导入</div>
             </div>
             <div class="history-list">
                 <div class="history-item active">
@@ -82,7 +82,7 @@
         <div class="new-chat-fixed">
             <div class="new-chat-row">
                 <div class="new-chat-btn"><i class="fas fa-plus"></i> 新建角色</div>
-                <div class="group-new-btn" id="new-group-btn" title="新建群聊（2~5 个角色）"><i class="fas fa-users"></i></div>
+                <div class="group-new-btn" id="new-group-btn" title="新建群聊（2~10 个角色）"><i class="fas fa-users"></i></div>
             </div>
         </div>
         <!-- 左下角设置 -->
@@ -182,12 +182,6 @@
 
         <!-- 底部输入区域 半透明融合背景 -->
         <div class="chat-input-area">
-            <div class="grp-live-bar">
-                <div class="group-mode-indicator" id="group-mode-indicator" hidden></div>
-                <button type="button" class="grp-stop-spectator" id="group-stop-spectator" hidden>
-                    <i class="fas fa-stop"></i> 停止旁观
-                </button>
-            </div>
             <div class="file-preview-area" id="file-preview-area" style="display: none;">
                 <div class="file-preview-item">
                     <i class="fas fa-file-alt"></i>
@@ -218,7 +212,11 @@
             <div class="action-buttons">
                 <button class="action-btn" id="voice-input-btn" title="点击即可说话"><i class="fas fa-microphone"></i> 语音输入</button>
                 <button class="action-btn" id="chat-settings-btn"><i class="fas fa-sliders-h"></i> 对话设置</button>
-                <button class="action-btn" id="topics-manage-btn" title="不同话题独立消息上下文"><i class="fas fa-list-ul"></i> 话题管理</button>               
+                <button class="action-btn" id="topics-manage-btn" title="不同话题独立消息上下文"><i class="fas fa-list-ul"></i> 话题管理</button>
+                <!-- 群聊专属：旁观模式开关（只在群聊模式显示，点击在「开始/停止旁观」间切换） -->
+                <button class="action-btn" id="group-spectator-btn" title="让成员们自己聊起来">
+                    <i class="fas fa-eye"></i> <span id="group-spectator-label">开始旁观</span>
+                </button>
                 <!-- 可折叠按钮组（初始隐藏） -->
                 <div class="collapsible-buttons" id="collapsible-buttons">
                     <button class="action-btn" id="kb-select-btn"><i class="fas fa-database"></i> <span id="kb-btn-label">选择知识库</span></button>

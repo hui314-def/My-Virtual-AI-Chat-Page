@@ -1887,6 +1887,11 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
 
     async openTopicsModal() {
         const ctx = this.ctx;
+        // 重复打开弹窗（例如删除话题后刷新列表）时，先清理上一次遗留的三点菜单与全局监听
+        if (typeof this._topicMenuCleanup === 'function') {
+            try { this._topicMenuCleanup(); } catch { /* ignore */ }
+            this._topicMenuCleanup = null;
+        }
         const currentChat = ctx.chats.find(c => c.id == ctx.currentChatId);
         if (!currentChat) return;
         const topics = currentChat.topics || [];
@@ -1908,43 +1913,112 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                             <span class="topic-title">话题 ${idx + 1}</span>
                             <span class="topic-time">${time}</span>
                         </div>
-                        <div class="topic-preview editable-preview" data-topic-index="${idx}" data-original="${escapeHtml(topic.summary || preview)}">${escapeHtml(topic.summary || preview)}</div>
+                        <div class="topic-preview" data-topic-index="${idx}" data-original="${escapeHtml(topic.summary || preview)}">${escapeHtml(topic.summary || preview)}</div>
                         <div class="topic-actions">
                             <button class="topic-gen-intro-btn" data-topic-index="${idx}"><i class="fas fa-magic"></i> 生成简介</button>
-                            <button class="topic-export-btn" data-topic-index="${idx}"><i class="fas fa-file-code"></i> 导出 HTML</button>
-                            <button class="topic-delete-btn" data-topic-index="${idx}"><i class="fas fa-trash-alt"></i> 删除</button>
+                            <button class="topic-more-btn" data-topic-index="${idx}" title="更多操作" aria-haspopup="menu" aria-expanded="false"><i class="fas fa-ellipsis-h"></i></button>
                         </div>
                     </div>
                 `;
             }).join('');
 
-            // 可编辑预览区双击
-            container.querySelectorAll('.editable-preview').forEach(elem => {
-                elem.addEventListener('dblclick', (e) => {
-                    e.stopPropagation();
-                    const topicIdx = parseInt(elem.getAttribute('data-topic-index'));
-                    const oldText = elem.innerText;
-                    const input = document.createElement('input');
-                    input.type = 'text'; input.value = oldText;
-                    input.style.cssText = 'width:100%;background:var(--bg-card-soft);border:1px solid #5f7eff;border-radius:8px;padding:4px 8px;color:var(--text-primary);';
-                    elem.innerHTML = '';
-                    elem.appendChild(input);
-                    input.focus();
-                    const saveEdit = () => {
-                        const newText = input.value.trim();
-                        if (newText && newText !== oldText) {
-                            currentChat.topics[topicIdx].summary = newText;
-                            ctx.chatRepo.saveAllChats(ctx.chats);
-                            elem.innerText = newText;
-                            elem.setAttribute('data-original', newText);
-                        } else {
-                            elem.innerText = oldText;
-                        }
-                    };
-                    input.addEventListener('blur', saveEdit);
-                    input.addEventListener('keypress', (ev) => { if (ev.key === 'Enter') input.blur(); });
+            // 编辑话题摘要：由三点菜单中的「编辑摘要」触发（自动聚焦并全选原文）
+            const beginEditSummary = (previewElem) => {
+                if (!previewElem || previewElem.querySelector('input')) return;   // 已在编辑中
+                const topicIdx = parseInt(previewElem.getAttribute('data-topic-index'));
+                // 原值优先取 data-original（编辑期间列表内容会被清空，取不到 innerText）
+                const oldText = previewElem.getAttribute('data-original') ?? previewElem.innerText;
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.className = 'topic-preview-input';
+                input.value = oldText;
+                previewElem.classList.add('editing');
+                previewElem.innerHTML = '';
+                previewElem.appendChild(input);
+                input.focus();
+                input.select();
+
+                let cancelled = false;
+                const finishEdit = () => {
+                    const newText = input.value.trim();
+                    if (!cancelled && newText && newText !== oldText) {
+                        if (currentChat.topics[topicIdx]) currentChat.topics[topicIdx].summary = newText;
+                        ctx.chatRepo.saveAllChats(ctx.chats);
+                        previewElem.innerText = newText;
+                        previewElem.setAttribute('data-original', newText);
+                    } else {
+                        previewElem.innerText = oldText;   // 取消 / 留空 / 未修改 → 还原
+                    }
+                    previewElem.classList.remove('editing');
+                };
+                input.addEventListener('blur', finishEdit);
+                input.addEventListener('keydown', (ev) => {
+                    if (ev.key === 'Enter') { ev.preventDefault(); input.blur(); }
+                    else if (ev.key === 'Escape') { cancelled = true; input.blur(); }
                 });
-            });
+            };
+
+            // ---- 话题操作：由三点菜单调用（列表内不再摆一排按钮）----
+            const doEditSummary = (idx) => {
+                const topicItem = container.querySelector(`.topic-item[data-topic-index="${idx}"]`);
+                const previewElem = topicItem ? topicItem.querySelector('.topic-preview') : null;
+                beginEditSummary(previewElem);
+            };
+
+            // ---- 三点菜单：浮动到 body 上，避免被话题项/列表容器的 overflow 裁剪 ----
+            let topicMenu = null;
+            const closeTopicMenu = () => {
+                if (!topicMenu) return;
+                topicMenu.remove();
+                topicMenu = null;
+                container.querySelectorAll('.topic-more-btn.active').forEach(b => {
+                    b.classList.remove('active');
+                    b.setAttribute('aria-expanded', 'false');
+                });
+            };
+            const openTopicMenu = (moreBtn, idx) => {
+                const wasActive = moreBtn.classList.contains('active');
+                closeTopicMenu();
+                if (wasActive) return;   // 再次点击同一按钮 → 收起
+
+                const menu = document.createElement('div');
+                menu.className = 'topic-menu';
+                menu.setAttribute('role', 'menu');
+                menu.innerHTML = `
+                    <button class="topic-menu-item" data-action="edit" role="menuitem"><i class="fas fa-pen"></i> 编辑摘要</button>
+                    <button class="topic-menu-item" data-action="export" role="menuitem"><i class="fas fa-file-code"></i> 导出 HTML</button>
+                    <button class="topic-menu-item is-danger" data-action="delete" role="menuitem"><i class="fas fa-trash-alt"></i> 删除</button>
+                `;
+                document.body.appendChild(menu);
+
+                // 定位：默认贴在按钮正下方，下方空间不足则向上翻转
+                const btnRect = moreBtn.getBoundingClientRect();
+                const menuRect = menu.getBoundingClientRect();
+                const gap = 6;
+                let top = btnRect.bottom + gap;
+                if (top + menuRect.height > window.innerHeight - 8) {
+                    top = Math.max(8, btnRect.top - gap - menuRect.height);
+                }
+                let left = btnRect.right - menuRect.width;    // 与按钮右对齐
+                left = Math.min(Math.max(8, left), window.innerWidth - menuRect.width - 8);
+                menu.style.top = `${top}px`;
+                menu.style.left = `${left}px`;
+
+                moreBtn.classList.add('active');
+                moreBtn.setAttribute('aria-expanded', 'true');
+                topicMenu = menu;
+
+                menu.querySelectorAll('.topic-menu-item').forEach(item => {
+                    item.addEventListener('click', async (e) => {
+                        e.stopPropagation();
+                        const action = item.getAttribute('data-action');
+                        closeTopicMenu();
+                        if (action === 'edit') doEditSummary(idx);
+                        else if (action === 'export') await doExportTopic(idx);
+                        else if (action === 'delete') await doDeleteTopic(idx);
+                    });
+                });
+            };
 
             container.querySelectorAll('.topic-preview').forEach(preview => {
                 preview.addEventListener('click', (e) => e.stopPropagation());
@@ -1956,18 +2030,34 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                     e.stopPropagation();
                     const idx = parseInt(btn.getAttribute('data-topic-index'));
                     const topic = topics[idx];
-                    if (!topic) return;
+                    if (!topic || btn.disabled) return;
                     const topicItem = btn.closest('.topic-item');
                     const summaryElem = topicItem ? topicItem.querySelector('.topic-preview') : null;
+                    // 若摘要正处于编辑态，先提交编辑，避免输入框被生成结果直接覆盖
+                    if (summaryElem) {
+                        const editingInput = summaryElem.querySelector('input');
+                        if (editingInput) editingInput.blur();
+                    }
+                    btn.disabled = true;                 // 生成期间禁止重复点击
+                    if (topicItem) topicItem.classList.add('generating');
                     if (summaryElem) summaryElem.innerHTML = '<i class="fas fa-spinner fa-spin"></i> 生成中...';
-                    const summary = await ctx.generateTopicSummary(idx, topic.messages);
-                    if (summary && summaryElem) {
-                        currentChat.topics[idx].summary = summary;
-                        await ctx.chatRepo.saveAllChats(ctx.chats);
-                        summaryElem.innerHTML = escapeHtml(summary);
-                        summaryElem.setAttribute('data-original', summary);
-                    } else if (summaryElem) {
-                        summaryElem.innerHTML = '生成失败';
+                    try {
+                        const summary = await ctx.generateTopicSummary(idx, topic.messages);
+                        if (summary && summary !== '生成失败' && summary !== '生成失败，请检查模型配置') {
+                            currentChat.topics[idx].summary = summary;
+                            await ctx.chatRepo.saveAllChats(ctx.chats);
+                            if (summaryElem) {
+                                summaryElem.innerHTML = escapeHtml(summary);
+                                summaryElem.setAttribute('data-original', summary);
+                            }
+                        } else if (summaryElem) {
+                            // 生成失败：还原原摘要，避免把失败提示留在预览里
+                            summaryElem.innerHTML = escapeHtml(summaryElem.getAttribute('data-original') || '');
+                            ctx.customAlert?.('生成简介失败，请检查「辅助任务模型」配置', 'error');
+                        }
+                    } finally {
+                        btn.disabled = false;
+                        if (topicItem) topicItem.classList.remove('generating');
                     }
                 });
             });
@@ -1982,28 +2072,21 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                 });
             });
 
-            // 导出
-            container.querySelectorAll('.topic-export-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const idx = parseInt(btn.getAttribute('data-topic-index'));
-                    try {
-                        await ctx.chatIO.exportTopicAsHTML(idx, currentChat);
-                    } catch (err) {
-                        console.error('[TopicsModal] 导出 HTML 失败：', err);
-                        ctx.customAlert?.('导出失败：' + (err?.message || err), 'error');
-                    }
-                });
-            });
+            // 导出话题为 HTML（三点菜单 → 导出 HTML）
+            const doExportTopic = async (idx) => {
+                try {
+                    await ctx.chatIO.exportTopicAsHTML(idx, currentChat);
+                } catch (err) {
+                    console.error('[TopicsModal] 导出 HTML 失败：', err);
+                    ctx.customAlert?.('导出失败：' + (err?.message || err), 'error');
+                }
+            };
 
-            // 删除话题
-            container.querySelectorAll('.topic-delete-btn').forEach(btn => {
-                btn.addEventListener('click', async (e) => {
-                    e.stopPropagation();
-                    const idx = parseInt(btn.getAttribute('data-topic-index'));
-                    const topicItem = btn.closest('.topic-item');
-                    if (!topicItem || topicItem.classList.contains('removing')) return;
-
+            // 删除话题（三点菜单 → 删除）
+            const doDeleteTopic = async (idx) => {
+                const topicItem = container.querySelector(`.topic-item[data-topic-index="${idx}"]`);
+                if (!topicItem || topicItem.classList.contains('removing')) return;
+                try {
                     const modelService = ctx.getModelService();
                     if (modelService.isStreaming()) {
                         if (!confirm('当前正在生成回复，删除话题会中断本次回复。是否继续？')) return;
@@ -2065,8 +2148,41 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
                         ctx.startNewTopic();
                     }
                     self.openTopicsModal(); // 刷新列表
+                } catch (err) {
+                    console.error('[TopicsModal] 删除话题失败：', err);
+                    topicItem.classList.remove('removing');   // 失败时恢复话题项显示
+                    ctx.customAlert?.('删除话题失败：' + (err?.message || err), 'error');
+                }
+            };
+
+            // 三点按钮 → 打开操作菜单
+            container.querySelectorAll('.topic-more-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    openTopicMenu(btn, parseInt(btn.getAttribute('data-topic-index')));
                 });
             });
+
+            // 点击空白处 / 滚动 / 缩放 / Esc → 关闭菜单
+            // （弹窗关闭时统一解绑，避免监听器重复累积）
+            const onDocClickCloseMenu = (ev) => {
+                if (!topicMenu) return;
+                if (ev.target.closest('.topic-menu') || ev.target.closest('.topic-more-btn')) return;
+                closeTopicMenu();
+            };
+            const onScrollOrResizeCloseMenu = () => closeTopicMenu();
+            const onKeyDownCloseMenu = (ev) => { if (ev.key === 'Escape') closeTopicMenu(); };
+            document.addEventListener('click', onDocClickCloseMenu, true);
+            window.addEventListener('scroll', onScrollOrResizeCloseMenu, true);
+            window.addEventListener('resize', onScrollOrResizeCloseMenu);
+            document.addEventListener('keydown', onKeyDownCloseMenu, true);
+            this._topicMenuCleanup = () => {
+                closeTopicMenu();
+                document.removeEventListener('click', onDocClickCloseMenu, true);
+                window.removeEventListener('scroll', onScrollOrResizeCloseMenu, true);
+                window.removeEventListener('resize', onScrollOrResizeCloseMenu);
+                document.removeEventListener('keydown', onKeyDownCloseMenu, true);
+            };
         }
 
         const modal = document.getElementById('topics-modal');
@@ -2074,6 +2190,11 @@ ${roleName ? `角色名称：${roleName}\n` : ''}
     }
 
     closeTopicsModal() {
+        // 清理三点菜单及其全局监听
+        if (typeof this._topicMenuCleanup === 'function') {
+            try { this._topicMenuCleanup(); } catch { /* ignore */ }
+            this._topicMenuCleanup = null;
+        }
         const modal = document.getElementById('topics-modal');
         this.closeModalWithAnimation(modal);
     }

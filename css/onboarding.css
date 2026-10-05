@@ -1,0 +1,468 @@
+/* ============================================================
+   onboarding.css — 新手引导（聚光灯） + 功能地图
+   引导层 z-index 高于普通弹窗（10000），低于右键/浮动菜单
+   ============================================================ */
+
+/* ---------- 引导层容器 ---------- */
+.onboarding-root {
+    position: fixed;
+    inset: 0;
+    z-index: 10050;
+}
+
+/* 全屏点击拦截层（透明）：暗色视觉由 spotlight 的巨大 box-shadow 提供 */
+.onboarding-root > .onboarding-blocker {
+    position: absolute;
+    inset: 0;
+    z-index: 1;
+    background: transparent;
+    cursor: pointer;
+}
+
+/* 高亮光圈：用超大 box-shadow 把四周压暗，形成「挖洞」效果 */
+.onboarding-root > .onboarding-spotlight {
+    position: absolute;
+    z-index: 2;
+    border-radius: 14px;
+    pointer-events: none;
+    box-shadow:
+        0 0 0 2px rgba(120, 160, 255, 0.95),
+        0 0 0 6px rgba(120, 160, 255, 0.22),
+        0 0 0 9999px rgba(6, 8, 18, 0.72);
+    transition: left 0.28s ease, top 0.28s ease, width 0.28s ease, height 0.28s ease;
+    animation: obSpotPulse 2s ease-in-out infinite;
+}
+@keyframes obSpotPulse {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(120, 160, 255, 0.95), 0 0 0 6px rgba(120, 160, 255, 0.18), 0 0 0 9999px rgba(6, 8, 18, 0.72); }
+    50%      { box-shadow: 0 0 0 2px rgba(150, 185, 255, 1),    0 0 0 12px rgba(120, 160, 255, 0.28), 0 0 0 9999px rgba(6, 8, 18, 0.78); }
+}
+
+/* ---------- 提示气泡 ---------- */
+.onboarding-tip {
+    position: absolute;
+    z-index: 3;
+    width: 350px;
+    max-width: calc(100vw - 24px);
+    box-sizing: border-box;
+    padding: 16px 18px 12px;
+    border-radius: 16px;
+    border: 1px solid rgba(110, 145, 255, 0.45);
+    background: linear-gradient(160deg, rgba(28, 34, 62, 0.985), rgba(18, 22, 42, 0.985));
+    color: #e6ecff;
+    box-shadow: 0 18px 45px rgba(0, 0, 0, 0.5), 0 0 0 1px rgba(255, 255, 255, 0.03) inset;
+    backdrop-filter: blur(14px);
+    animation: obTipIn 0.22s cubic-bezier(0.34, 1.2, 0.64, 1);
+    transition: left 0.24s ease, top 0.24s ease;
+}
+@keyframes obTipIn {
+    from { opacity: 0; transform: scale(0.95) translateY(6px); }
+    to   { opacity: 1; transform: scale(1) translateY(0); }
+}
+.onboarding-tip.centered { transition: none; }
+
+.onboarding-tip-head {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+.onboarding-badge {
+    flex: none;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    letter-spacing: 0.02em;
+    color: #cfe0ff;
+    background: rgba(95, 126, 255, 0.24);
+    border: 1px solid rgba(120, 155, 255, 0.4);
+}
+.onboarding-tip-title {
+    font-size: 0.94rem;
+    font-weight: 600;
+    color: #eaf0ff;
+    line-height: 1.35;
+}
+.onboarding-tip-desc {
+    font-size: 0.82rem;
+    line-height: 1.65;
+    color: #c3cdf0;
+}
+.onboarding-tip-list {
+    margin: 10px 0 0;
+    padding: 0;
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+.onboarding-tip-list li {
+    position: relative;
+    padding-left: 16px;
+    font-size: 0.76rem;
+    line-height: 1.6;
+    color: #9fabd6;
+}
+.onboarding-tip-list li::before {
+    content: '';
+    position: absolute;
+    left: 4px;
+    top: 0.62em;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: #7f9dff;
+    opacity: 0.85;
+}
+
+.onboarding-tip-foot {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    margin-top: 14px;
+    padding-top: 10px;
+    border-top: 1px solid rgba(110, 145, 255, 0.2);
+}
+.onboarding-dots { display: flex; gap: 6px; }
+.onboarding-dot {
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background: rgba(150, 168, 220, 0.35);
+    transition: background 0.2s ease, transform 0.2s ease;
+}
+.onboarding-dot.active {
+    background: #7f9dff;
+    transform: scale(1.25);
+    box-shadow: 0 0 8px rgba(127, 157, 255, 0.7);
+}
+.onboarding-tip-btns { display: flex; gap: 8px; flex-wrap: wrap; }
+
+.onboarding-btn {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 6px 14px;
+    border-radius: 999px;
+    border: 1px solid rgba(110, 145, 255, 0.35);
+    background: rgba(95, 126, 255, 0.12);
+    color: #ccd6ff;
+    font-size: 0.76rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.16s ease, background 0.16s ease, border-color 0.16s ease, box-shadow 0.16s ease;
+}
+.onboarding-btn:hover { transform: translateY(-1px); background: rgba(95, 126, 255, 0.24); border-color: rgba(140, 170, 255, 0.6); color: #eef3ff; }
+.onboarding-btn:active { transform: translateY(0) scale(0.97); }
+.onboarding-btn.primary {
+    background: linear-gradient(135deg, #5f7eff, #8b5cf6);
+    border-color: rgba(150, 170, 255, 0.6);
+    color: #ffffff;
+    box-shadow: 0 4px 12px rgba(95, 126, 255, 0.3);
+}
+.onboarding-btn.primary:hover { box-shadow: 0 6px 18px rgba(120, 140, 255, 0.45); }
+.onboarding-btn.inline-action {
+    margin-top: 12px;
+    background: rgba(45, 212, 191, 0.14);
+    border-color: rgba(45, 212, 191, 0.4);
+    color: #9ff0e4;
+}
+.onboarding-btn.inline-action:hover { background: rgba(45, 212, 191, 0.26); color: #dcfffa; }
+
+/* ---------- 功能地图「定位」的一次性高亮提示 ---------- */
+.onboarding-hint {
+    position: fixed;
+    z-index: 3;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 8px 14px;
+    border-radius: 999px;
+    font-size: 0.8rem;
+    color: #eef3ff;
+    background: linear-gradient(135deg, rgba(95, 126, 255, 0.95), rgba(139, 92, 246, 0.95));
+    box-shadow: 0 10px 26px rgba(60, 90, 255, 0.4);
+    animation: obHintIn 0.2s ease-out;
+    pointer-events: none;
+}
+@keyframes obHintIn {
+    from { opacity: 0; transform: translateY(6px); }
+    to   { opacity: 1; transform: translateY(0); }
+}
+
+/* ============================================================
+   功能地图弹窗
+   ============================================================ */
+.feature-map-content {
+    max-width: 780px !important;
+    height: 80vh;
+    max-height: 640px;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+}
+/* 顶栏 / 搜索栏 / 底栏高度固定，不参与压缩 —— 只有中间的功能列表滚动 */
+.feature-map-content > .modal-header,
+.feature-map-search,
+.feature-map-footer { flex: none; }
+
+.feature-map-search {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 20px;
+    border-bottom: 1px solid rgba(100, 130, 255, 0.18);
+}
+.feature-map-search i { color: #7f9dff; font-size: 0.85rem; }
+.feature-map-search-input {
+    flex: 1;
+    padding: 8px 12px;
+    border-radius: 10px;
+    border: 1px solid rgba(100, 130, 255, 0.3);
+    background: rgba(20, 24, 45, 0.75);
+    color: #e6ecff;
+    font-size: 0.82rem;
+    font-family: inherit;
+    outline: none;
+    transition: border-color 0.18s ease, box-shadow 0.18s ease;
+}
+.feature-map-search-input:focus {
+    border-color: #5f7eff;
+    box-shadow: 0 0 0 3px rgba(95, 126, 255, 0.16);
+}
+
+.feature-map-body {
+    flex: 1 1 auto;
+    min-height: 0;              /* 关键：flex 子项默认 min-height:auto 会撑高自身，导致列表不滚动 */
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    padding: 14px 20px 12px;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    scrollbar-width: thin;
+    scrollbar-color: rgba(120, 150, 255, 0.45) transparent;
+}
+/* 细滚动条（暗色主题） */
+.feature-map-body::-webkit-scrollbar { width: 8px; }
+.feature-map-body::-webkit-scrollbar-track { background: transparent; }
+.feature-map-body::-webkit-scrollbar-thumb {
+    background: rgba(120, 150, 255, 0.4);
+    border-radius: 999px;
+}
+.feature-map-body::-webkit-scrollbar-thumb:hover { background: rgba(120, 150, 255, 0.65); }
+
+.fm-group {
+    flex: none;                 /* 分组保持自身高度，不被压缩成「挤在一起」 */
+    border: 1px solid rgba(100, 130, 255, 0.22);
+    border-radius: 14px;
+    background: rgba(24, 28, 50, 0.55);
+    overflow: hidden;
+}
+.fm-group > summary {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 11px 14px;
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 600;
+    color: #d5deff;
+    user-select: none;
+    list-style: none;
+    transition: background 0.16s ease;
+}
+.fm-group > summary::-webkit-details-marker { display: none; }
+.fm-group > summary:hover { background: rgba(95, 126, 255, 0.12); }
+.fm-group > summary::after {
+    content: '\f107';                       /* fa-chevron-down */
+    font-family: 'Font Awesome 6 Free', 'Font Awesome 5 Free', sans-serif;
+    font-weight: 900;
+    margin-left: auto;
+    font-size: 0.7rem;
+    color: #8fa3d8;
+    transition: transform 0.2s ease;
+}
+.fm-group[open] > summary::after { transform: rotate(180deg); }
+.fm-group-count {
+    padding: 1px 7px;
+    border-radius: 999px;
+    font-size: 0.66rem;
+    font-weight: 500;
+    color: #a9b8e8;
+    background: rgba(95, 126, 255, 0.16);
+}
+.fm-items {
+    padding: 4px 10px 10px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.fm-item {
+    flex: none;                 /* 卡片同样不被压缩 */
+    display: flex;
+    align-items: flex-start;
+    gap: 10px;
+    padding: 9px 10px;
+    border-radius: 10px;
+    transition: background 0.16s ease;
+}
+.fm-item:hover { background: rgba(95, 126, 255, 0.1); }
+.fm-item-icon {
+    flex: none;
+    width: 26px;
+    height: 26px;
+    border-radius: 8px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 0.76rem;
+    color: #a9c0ff;
+    background: rgba(95, 126, 255, 0.16);
+}
+.fm-item-main { flex: 1; min-width: 0; }
+.fm-item-name {
+    font-size: 0.82rem;
+    font-weight: 600;
+    color: #dbe4ff;
+    margin-bottom: 3px;
+}
+.fm-item-desc {
+    font-size: 0.76rem;
+    line-height: 1.55;
+    color: #a4b0d8;
+}
+.fm-item-entry {
+    margin-top: 4px;
+    font-size: 0.72rem;
+    color: #8091c9;
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+.fm-item-entry i { font-size: 0.64rem; opacity: 0.85; }
+.fm-locate {
+    flex: none;
+    align-self: center;
+    padding: 5px 12px;
+    border-radius: 999px;
+    border: 1px solid rgba(120, 150, 255, 0.35);
+    background: rgba(95, 126, 255, 0.14);
+    color: #bed0ff;
+    font-size: 0.72rem;
+    font-family: inherit;
+    cursor: pointer;
+    transition: transform 0.16s ease, background 0.16s ease, color 0.16s ease;
+}
+.fm-locate:hover {
+    transform: translateY(-1px);
+    background: rgba(95, 126, 255, 0.3);
+    color: #ffffff;
+}
+
+.feature-map-footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 12px 20px;
+    border-top: 1px solid rgba(100, 130, 255, 0.18);
+}
+.feature-map-empty { font-size: 0.76rem; color: #9aa6cc; }
+.feature-map-actions { display: flex; gap: 10px; margin-left: auto; }
+
+/* ---------- 浅色主题 ---------- */
+body.light-theme .onboarding-root > .onboarding-spotlight {
+    box-shadow:
+        0 0 0 2px rgba(37, 99, 235, 0.95),
+        0 0 0 6px rgba(37, 99, 235, 0.18),
+        0 0 0 9999px rgba(15, 23, 42, 0.45);
+    animation: obSpotPulseLight 2s ease-in-out infinite;
+}
+@keyframes obSpotPulseLight {
+    0%, 100% { box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.95), 0 0 0 6px rgba(37, 99, 235, 0.16), 0 0 0 9999px rgba(15, 23, 42, 0.45); }
+    50%      { box-shadow: 0 0 0 2px rgba(59, 130, 246, 1),    0 0 0 12px rgba(37, 99, 235, 0.24), 0 0 0 9999px rgba(15, 23, 42, 0.5); }
+}
+body.light-theme .onboarding-tip {
+    background: linear-gradient(160deg, #ffffff, #f4f8ff);
+    border-color: rgba(37, 99, 235, 0.3);
+    color: #1e293b;
+    box-shadow: 0 18px 45px rgba(30, 64, 175, 0.18);
+}
+body.light-theme .onboarding-tip-title { color: #1e3a8a; }
+body.light-theme .onboarding-tip-desc { color: #334155; }
+body.light-theme .onboarding-tip-list li { color: #64748b; }
+body.light-theme .onboarding-tip-list li::before { background: #2563eb; }
+body.light-theme .onboarding-badge {
+    color: #1d4ed8;
+    background: rgba(37, 99, 235, 0.1);
+    border-color: rgba(37, 99, 235, 0.28);
+}
+body.light-theme .onboarding-tip-foot { border-top-color: rgba(37, 99, 235, 0.14); }
+body.light-theme .onboarding-dot { background: rgba(100, 116, 139, 0.3); }
+body.light-theme .onboarding-dot.active { background: #2563eb; box-shadow: 0 0 8px rgba(37, 99, 235, 0.5); }
+body.light-theme .onboarding-btn {
+    background: #eef2ff;
+    border-color: #cdd9ff;
+    color: #2563eb;
+}
+body.light-theme .onboarding-btn:hover { background: #e6edff; color: #1d4ed8; border-color: #93b4ff; }
+body.light-theme .onboarding-btn.primary {
+    background: linear-gradient(135deg, #3b82f6, #7c3aed);
+    border-color: rgba(59, 130, 246, 0.5);
+    color: #ffffff;
+}
+body.light-theme .onboarding-btn.inline-action {
+    background: rgba(13, 148, 136, 0.1);
+    border-color: rgba(13, 148, 136, 0.35);
+    color: #0f766e;
+}
+body.light-theme .onboarding-btn.inline-action:hover { background: rgba(13, 148, 136, 0.18); }
+
+body.light-theme .feature-map-body { scrollbar-color: rgba(37, 99, 235, 0.4) transparent; }
+body.light-theme .feature-map-body::-webkit-scrollbar-thumb { background: rgba(37, 99, 235, 0.32); }
+body.light-theme .feature-map-body::-webkit-scrollbar-thumb:hover { background: rgba(37, 99, 235, 0.5); }
+body.light-theme .feature-map-search { border-bottom-color: #e5e9f0; }
+body.light-theme .feature-map-search i { color: #2563eb; }
+body.light-theme .feature-map-search-input {
+    background: #ffffff;
+    border-color: #cdd9ff;
+    color: #1e293b;
+}
+body.light-theme .feature-map-search-input:focus { border-color: #2563eb; box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.12); }
+
+body.light-theme .fm-group {
+    background: #f8faff;
+    border-color: #e0e4f0;
+}
+body.light-theme .fm-group > summary { color: #1e3a8a; }
+body.light-theme .fm-group > summary:hover { background: #eef2ff; }
+body.light-theme .fm-group > summary::after { color: #64748b; }
+body.light-theme .fm-group-count { color: #2563eb; background: rgba(37, 99, 235, 0.1); }
+body.light-theme .fm-item:hover { background: #eef2ff; }
+body.light-theme .fm-item-icon { color: #2563eb; background: rgba(37, 99, 235, 0.1); }
+body.light-theme .fm-item-name { color: #1e293b; }
+body.light-theme .fm-item-desc { color: #475569; }
+body.light-theme .fm-item-entry { color: #64748b; }
+body.light-theme .fm-locate {
+    background: #eef2ff;
+    border-color: #cdd9ff;
+    color: #2563eb;
+}
+body.light-theme .fm-locate:hover { background: #e0e7ff; color: #1d4ed8; }
+body.light-theme .feature-map-footer { border-top-color: #e5e9f0; }
+body.light-theme .feature-map-empty { color: #64748b; }
+
+/* ---------- 移动端 ---------- */
+@media (max-width: 640px) {
+    .onboarding-tip {
+        width: calc(100vw - 24px);
+        padding: 14px 14px 10px;
+    }
+    .onboarding-tip-btns { gap: 6px; }
+    .onboarding-btn { padding: 5px 11px; font-size: 0.72rem; }
+    .feature-map-content { height: 86vh; max-height: none; }
+    .fm-item { flex-wrap: wrap; }
+    .fm-locate { align-self: flex-start; margin-left: 36px; }
+}

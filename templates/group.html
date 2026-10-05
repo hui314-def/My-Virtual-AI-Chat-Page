@@ -20,10 +20,10 @@
             <div class="form-group">
                 <label style="display:flex; align-items:center; gap:8px;">
                     <i class="fas fa-user-astronaut"></i> 选择成员
-                    <span class="grp-count" id="grp-char-count">已选 0 / 5</span>
+                    <span class="grp-count" id="grp-char-count">已选 0 / 10</span>
                 </label>
                 <div class="grp-char-grid" id="grp-char-list"></div>
-                <small class="grp-hint-inline">请选择 <b>2 ~ 5</b> 个角色</small>
+                <small class="grp-hint-inline">请选择 <b>2 ~ 10</b> 个角色</small>
             </div>
 
             <div class="form-group">
@@ -67,6 +67,15 @@
                     <input type="text" id="grp-name" placeholder="给这个群起个名字">
                 </div>
                 <div class="grp-meta" id="grp-meta"></div>
+
+                <div class="grp-danger-zone">
+                    <button type="button" class="grp-danger-btn" id="grp-clear-messages">
+                        <i class="fas fa-trash-alt"></i> 清空聊天记录
+                    </button>
+                    <small class="grp-hint-inline">
+                        删除本群聊的<b>全部消息</b>（直接从本地数据库清除，不可撤销）；群成员、人设与群设置都会保留。
+                    </small>
+                </div>
             </section>
 
             <!-- ---------- ② 群空间 ---------- -->
@@ -169,7 +178,7 @@
 
                 <div class="grp-policy-row">
                     <span>单次最多发言角色</span>
-                    <input type="range" id="grp-max-responders" min="1" max="5" step="1" value="2">
+                    <input type="range" id="grp-max-responders" min="1" max="10" step="1" value="2">
                     <span class="grp-val" id="grp-max-responders-val">2</span>
                 </div>
 
